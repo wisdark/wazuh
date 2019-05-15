@@ -44,7 +44,7 @@ typedef struct agent_state_t {
 /* Client configuration */
 int ClientConf(const char *cfgfile);
 
-/* Parse readed config into JSON format */
+/* Parse read config into JSON format */
 cJSON *getClientConfig(void);
 cJSON *getBufferConfig(void);
 cJSON *getLabelsConfig(void);
