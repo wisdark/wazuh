@@ -13,6 +13,7 @@
 
 #if defined(__MACH__) || defined(__FreeBSD__) || defined(__OpenBSD__)
 
+#include <stdio.h>
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <sys/vmmeter.h>
@@ -26,6 +27,10 @@
 #include <ifaddrs.h>
 #include <string.h>
 #include <net/route.h>
+#include <stdlib.h>
+#include <libproc.h>
+#include <sys/proc_info.h>
+#include <netdb.h>
 
 #ifdef __MACH__
 #if !HAVE_SOCKADDR_SA_LEN
@@ -1303,6 +1308,218 @@ int getGatewayList(OSHash *gateway_list){
     return 0;
 }
 
+char *get_port_state(int state){
+    char *port_state;
+    os_calloc(STATE_LENGTH, sizeof(char), port_state);
+
+    switch(state){
+        case TSI_S_ESTABLISHED:
+            snprintf(port_state, STATE_LENGTH, "%s", "established");
+            break;
+        case TSI_S_SYN_SENT:
+            snprintf(port_state, STATE_LENGTH, "%s", "syn_sent");
+            break;
+        case TSI_S_SYN_RECEIVED:
+            snprintf(port_state, STATE_LENGTH, "%s", "syn_recv");
+            break;
+        case TSI_S_FIN_WAIT_1:
+            snprintf(port_state, STATE_LENGTH, "%s", "fin_wait1");
+            break;
+        case TSI_S_FIN_WAIT_2:
+            snprintf(port_state, STATE_LENGTH, "%s", "fin_wait2");
+            break;
+        case TSI_S_TIME_WAIT:
+            snprintf(port_state, STATE_LENGTH, "%s", "time_wait");
+            break;
+        case TSI_S_CLOSED:
+            snprintf(port_state, STATE_LENGTH, "%s", "close");
+            break;
+        case TSI_S__CLOSE_WAIT:
+            snprintf(port_state, STATE_LENGTH, "%s", "close_wait");
+            break;
+        case TSI_S_LAST_ACK:
+            snprintf(port_state, STATE_LENGTH, "%s", "last_ack");
+            break;
+        case TSI_S_LISTEN:
+            snprintf(port_state, STATE_LENGTH, "%s", "listening");
+            break;
+        case TSI_S_CLOSING:
+            snprintf(port_state, STATE_LENGTH, "%s", "closing");
+            break;
+        default:
+            snprintf(port_state, STATE_LENGTH, "%s", "unknown");
+            break;
+    }
+    return port_state;
+}
+
+void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
+    int random_id = os_random();
+    char *timestamp;
+    time_t now;
+    struct tm localtm;
+
+    now = time(NULL);
+    localtime_r(&now, &localtm);
+
+    os_calloc(TIME_LENGTH, sizeof(char), timestamp);
+
+    snprintf(timestamp,TIME_LENGTH - 1,"%d/%02d/%02d %02d:%02d:%02d",
+            localtm.tm_year + 1900, localtm.tm_mon + 1,
+            localtm.tm_mday, localtm.tm_hour, localtm.tm_min, localtm.tm_sec);
+
+    if (random_id < 0)
+        random_id = -random_id;
+
+    // Define time to sleep between messages sent
+    int usec = 1000000 / wm_max_eps;
+
+    mtdebug1(WM_SYS_LOGTAG, "Starting ports inventory.");
+
+    pid_t * pids = calloc(0x1000, 1);
+    int count = proc_listallpids(pids, 0x1000);
+
+    int index;
+
+    for(index=0; index < count; ++index) {
+        pid_t pid = pids[index];
+        // Figure out the size of the buffer needed to hold the list of open FDs
+        int bufferSize = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, 0, 0);
+        if (bufferSize == -1) {
+                mterror(WM_SYS_LOGTAG, "Unable to get open file handles for %d\n", pid);
+        }
+
+        // Get the list of open FDs
+        struct proc_fdinfo *procFDInfo = (struct proc_fdinfo *)malloc(bufferSize);
+        if (!procFDInfo) {
+                mterror(WM_SYS_LOGTAG, "Out of memory. Unable to allocate buffer with %d bytes\n", bufferSize);
+        }
+        proc_pidinfo(pid, PROC_PIDLISTFDS, 0, procFDInfo, bufferSize);
+        int numberOfProcFDs = bufferSize / PROC_PIDLISTFD_SIZE;
+
+        int i;
+	    int alert = 0;
+        for(i = 0; i < numberOfProcFDs; i++) {
+            if(procFDInfo[i].proc_fdtype == PROX_FDTYPE_SOCKET) {
+	            struct  proc_bsdinfo pbsd;
+                proc_pidinfo(pid, PROC_PIDTBSDINFO, 0,&pbsd, PROC_PIDTBSDINFO_SIZE);
+                // A socket is open
+                struct socket_fdinfo socketInfo;
+                int bytesUsed = proc_pidfdinfo(pid, procFDInfo[i].proc_fd, PROC_PIDFDSOCKETINFO, &socketInfo, PROC_PIDFDSOCKETINFO_SIZE);
+
+                if (bytesUsed == PROC_PIDFDSOCKETINFO_SIZE) {
+                    int localPort = 0;
+                    int remotePort = 0;
+                    char *protocol;
+                    char laddr[NI_MAXHOST];
+                    char faddr[NI_MAXHOST];
+                    int listening;
+
+                    if(socketInfo.psi.soi_family == AF_INET) {
+                        struct in_addr *localAddress;
+                        struct in_addr *remoteAddress;
+                        if(socketInfo.psi.soi_kind == SOCKINFO_TCP){
+                            protocol = "tcp";
+                            localAddress = (struct in_addr *)&socketInfo.psi.soi_proto.pri_in.insi_laddr.ina_46.i46a_addr4;
+                            remoteAddress = (struct in_addr *)&socketInfo.psi.soi_proto.pri_in.insi_faddr.ina_46.i46a_addr4;
+                            localPort = (int)ntohs(socketInfo.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport);
+                            remotePort = (int)ntohs(socketInfo.psi.soi_proto.pri_tcp.tcpsi_ini.insi_fport);
+                        } else if(socketInfo.psi.soi_kind == SOCKINFO_IN) {
+                            protocol = "udp";
+                            localAddress = (struct in_addr *)&socketInfo.psi.soi_proto.pri_in.insi_laddr.ina_46.i46a_addr4;
+                            localPort = (int)socketInfo.psi.soi_proto.pri_in.insi_lport;
+                            remoteAddress = (struct in_addr *)&socketInfo.psi.soi_proto.pri_in.insi_faddr.ina_46.i46a_addr4;
+                            remotePort = (int)socketInfo.psi.soi_proto.pri_in.insi_fport;
+			            }
+                        snprintf(laddr, NI_MAXHOST, "%u.%u.%u.%u  ", (localAddress->s_addr) & 0xff,
+                            (localAddress->s_addr >> 8) & 0xff,
+                            (localAddress->s_addr >> 16) & 0xff,
+                            (localAddress->s_addr >> 24) & 0xff);
+                        snprintf(faddr, NI_MAXHOST, "%u.%u.%u.%u  ", (remoteAddress->s_addr) & 0xff,
+                            (remoteAddress->s_addr >> 8) & 0xff,
+                            (remoteAddress->s_addr >> 16) & 0xff,
+                            (remoteAddress->s_addr >> 24) & 0xff);
+
+                    } else if(socketInfo.psi.soi_family == AF_INET6){
+                        struct in6_addr *localAddress;
+                        struct in6_addr *remoteAddress;
+                        if(socketInfo.psi.soi_kind == SOCKINFO_TCP){
+                            protocol = "tcp6";	
+                            localAddress = (struct in6_addr *)&socketInfo.psi.soi_proto.pri_tcp.tcpsi_ini.insi_laddr.ina_6;
+                            remoteAddress = (struct in6_addr *)&socketInfo.psi.soi_proto.pri_tcp.tcpsi_ini.insi_faddr.ina_6;
+                            localPort = (int)ntohs(socketInfo.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport);
+                            remotePort = (int)ntohs(socketInfo.psi.soi_proto.pri_tcp.tcpsi_ini.insi_fport);
+                        } else if(socketInfo.psi.soi_kind == SOCKINFO_IN){
+                            protocol = "udp6";
+                            localAddress = (struct in6_addr *)&socketInfo.psi.soi_proto.pri_in.insi_laddr.ina_6;
+                            localPort = (int)ntohs(socketInfo.psi.soi_proto.pri_in.insi_lport);
+                            remoteAddress = (struct in6_addr *)&socketInfo.psi.soi_proto.pri_in.insi_faddr.ina_6;
+                            remotePort = (int)ntohs(socketInfo.psi.soi_proto.pri_in.insi_fport);
+                        }
+
+                        struct sockaddr_in6     lsin6;
+                        memset(&lsin6, 0, sizeof(lsin6));
+                        lsin6.sin6_len = sizeof(lsin6);
+                        lsin6.sin6_family = AF_INET6;
+                        lsin6.sin6_addr = *localAddress;
+                        getnameinfo((struct sockaddr *)&lsin6, lsin6.sin6_len, laddr, sizeof(laddr), NULL, 0, NI_NUMERICHOST);
+                        lsin6.sin6_addr = *remoteAddress;
+                        getnameinfo((struct sockaddr *)&lsin6, lsin6.sin6_len, faddr, sizeof(faddr), NULL, 0, NI_NUMERICHOST);
+                        }
+
+                        if(localPort != 0){
+                            cJSON *object = cJSON_CreateObject();
+                            cJSON *port = cJSON_CreateObject();
+                            cJSON_AddStringToObject(object, "type", "port");
+                            cJSON_AddNumberToObject(object, "ID", random_id);
+                            cJSON_AddStringToObject(object, "timestamp", timestamp);
+                            cJSON_AddItemToObject(object, "port", port);
+                            cJSON_AddStringToObject(port, "protocol", protocol);
+                            cJSON_AddStringToObject(port, "local_ip", laddr);
+                            cJSON_AddNumberToObject(port, "local_port", localPort);
+                            cJSON_AddStringToObject(port, "remote_ip", faddr);
+                            cJSON_AddNumberToObject(port, "remote_port", remotePort);
+
+                            if (!strncmp(protocol, "tcp", 3)){
+                                char *port_state;
+                                port_state = get_port_state((int)socketInfo.psi.soi_proto.pri_tcp.tcpsi_state);
+                                cJSON_AddStringToObject(port, "state", port_state);
+                                if (!strcmp(port_state, "listening")) {
+                                    listening = 1;
+                                }
+                                free(port_state);
+                            }
+
+                            if (check_all || listening) {
+                                char *string;
+                                string = cJSON_PrintUnformatted(object);
+                                mtdebug2(WM_SYS_LOGTAG, "sys_ports_mac() sending '%s'", string);
+                                wm_sendmsg(usec, queue_fd, string, WM_SYS_LOCATION, SYSCOLLECTOR_MQ);
+                                cJSON_Delete(object);
+                                free(string);
+                            } else
+                                cJSON_Delete(object);
+                        }
+                    } else {
+                        mtdebug2(WM_SYS_LOGTAG, "Unable to get list of opened ports for process %s.",pbsd.pbi_name);
+                    }
+                }
+            }
+        }
+    
+    cJSON *object = cJSON_CreateObject();
+    cJSON_AddStringToObject(object, "type", "port_end");
+    cJSON_AddNumberToObject(object, "ID", random_id);
+    cJSON_AddStringToObject(object, "timestamp", timestamp);
+
+    char *string;
+    string = cJSON_PrintUnformatted(object);
+    mtdebug2(WM_SYS_LOGTAG, "sys_ports_mac() sending '%s'", string);
+    SendMSG(queue_fd, string, WM_SYS_LOCATION, SYSCOLLECTOR_MQ);
+    cJSON_Delete(object);
+    free(string);
+    free(timestamp);
+}
 
 #endif
 
