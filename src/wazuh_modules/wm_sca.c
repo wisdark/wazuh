@@ -1803,7 +1803,7 @@ static int wm_sca_check_dir(const char * const dir, const char * const file, cha
 static int wm_sca_check_process_is_running(OSList *p_list, char *value)
 {
     if (p_list == NULL) {
-        return RETURN_NOT_FOUND;
+        return RETURN_INVALID;
     }
 
     if (!value) {
@@ -1813,7 +1813,6 @@ static int wm_sca_check_process_is_running(OSList *p_list, char *value)
     OSListNode *l_node = OSList_GetFirstNode(p_list);
     while (l_node) {
         W_Proc_Info *pinfo = (W_Proc_Info *)l_node->data;
-
         /* Check if value matches */
         if (wm_sca_pt_matches(pinfo->p_path, value)) {
             return RETURN_FOUND;
