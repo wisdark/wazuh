@@ -27,12 +27,14 @@
 #include <ifaddrs.h>
 #include <string.h>
 #include <net/route.h>
+
+
+#ifdef __MACH__
 #include <stdlib.h>
 #include <libproc.h>
 #include <sys/proc_info.h>
 #include <netdb.h>
 
-#ifdef __MACH__
 #if !HAVE_SOCKADDR_SA_LEN
 #define SA_LEN(sa)      af_to_len(sa->sa_family)
 #if HAVE_SIOCGLIFNUM
@@ -1376,8 +1378,13 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
 
     mtdebug1(WM_SYS_LOGTAG, "Starting ports inventory.");
 
-    pid_t * pids = calloc(0x1000, 1);
-    int count = proc_listallpids(pids, 0x1000);
+    pid_t * pids = NULL;
+    int32_t maxproc;
+    size_t len = sizeof(maxproc);
+    sysctlbyname("kern.maxproc", &maxproc, &len, NULL, 0);
+
+     os_calloc(maxproc, 1, pids);
+    int count = proc_listallpids(pids, maxproc);
 
     int index;
 
@@ -1386,13 +1393,13 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
         // Figure out the size of the buffer needed to hold the list of open FDs
         int bufferSize = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, 0, 0);
         if (bufferSize == -1) {
-                mterror(WM_SYS_LOGTAG, "Unable to get open file handles for %d\n", pid);
+            mterror(WM_SYS_LOGTAG, "Unable to get open file handles for %d\n", pid);
         }
 
         // Get the list of open FDs
         struct proc_fdinfo *procFDInfo = (struct proc_fdinfo *)malloc(bufferSize);
         if (!procFDInfo) {
-                mterror(WM_SYS_LOGTAG, "Out of memory. Unable to allocate buffer with %d bytes\n", bufferSize);
+            mterror(WM_SYS_LOGTAG, "Out of memory. Unable to allocate buffer with %d bytes\n", bufferSize);
         }
         proc_pidinfo(pid, PROC_PIDLISTFDS, 0, procFDInfo, bufferSize);
         int numberOfProcFDs = bufferSize / PROC_PIDLISTFD_SIZE;
@@ -1464,47 +1471,47 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
                         getnameinfo((struct sockaddr *)&lsin6, lsin6.sin6_len, laddr, sizeof(laddr), NULL, 0, NI_NUMERICHOST);
                         lsin6.sin6_addr = *remoteAddress;
                         getnameinfo((struct sockaddr *)&lsin6, lsin6.sin6_len, faddr, sizeof(faddr), NULL, 0, NI_NUMERICHOST);
-                        }
-
-                        if(localPort != 0){
-                            cJSON *object = cJSON_CreateObject();
-                            cJSON *port = cJSON_CreateObject();
-                            cJSON_AddStringToObject(object, "type", "port");
-                            cJSON_AddNumberToObject(object, "ID", random_id);
-                            cJSON_AddStringToObject(object, "timestamp", timestamp);
-                            cJSON_AddItemToObject(object, "port", port);
-                            cJSON_AddStringToObject(port, "protocol", protocol);
-                            cJSON_AddStringToObject(port, "local_ip", laddr);
-                            cJSON_AddNumberToObject(port, "local_port", localPort);
-                            cJSON_AddStringToObject(port, "remote_ip", faddr);
-                            cJSON_AddNumberToObject(port, "remote_port", remotePort);
-
-                            if (!strncmp(protocol, "tcp", 3)){
-                                char *port_state;
-                                port_state = get_port_state((int)socketInfo.psi.soi_proto.pri_tcp.tcpsi_state);
-                                cJSON_AddStringToObject(port, "state", port_state);
-                                if (!strcmp(port_state, "listening")) {
-                                    listening = 1;
-                                }
-                                free(port_state);
-                            }
-
-                            if (check_all || listening) {
-                                char *string;
-                                string = cJSON_PrintUnformatted(object);
-                                mtdebug2(WM_SYS_LOGTAG, "sys_ports_mac() sending '%s'", string);
-                                wm_sendmsg(usec, queue_fd, string, WM_SYS_LOCATION, SYSCOLLECTOR_MQ);
-                                cJSON_Delete(object);
-                                free(string);
-                            } else
-                                cJSON_Delete(object);
-                        }
-                    } else {
-                        mtdebug2(WM_SYS_LOGTAG, "Unable to get list of opened ports for process %s.",pbsd.pbi_name);
                     }
+
+                    if(localPort != 0){
+                        cJSON *object = cJSON_CreateObject();
+                        cJSON *port = cJSON_CreateObject();
+                        cJSON_AddStringToObject(object, "type", "port");
+                        cJSON_AddNumberToObject(object, "ID", random_id);
+                        cJSON_AddStringToObject(object, "timestamp", timestamp);
+                        cJSON_AddItemToObject(object, "port", port);
+                        cJSON_AddStringToObject(port, "protocol", protocol);
+                        cJSON_AddStringToObject(port, "local_ip", laddr);
+                        cJSON_AddNumberToObject(port, "local_port", localPort);
+                        cJSON_AddStringToObject(port, "remote_ip", faddr);
+                        cJSON_AddNumberToObject(port, "remote_port", remotePort);
+
+                        if (!strncmp(protocol, "tcp", 3)){
+                            char *port_state;
+                            port_state = get_port_state((int)socketInfo.psi.soi_proto.pri_tcp.tcpsi_state);
+                            cJSON_AddStringToObject(port, "state", port_state);
+                            if (!strcmp(port_state, "listening")) {
+                                listening = 1;
+                            }
+                            free(port_state);
+                        }
+
+                        if (check_all || listening) {
+                            char *string;
+                            string = cJSON_PrintUnformatted(object);
+                            mtdebug2(WM_SYS_LOGTAG, "sys_ports_mac() sending '%s'", string);
+                            wm_sendmsg(usec, queue_fd, string, WM_SYS_LOCATION, SYSCOLLECTOR_MQ);
+                            cJSON_Delete(object);
+                            free(string);
+                        } else
+                            cJSON_Delete(object);
+                    }
+                } else {
+                    mtdebug2(WM_SYS_LOGTAG, "Unable to get list of opened ports for process %s.",pbsd.pbi_name);
                 }
             }
         }
+    }
     
     cJSON *object = cJSON_CreateObject();
     cJSON_AddStringToObject(object, "type", "port_end");
