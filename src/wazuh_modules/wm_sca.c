@@ -1585,6 +1585,7 @@ static int wm_sca_read_command(char *command, char *pattern, wm_sca_t * data, ch
             mdebug1("Timeout overtaken running command '%s'", command);
             sprintf(*reason, "Timeout overtaken running command '%s'", command);
         }
+        os_free(cmd_output);
         return RETURN_INVALID;
     default:
         mdebug1("Command (%s) returned code %d.", command, result_code);
