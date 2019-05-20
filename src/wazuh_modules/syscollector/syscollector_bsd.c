@@ -1398,7 +1398,6 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
         int numberOfProcFDs = bufferSize / PROC_PIDLISTFD_SIZE;
 
         int i;
-	    int alert = 0;
         for(i = 0; i < numberOfProcFDs; i++) {
             if(procFDInfo[i].proc_fdtype == PROX_FDTYPE_SOCKET) {
 	            struct  proc_bsdinfo pbsd;
@@ -1413,7 +1412,7 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
                     char *protocol;
                     char laddr[NI_MAXHOST];
                     char faddr[NI_MAXHOST];
-                    int listening;
+                    int listening = 0;
 
                     if(socketInfo.psi.soi_family == AF_INET) {
                         struct in_addr *localAddress;
@@ -1424,7 +1423,7 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
                             remoteAddress = (struct in_addr *)&socketInfo.psi.soi_proto.pri_in.insi_faddr.ina_46.i46a_addr4;
                             localPort = (int)ntohs(socketInfo.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport);
                             remotePort = (int)ntohs(socketInfo.psi.soi_proto.pri_tcp.tcpsi_ini.insi_fport);
-                        } else if(socketInfo.psi.soi_kind == SOCKINFO_IN) {
+                        } else{
                             protocol = "udp";
                             localAddress = (struct in_addr *)&socketInfo.psi.soi_proto.pri_in.insi_laddr.ina_46.i46a_addr4;
                             localPort = (int)socketInfo.psi.soi_proto.pri_in.insi_lport;
@@ -1449,7 +1448,7 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
                             remoteAddress = (struct in6_addr *)&socketInfo.psi.soi_proto.pri_tcp.tcpsi_ini.insi_faddr.ina_6;
                             localPort = (int)ntohs(socketInfo.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport);
                             remotePort = (int)ntohs(socketInfo.psi.soi_proto.pri_tcp.tcpsi_ini.insi_fport);
-                        } else if(socketInfo.psi.soi_kind == SOCKINFO_IN){
+                        } else{
                             protocol = "udp6";
                             localAddress = (struct in6_addr *)&socketInfo.psi.soi_proto.pri_in.insi_laddr.ina_6;
                             localPort = (int)ntohs(socketInfo.psi.soi_proto.pri_in.insi_lport);
