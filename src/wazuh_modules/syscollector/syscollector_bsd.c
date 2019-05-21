@@ -1383,7 +1383,7 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
     size_t len = sizeof(maxproc);
     sysctlbyname("kern.maxproc", &maxproc, &len, NULL, 0);
 
-     os_calloc(maxproc, 1, pids);
+    os_calloc(maxproc, 1, pids);
     int count = proc_listallpids(pids, maxproc);
 
     int index;
@@ -1407,7 +1407,7 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
         int i;
         for(i = 0; i < numberOfProcFDs; i++) {
             if(procFDInfo[i].proc_fdtype == PROX_FDTYPE_SOCKET) {
-	            struct  proc_bsdinfo pbsd;
+                struct  proc_bsdinfo pbsd;
                 proc_pidinfo(pid, PROC_PIDTBSDINFO, 0,&pbsd, PROC_PIDTBSDINFO_SIZE);
                 // A socket is open
                 struct socket_fdinfo socketInfo;
@@ -1436,7 +1436,7 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
                             localPort = (int)socketInfo.psi.soi_proto.pri_in.insi_lport;
                             remoteAddress = (struct in_addr *)&socketInfo.psi.soi_proto.pri_in.insi_faddr.ina_46.i46a_addr4;
                             remotePort = (int)socketInfo.psi.soi_proto.pri_in.insi_fport;
-			            }
+                        }
                         snprintf(laddr, NI_MAXHOST, "%u.%u.%u.%u  ", (localAddress->s_addr) & 0xff,
                             (localAddress->s_addr >> 8) & 0xff,
                             (localAddress->s_addr >> 16) & 0xff,
@@ -1512,7 +1512,7 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
             }
         }
     }
-    
+
     cJSON *object = cJSON_CreateObject();
     cJSON_AddStringToObject(object, "type", "port_end");
     cJSON_AddNumberToObject(object, "ID", random_id);
