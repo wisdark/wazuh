@@ -13,7 +13,6 @@
 
 #if defined(__MACH__) || defined(__FreeBSD__) || defined(__OpenBSD__)
 
-#include <stdio.h>
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <sys/vmmeter.h>
@@ -28,11 +27,11 @@
 #include <string.h>
 #include <net/route.h>
 
-
 #ifdef __MACH__
 #include <stdlib.h>
-#include <libproc.h>
+#include <stdio.h>
 #include <sys/proc_info.h>
+#include <libproc.h>
 #include <netdb.h>
 
 #if !HAVE_SOCKADDR_SA_LEN
@@ -1394,12 +1393,14 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
         int bufferSize = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, 0, 0);
         if (bufferSize == -1) {
             mterror(WM_SYS_LOGTAG, "Unable to get open file handles for %d\n", pid);
+            continue;
         }
 
         // Get the list of open FDs
         struct proc_fdinfo *procFDInfo = (struct proc_fdinfo *)malloc(bufferSize);
         if (!procFDInfo) {
             mterror(WM_SYS_LOGTAG, "Out of memory. Unable to allocate buffer with %d bytes\n", bufferSize);
+            continue;
         }
         proc_pidinfo(pid, PROC_PIDLISTFDS, 0, procFDInfo, bufferSize);
         int numberOfProcFDs = bufferSize / PROC_PIDLISTFD_SIZE;
@@ -1409,7 +1410,6 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
             if(procFDInfo[i].proc_fdtype == PROX_FDTYPE_SOCKET) {
                 struct  proc_bsdinfo pbsd;
                 proc_pidinfo(pid, PROC_PIDTBSDINFO, 0,&pbsd, PROC_PIDTBSDINFO_SIZE);
-                // A socket is open
                 struct socket_fdinfo socketInfo;
                 int bytesUsed = proc_pidfdinfo(pid, procFDInfo[i].proc_fd, PROC_PIDFDSOCKETINFO, &socketInfo, PROC_PIDFDSOCKETINFO_SIZE);
 
