@@ -1437,11 +1437,11 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
                             remoteAddress = (struct in_addr *)&socketInfo.psi.soi_proto.pri_in.insi_faddr.ina_46.i46a_addr4;
                             remotePort = (int)socketInfo.psi.soi_proto.pri_in.insi_fport;
                         }
-                        snprintf(laddr, NI_MAXHOST, "%u.%u.%u.%u  ", (localAddress->s_addr) & 0xff,
+                        snprintf(laddr, NI_MAXHOST, "%u.%u.%u.%u", (localAddress->s_addr) & 0xff,
                             (localAddress->s_addr >> 8) & 0xff,
                             (localAddress->s_addr >> 16) & 0xff,
                             (localAddress->s_addr >> 24) & 0xff);
-                        snprintf(faddr, NI_MAXHOST, "%u.%u.%u.%u  ", (remoteAddress->s_addr) & 0xff,
+                        snprintf(faddr, NI_MAXHOST, "%u.%u.%u.%u", (remoteAddress->s_addr) & 0xff,
                             (remoteAddress->s_addr >> 8) & 0xff,
                             (remoteAddress->s_addr >> 16) & 0xff,
                             (remoteAddress->s_addr >> 24) & 0xff);
@@ -1495,6 +1495,9 @@ void sys_ports_mac(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
                             }
                             free(port_state);
                         }
+
+                        cJSON_AddNumberToObject(port, "PID", pid);
+                        cJSON_AddStringToObject(port, "process", pbsd.pbi_name);
 
                         if (check_all || listening) {
                             char *string;
