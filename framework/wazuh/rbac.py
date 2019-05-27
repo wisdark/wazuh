@@ -44,7 +44,7 @@ def get_required_permissions(actions: list = None, resources: str = None, *args,
                 res_list.append("{0}{1}".format(res_base, params))
         # KeyError occurs if required dynamic resources can't be found within request parameters
         except KeyError as e:
-            raise WazuhInternalError(4000, extra_message=str(e))
+            raise WazuhError(4000, extra_message=str(e))
     # If we don't find a regex match we obtain the static resource/s
     else:
         res_list.append(resources)
@@ -57,7 +57,7 @@ def get_required_permissions(actions: list = None, resources: str = None, *args,
     return req_permissions
 
 
-def match_pairs(mode, user_permissions, req_permissions):
+def match_pairs(mode: bool = False, user_permissions: list = None, req_permissions: dict = None):
 
     # We run through all required permissions for the request
     for req_action, req_resources in req_permissions.items():
@@ -70,22 +70,20 @@ def match_pairs(mode, user_permissions, req_permissions):
             res_match = req_resources.issubset(policy['resources'])
             # When any policy with a deny effect matches, we deny the request directly
             if action_match and res_match and policy['effect'] == "deny":
-                raise WazuhInternalError(4000, extra_message="Action:Resource denied")
+                return False
             # When any policy with an allow effect matches, we set a match in allow_match and
             # break out to continue with required permissions
             elif action_match and res_match and policy['effect'] == "allow":
                 allow_match = True
                 break
             # We continue running through the user permissions if no match is found in actual policy
-            else:
-                continue
         # If we have an allow match or we are using black list mode we continue with next required permission
         if allow_match or mode:
             continue
         # Otherwise, if we are using white list mode and no match is found for the required permission
         # we deny the request
         else:
-            raise WazuhInternalError(4000, extra_message="Action:Resource not allowed in white list mode")
+            return False
     # If we don't find a deny match or we find an allow match for all policies in white list mode we allow the request
     return True
 
@@ -96,7 +94,10 @@ def matches_privileges(actions: list = None, resources: str = None):
         def wrapper(*args, **kwargs):
             mode, user_permissions = get_user_permissions()
             required_permissions = get_required_permissions(actions, resources, *args, **kwargs)
-            match_pairs(mode, user_permissions, required_permissions)
-            return func(*args, **kwargs)
+            allow = match_pairs(mode, user_permissions, required_permissions)
+            if allow:
+                return func(*args, **kwargs)
+            else:
+                raise WazuhError(4000)
         return wrapper
     return decorator
