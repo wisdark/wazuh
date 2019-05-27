@@ -201,7 +201,7 @@ class WazuhException(Exception):
         1800: 'Bad format in CDB list {path}',
         1801: '\'path\' parameter is wrong',
 
-        # Manager:
+        # Manager: 1900 - 1999
         1900: 'Error restarting manager',
         1901: '\'execq\' socket has not been created',
         1902: 'Could not connect to \'execq\' socket',
@@ -211,7 +211,7 @@ class WazuhException(Exception):
         1906: 'File does not exist',
         1907: 'File could not be deleted',
 
-        # Database:
+        # Database: 2000 - 2099
         2000: 'No such database file',
         2001: 'Incompatible version of SQLite',
         2002: 'Maximum attempts exceeded for sqlite3 execute',
@@ -271,7 +271,11 @@ class WazuhException(Exception):
                               " both master and worker to the same version."},
         3032: "Could not forward DAPI request. Connection not available.",
         3033: "Payload length exceeds limit defined in wazuh.cluster.common.Handler.request_chunk.",
-        3034: "Error sending file. File not found."
+        3034: "Error sending file. File not found.",
+
+        # RBAC
+        4000: {'message': "Permission denied",
+               'remediation': "Please, make sure you have permissions to execute current request, for more information on setting up permissions please visit XXXX"},
 
         # > 9000: Authd
     }
