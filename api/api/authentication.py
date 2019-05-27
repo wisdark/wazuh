@@ -152,12 +152,22 @@ def generate_token(user_id):
     :param user_id: string Unique user name
     :return: string jwt formatted string
     """
+    # Dummy rbac_policies for testing
+    rbac_policies = [
+        {
+            "actions": ["decoder:get"],
+            "resources": ["decoder:name:windows_fields", "decoder:name:*"],
+            "effect": "allow"
+        }
+    ]
     timestamp = int(time())
     payload = {
         "iss": JWT_ISSUER,
         "iat": int(timestamp),
         "exp": int(timestamp + JWT_LIFETIME_SECONDS),
         "sub": str(user_id),
+        "rbac_policies": rbac_policies,
+        "mode": False  # True if black_list, False if white_list , needs to be replaced with a function to get the mode
     }
 
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
