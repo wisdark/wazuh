@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2019, Wazuh Inc.
+# Copyright (C) 2015-2020, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is free software; you can redistribute it and/or modify it under the terms of GPLv2
 import itertools
@@ -382,10 +382,11 @@ def merge_agent_info(merge_type, node_name, files=None, file_type="", time_limit
             if o_f is None:
                 o_f = open(common.ossec_path + output_file, 'wb')
 
-            header = "{} {} {}".format(stat_data.st_size, filename.replace(common.ossec_path, ''),
-                                       datetime.utcfromtimestamp(stat_data.st_mtime))
             with open(full_path, 'rb') as f:
                 data = f.read()
+
+            header = "{} {} {}".format(len(data), filename.replace(common.ossec_path, ''),
+                                       datetime.utcfromtimestamp(stat_data.st_mtime))
 
             o_f.write((header + '\n').encode() + data)
 

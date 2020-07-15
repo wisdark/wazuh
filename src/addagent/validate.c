@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2019, Wazuh Inc.
+/* Copyright (C) 2015-2020, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -47,6 +47,13 @@ int OS_AddNewAgent(keystore *keys, const char *id, const char *name, const char 
     if (!id) {
         snprintf(_id, 9, "%03d", ++keys->id_counter);
         id = _id;
+    }
+    else {
+        char *endptr;
+        int id_number = strtol(id, &endptr, 10);
+
+        if ('\0' == *endptr && id_number > keys->id_counter)
+            keys->id_counter = id_number;
     }
 
     if (!key) {
@@ -164,14 +171,21 @@ int OS_RemoveAgent(const char *u_id) {
     }
 
     // Remove DB from wazuh-db
+    int sock = -1;
+    int error;
     snprintf(wdbquery, OS_SIZE_128, "agent %s remove", u_id);
-    wdb_send_query(wdbquery, &wdboutput);
-
-    if (wdboutput) {
+    os_calloc(OS_SIZE_6144, sizeof(char), wdboutput);
+    if (error = wdbc_query_ex(&sock, wdbquery, wdboutput, OS_SIZE_6144), !error) {
         mdebug1("DB from agent %s was deleted '%s'", u_id, wdboutput);
-        os_free(wdboutput);
+    } else {
+        merror("Could not remove the DB of the agent %s. Error: %d.", u_id, error);
     }
 
+    if (sock >= 0) {
+        close(sock);
+    }
+
+    os_free(wdboutput);
 
     /* Remove counter for ID */
     OS_RemoveCounter(u_id);
@@ -355,6 +369,16 @@ int OS_IsValidName(const char *u_name)
     }
 
     return (1);
+}
+
+void OS_ConvertToValidAgentName(char *u_name) {
+    size_t i, uname_length = strlen(u_name);
+    while((i = strspn(u_name, VALID_AGENT_NAME_CHARS)), i < uname_length )
+    {
+        // Invalid character detected, delete it
+        memmove(u_name + i, u_name + i + 1, uname_length - i);
+        uname_length--;
+    }
 }
 
 int NameExist(const char *u_name)
@@ -887,7 +911,7 @@ int OS_LoadUid() {
     gid = Privsep_GetGroup(GROUPGLOBAL);
 
     if (uid == (uid_t) - 1 || gid == (gid_t) - 1) {
-        merror(USER_ERROR, USER, GROUPGLOBAL);
+        merror(USER_ERROR, USER, GROUPGLOBAL, strerror(errno), errno);
         return -1;
     } else {
         return 0;

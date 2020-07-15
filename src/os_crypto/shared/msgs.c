@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2019, Wazuh Inc.
+/* Copyright (C) 2015-2020, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -15,6 +15,10 @@
 #include "os_crypto/blowfish/bf_op.h"
 #include "os_crypto/aes/aes_op.h"
 #include "client-agent/agentd.h"
+
+#ifdef UNIT_TESTING
+#define static
+#endif
 
 /* Prototypes */
 static void StoreSenderCounter(const keystore *keys, unsigned int global, unsigned int local) __attribute((nonnull));
