@@ -168,11 +168,11 @@ int fim_db_insert_path(fdb_t *fim_sql, const char *file_path, fim_entry_data *en
  *
  * @param fim_sql FIM database struct.
  * @param file_path File path.
- * @param entry Entry data to be inserted.
- * @param alert_type Type of alert: FIM_ADD or FIM_MODIFICATION.
+ * @param new Entry data to be inserted.
+ * @param saved Entry with existing data.
  * @return FIMDB_OK on success, FIMDB_ERR otherwise.
  */
-int fim_db_insert(fdb_t *fim_sql, const char *file_path, fim_entry_data *entry, int alert_type);
+int fim_db_insert(fdb_t *fim_sql, const char *file_path, fim_entry_data *new, fim_entry_data *saved);
 
 /**
  * @brief Send sync message for all entries.
@@ -328,11 +328,12 @@ int fim_db_get_path_range(fdb_t *fim_sql, char *start, char *top,
  * @param file  Structure of the file which contains all the paths.
  * @param mutex
  * @param storage 1 Store database in memory, disk otherwise.
+ * @param mode FIM mode (scheduled, realtime or whodata)
  *
  * @return FIMDB_OK on success, FIMDB_ERR otherwise.
  */
 int fim_db_delete_range(fdb_t * fim_sql, fim_tmp_file *file,
-                        pthread_mutex_t *mutex, int storage);
+                        pthread_mutex_t *mutex, int storage, fim_event_mode mode);
 
 /**
  * @brief Remove a range of paths from database if they have a

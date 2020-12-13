@@ -17,6 +17,7 @@ include_directories(${SRC_FOLDER}/external/openssl/include)
 include_directories(${SRC_FOLDER}/external/audit-userspace/lib)
 include_directories(${SRC_FOLDER}/external/bzip2)
 include_directories(${SRC_FOLDER})
+add_definitions(-DWAZUH_UNIT_TESTING)
 
 # Wazuh libraries
 find_library(WAZUHLIB NAMES libwazuh.a HINTS "${SRC_FOLDER}")
@@ -44,21 +45,32 @@ if(NOT WAZUHEXT)
   message(FATAL_ERROR "libwazuhext not found! Aborting...")
 endif()
 
-add_subdirectory(syscheckd)
-add_subdirectory(shared)
+if((${uname} STREQUAL "Linux") OR (${uname} STREQUAL "Win32"))
+  add_subdirectory(syscheckd)
+  add_subdirectory(shared)
+  add_subdirectory(os_xml)
+endif()
 
 # Config files
 if(${TARGET} STREQUAL "winagent")
   configure_file("test_syscheck_win.conf" "syscheckd/test_syscheck.conf" NEWLINE_STYLE WIN32)
   configure_file("test_syscheck_win2.conf" "syscheckd/test_syscheck2.conf" NEWLINE_STYLE WIN32)
+  configure_file("test_syscheck_win3.conf" "syscheckd/test_syscheck3.conf" NEWLINE_STYLE WIN32)
   configure_file("test_syscheck_win.conf" "syscheckd/ossec.conf" NEWLINE_STYLE WIN32)
+  configure_file("test_syscheck_win_max_dir.conf" "syscheckd/test_syscheck_max_dir.conf" COPYONLY)
   configure_file("test_empty_config.conf" "syscheckd/test_empty_config.conf" NEWLINE_STYLE WIN32)
   configure_file("test_internal_options.conf" "syscheckd/internal_options.conf" NEWLINE_STYLE WIN32)
+  configure_file("test_local_internal_options.conf" "syscheckd/local_internal_options.conf" NEWLINE_STYLE WIN32)
+  configure_file("test_syscheck_top_level_win.conf" "syscheckd/test_syscheck_top_level.conf" NEWLINE_STYLE WIN32)
 else()
   configure_file("test_syscheck.conf" "syscheckd/test_syscheck.conf" COPYONLY)
+  configure_file("test_syscheck_max_dir.conf" "syscheckd/test_syscheck_max_dir.conf" COPYONLY)
   configure_file("test_syscheck2.conf" "syscheckd/test_syscheck2.conf" COPYONLY)
+  configure_file("test_syscheck3.conf" "syscheckd/test_syscheck3.conf" COPYONLY)
   configure_file("test_empty_config.conf" "syscheckd/test_empty_config.conf" COPYONLY)
   configure_file("test_internal_options.conf" "syscheckd/internal_options.conf" COPYONLY)
+  configure_file("test_local_internal_options.conf" "syscheckd/local_internal_options.conf" COPYONLY)
+  configure_file("test_syscheck_top_level.conf" "syscheckd/test_syscheck_top_level.conf" COPYONLY)
 endif()
 
 # Coverage
@@ -92,7 +104,7 @@ add_custom_target(coverage
 
     # Add baseline counters
     COMMAND ${LCOV_PATH} -q --gcov-tool ${GCOV_PATH} -a coverage.base -a coverage.info --rc lcov_branch_coverage=1 --output-file coverage.total
-    COMMAND ${LCOV_PATH} --gcov-tool ${GCOV_PATH} --remove coverage.total "*external/*" --rc lcov_branch_coverage=1 --output-file coverage.info.cleaned
+    COMMAND ${LCOV_PATH} --gcov-tool ${GCOV_PATH} --remove coverage.total "*external/*" --remove coverage.total "*unit_tests/*" --rc lcov_branch_coverage=1 --output-file coverage.info.cleaned
 
     # Generate HTML report
     COMMAND ${GENHTML_PATH} -q --output-directory coverage-report --title "WAZUH unit-tests coverage" --rc lcov_branch_coverage=1 --legend coverage.info.cleaned

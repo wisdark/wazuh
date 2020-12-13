@@ -17,24 +17,16 @@
 #include "config.h"
 #include "rules.h"
 #include "stats.h"
+#include "fts.h"
 
 long int __crt_ftell; /* Global ftell pointer */
 _Config Config;       /* Global Config structure */
-OSList *active_responses;
-OSList *ar_commands;
-OSDecoderNode *osdecodernode_forpname;
-OSDecoderNode *osdecodernode_nopname;
-RuleNode *rulenode;
-// Extern internal options
-int default_timeframe;
-int maxdiff;
-int mindiff;
-int percent_diff;
-unsigned int fts_minsize_for_str;
-int fts_list_size;
 rlim_t nofile;
 int sys_debug_level;
 
+#ifdef LIBGEOIP_ENABLED
+GeoIP *geoipdb;
+#endif
 
 int GlobalConf(const char *cfgfile)
 {
@@ -77,7 +69,7 @@ int GlobalConf(const char *cfgfile)
     Config.includes = NULL;
     Config.lists = NULL;
     Config.decoders = NULL;
-    Config.label_cache_maxage = 0;
+    Config.label_cache_maxage = 10;
     Config.show_hidden_labels = 0;
 
     Config.cluster_name = NULL;
@@ -288,9 +280,9 @@ cJSON *getDecodersConfig(void) {
     cJSON *root = cJSON_CreateObject();
     cJSON *list = cJSON_CreateArray();
 
-    if (osdecodernode_forpname) {
-        _getDecodersListJSON(osdecodernode_forpname, list);
-        _getDecodersListJSON(osdecodernode_nopname, list);
+    if (os_analysisd_decoderlist_pn) {
+        _getDecodersListJSON(os_analysisd_decoderlist_pn, list);
+        _getDecodersListJSON(os_analysisd_decoderlist_nopn, list);
     }
 
     cJSON_AddItemToObject(root,"decoders",list);
@@ -304,8 +296,8 @@ cJSON *getRulesConfig(void) {
     cJSON *root = cJSON_CreateObject();
     cJSON *list = cJSON_CreateArray();
 
-    if (rulenode) {
-        _getRulesListJSON(rulenode, list);
+    if (os_analysisd_rulelist) {
+        _getRulesListJSON(os_analysisd_rulelist, list);
     }
 
     cJSON_AddItemToObject(root,"rules",list);

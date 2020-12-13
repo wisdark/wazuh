@@ -16,24 +16,11 @@
 #include "config/config.h"
 
 /* Global variables */
-int timeout;
 int pass_empty_keyfile;
-int sender_pool;
-int rto_sec;
-int rto_msec;
-int max_attempts;
-int request_pool;
-int request_timeout;
-int response_timeout;
-int INTERVAL;
-rlim_t nofile;
-int guess_agent_group;
+int timeout;
 int group_data_flush;
 unsigned receive_chunk;
 int buffer_relax;
-int tcp_keepidle;
-int tcp_keepintvl;
-int tcp_keepcnt;
 
 /* Read the config file (the remote access) */
 int RemotedConfig(const char *cfgfile, remoted *cfg)
@@ -52,7 +39,12 @@ int RemotedConfig(const char *cfgfile, remoted *cfg)
     receive_chunk = (unsigned)getDefine_Int("remoted", "receive_chunk", 1024, 16384);
     buffer_relax = getDefine_Int("remoted", "buffer_relax", 0, 2);
 
-    if (ReadConfig(modules, cfgfile, cfg, NULL) < 0) {
+    /* Setting default values for global parameters */
+    cfg->global.agents_disconnection_time = 20;
+    cfg->global.agents_disconnection_alert_time = 100;
+
+    if (ReadConfig(modules, cfgfile, cfg, NULL) < 0 ||
+        ReadConfig(CGLOBAL, cfgfile, &cfg->global, NULL) < 0 ) {
         return (OS_INVALID);
     }
 
@@ -128,7 +120,6 @@ cJSON *getRemoteConfig(void) {
     return root;
 }
 
-
 cJSON *getRemoteInternalConfig(void) {
 
     cJSON *root = cJSON_CreateObject();
@@ -160,6 +151,22 @@ cJSON *getRemoteInternalConfig(void) {
 
     cJSON_AddItemToObject(internals,"remoted",remoted);
     cJSON_AddItemToObject(root,"internal",internals);
+
+    return root;
+
+}
+
+cJSON *getRemoteGlobalConfig(void) {
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON *global = cJSON_CreateObject();
+    cJSON *remoted = cJSON_CreateObject();
+
+    cJSON_AddNumberToObject(remoted,"agents_disconnection_alert_time",logr.global.agents_disconnection_alert_time);
+    cJSON_AddNumberToObject(remoted,"agents_disconnection_time",logr.global.agents_disconnection_time);
+
+    cJSON_AddItemToObject(global,"remoted",remoted);
+    cJSON_AddItemToObject(root,"global",global);
 
     return root;
 

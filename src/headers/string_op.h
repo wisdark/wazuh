@@ -198,4 +198,28 @@ char * wstr_unescape_json(const char * string);
  */
 char * w_tolower_str(const char *string);
 
+/* b64 function prototypes */
+char *decode_base64(const char *src);
+char *encode_base64(int size, const char *src);
+
+/**
+ * @brief Verify the string is not truncated after executing snprintf
+ * 
+ * @param str Pointer to a buffer where the resulting string is stored.
+ * @param size Maximum number of bytes to be used in the buffer.
+ * @param format String that contains a format string that follows the same specifications as format in printf.
+ * @param ... Depending on the format string, the function may expect a sequence of additional arguments.
+ * @return int The number of characters that would have been written if size had been sufficiently large.
+ */
+int os_snprintf(char *str, size_t size, const char *format, ...);
+
+/**
+ * @brief Remove a substring from a string.
+ * 
+ * @param str Original string.
+ * @param sub Substring to remove from the string.
+ * @return char* String after removing the substring.
+ */
+char * w_remove_substr(char *str, const char *sub);
+
 #endif

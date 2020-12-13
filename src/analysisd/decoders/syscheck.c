@@ -20,7 +20,7 @@
 #include "os_net/os_net.h"
 #include "wazuhdb_op.h"
 
-#ifdef UNIT_TESTING
+#ifdef WAZUH_UNIT_TESTING
 /* Remove static qualifier when testing */
 #define static
 
@@ -69,13 +69,13 @@ static int fim_process_alert(_sdb *sdb, Eventinfo *lf, cJSON *event);
 
 /**
  * @brief Generate fim alert
- * 
+ *
  * @param lf Event information
  * @param event_type Type of event (added, modified, deleted)
  * @param attributes New file attributes
  * @param old_attributes File attributes before the alert
  * @param audit Audit information
- * 
+ *
  * @returns 0 on success, -1 on failure
 */
 static int fim_generate_alert(Eventinfo *lf, char *event_type, cJSON *attributes, cJSON *old_attributes, cJSON *audit);
@@ -108,15 +108,16 @@ static pthread_mutex_t control_msg_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int decode_event_add;
 static int decode_event_delete;
 static int decode_event_modify;
+OSHash *fim_agentinfo;
 
 // Initialize the necessary information to process the syscheck information
 // LCOV_EXCL_START
 int fim_init(void) {
     //Create hash table for agent information
     fim_agentinfo = OSHash_Create();
-    decode_event_add = getDecoderfromlist(SYSCHECK_NEW);
-    decode_event_modify = getDecoderfromlist(SYSCHECK_MOD);
-    decode_event_delete = getDecoderfromlist(SYSCHECK_DEL);
+    decode_event_add = getDecoderfromlist(SYSCHECK_NEW, &os_analysisd_decoder_store);
+    decode_event_modify = getDecoderfromlist(SYSCHECK_MOD, &os_analysisd_decoder_store);
+    decode_event_delete = getDecoderfromlist(SYSCHECK_DEL, &os_analysisd_decoder_store);
     if (fim_agentinfo == NULL) return 0;
     return 1;
 }
@@ -129,7 +130,7 @@ void sdb_init(_sdb *localsdb, OSDecoderInfo *fim_decoder) {
     sdb_clean(localsdb);
 
     // Create decoder
-    fim_decoder->id = getDecoderfromlist(SYSCHECK_MOD);
+    fim_decoder->id = getDecoderfromlist(SYSCHECK_MOD, &os_analysisd_decoder_store);
     fim_decoder->name = SYSCHECK_MOD;
     fim_decoder->type = OSSEC_RL;
     fim_decoder->fts = 0;
