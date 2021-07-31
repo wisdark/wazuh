@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -42,7 +42,6 @@ EventList *os_analysisd_last_events;
 #undef RULEPATH
 #define RULEPATH "ruleset/rules/"
 #endif
-
 
 /* Prototypes */
 STATIC int getattributes(char **attributes,
@@ -93,7 +92,7 @@ void Rules_OP_CreateRules() {
 
 }
 
-int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_node, 
+int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_node,
                        EventList **last_event_list, OSStore **decoder_list, OSList* log_msg)
 {
     OS_XML xml;
@@ -217,6 +216,8 @@ int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_nod
 
     const char *xml_mitre = "mitre";
     const char *xml_mitre_id = "id";
+    const char *xml_mitre_tactic_id = "tacticID";
+    const char *xml_mitre_technique_id = "techniqueID";
 
     char *rulepath = NULL;
     char *regex = NULL;
@@ -314,8 +315,8 @@ int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_nod
                 goto cleanup;
             }
             if ((!node[i]->attributes) || (!node[i]->values)
-                || (!node[i]->values[0]) || (!node[i]->attributes[0]) 
-                || (strcasecmp(node[i]->attributes[0], "name") != 0) 
+                || (!node[i]->values[0]) || (!node[i]->attributes[0])
+                || (strcasecmp(node[i]->attributes[0], "name") != 0)
                 || (node[i]->attributes[1])) {
                 smerror(log_msg, "rules_op: Invalid root element '%s'."
                        "Only the group name is allowed", node[i]->element);
@@ -428,6 +429,9 @@ int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_nod
                 int info_type = 0;
                 int count_info_detail = 0;
                 int mitre_size = 0;
+                int mitre_size_deprecated = 0;
+                bool mitre_deprecated = false;
+                bool mitre_new_format = false;
                 RuleInfoDetail *last_info_detail = NULL;
 
                 bool negate_regex = false;
@@ -590,7 +594,7 @@ int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_nod
 
                     } else if (strcasecmp(rule_opt[k]->element, xml_group) == 0) {
                         config_ruleinfo->group = loadmemory(config_ruleinfo->group, rule_opt[k]->content, log_msg);
- 
+
                     } else if (strcasecmp(rule_opt[k]->element, xml_comment) == 0) {
 
                         char *newline;
@@ -824,7 +828,7 @@ int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_nod
                                         lookup_type = LR_ADDRESS_MATCH_VALUE;
                                     } else {
                                         smerror(log_msg, INVALID_CONFIG, rule_opt[k]->element, rule_opt[k]->content);
-                                        smerror(log_msg, "List match lookup=\"%s\" is not valid.", 
+                                        smerror(log_msg, "List match lookup=\"%s\" is not valid.",
                                                 rule_opt[k]->values[list_att_num]);
                                         goto cleanup;
                                     }
@@ -871,7 +875,7 @@ int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_nod
                                     os_calloc(1, sizeof(OSMatch), matcher);
                                     if (!OSMatch_Compile(rule_opt[k]->values[list_att_num], matcher, 0)) {
                                         smerror(log_msg, INVALID_CONFIG, rule_opt[k]->element, rule_opt[k]->content);
-                                        smerror(log_msg, REGEX_COMPILE, rule_opt[k]->values[list_att_num], 
+                                        smerror(log_msg, REGEX_COMPILE, rule_opt[k]->values[list_att_num],
                                             matcher->error);
                                         goto cleanup;
                                     }
@@ -1438,17 +1442,24 @@ int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_nod
                                 config_ruleinfo->ckignore |= FTS_DYNAMIC;
                                 config_ruleinfo->ckignore_fields[i] = strdup(word);
                             }
-
                             free(*norder);
                             norder++;
                         }
-
                         free(s_norder);
 
                     } else if (strcasecmp(rule_opt[k]->element, xml_mitre) == 0) {
+                        char *tactic_id = NULL;
+                        char *technique_id = NULL;
+                        bool id_flag = FALSE;
+                        bool id_tactic_flag = FALSE;
+                        bool id_technique_flag = FALSE;
+                        bool failure = FALSE;
+                        int id_tactic_n = 0;
+                        int id_technique_n = 0;
                         int ind;
                         int l;
                         XML_NODE mitre_opt = NULL;
+
                         mitre_opt = OS_GetElementsbyNode(&xml, rule_opt[k]);
 
                         if (mitre_opt == NULL) {
@@ -1459,36 +1470,138 @@ int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_nod
 
                         for (ind = 0; mitre_opt[ind] != NULL; ind++) {
                             if ((!mitre_opt[ind]->element) || (!mitre_opt[ind]->content)) {
+                                failure = TRUE;
                                 break;
                             } else if (strcasecmp(mitre_opt[ind]->element, xml_mitre_id) == 0) {
                                 if (strlen(mitre_opt[ind]->content) == 0) {
                                     smwarn(log_msg, "No Mitre Technique ID found for rule '%d'",
                                         config_ruleinfo->sigid);
+                                    failure = TRUE;
                                 } else {
-                                    int inarray = 0;
-                                    for (l = 0; l < mitre_size; l++) {
-                                        if (strcmp(config_ruleinfo->mitre_id[l], mitre_opt[ind]->content) == 0) {
-                                            inarray = 1;
-                                        }
-                                    }
-                                    if (!inarray) {
-                                        os_realloc(config_ruleinfo->mitre_id, (mitre_size + 2) * sizeof(char *),
-                                                   config_ruleinfo->mitre_id);
-                                        os_strdup(mitre_opt[ind]->content, config_ruleinfo->mitre_id[mitre_size]);
-                                        config_ruleinfo->mitre_id[mitre_size + 1] = NULL;
-                                        mitre_size++;
-                                    }
+                                    id_flag = TRUE;
+                                }
+                            } else if (strcasecmp(mitre_opt[ind]->element, xml_mitre_tactic_id) == 0) {
+                                if (strlen(mitre_opt[ind]->content) == 0) {
+                                    smwarn(log_msg, "No Mitre Tactic ID found for rule '%d'",
+                                        config_ruleinfo->sigid);
+                                    failure = TRUE;
+                                } else {
+                                    id_tactic_flag = TRUE;
+                                    id_tactic_n++;
+                                }
+                            } else if (strcasecmp(mitre_opt[ind]->element, xml_mitre_technique_id) == 0) {
+                                if (strlen(mitre_opt[ind]->content) == 0) {
+                                    smwarn(log_msg, "No Mitre Technique ID found for rule '%d'",
+                                        config_ruleinfo->sigid);
+                                    failure = TRUE;
+                                } else {
+                                    id_technique_flag = TRUE;
+                                    id_technique_n++;
                                 }
                             } else {
                                 smerror(log_msg, "Invalid option '%s' for rule '%d'", mitre_opt[ind]->element,
-                                        config_ruleinfo->sigid);
-                                free_strarray(config_ruleinfo->mitre_id);
-                                OS_ClearNode(mitre_opt);
-                                goto cleanup;
+                                    config_ruleinfo->sigid);
+                                failure = TRUE;
                             }
                         }
-                        OS_ClearNode(mitre_opt);
 
+                        if(failure == FALSE) {
+                            if(id_flag == TRUE) {
+                                if(id_tactic_flag == TRUE || id_technique_flag == TRUE) {
+                                    smwarn(log_msg, "Rule '%d' combined old and new Mitre formats in the same block. The Mitre block will be discarded.",
+                                            config_ruleinfo->sigid);
+                                    failure = TRUE;
+                                } else {
+                                    if (mitre_new_format == TRUE) {
+                                        smwarn(log_msg, "Rule '%d' combined old and new Mitre formats, the old Mitre Technique format will be discarded.",
+                                            config_ruleinfo->sigid);
+                                        free_strarray(config_ruleinfo->mitre_id);
+                                        config_ruleinfo->mitre_id = NULL;
+                                        failure = TRUE;
+                                    } else {
+                                        mitre_deprecated = TRUE;
+                                        mdebug1("You are using a deprecated Mitre format in rule '%d'",
+                                            config_ruleinfo->sigid);
+                                    }
+                                }
+                            } else {
+                                if(id_tactic_flag == TRUE && id_technique_flag == TRUE){
+                                    if(id_tactic_n > 1 || id_technique_n > 1) {
+                                        smwarn(log_msg, "In rule '%d' is not allowed to join more than one Mitre techniqueID or tacticID in the same block. The Mitre block will be discarded.",
+                                            config_ruleinfo->sigid);
+                                        failure = TRUE;
+                                    } else {
+                                        mitre_new_format = TRUE;
+                                        if (mitre_deprecated == TRUE) {
+                                            smwarn(log_msg, "Rule '%d' combined old and new Mitre formats, the old Mitre Technique format will be discarded.",
+                                                config_ruleinfo->sigid);
+                                            free_strarray(config_ruleinfo->mitre_id);
+                                            config_ruleinfo->mitre_id = NULL;
+                                            mitre_deprecated = FALSE;
+                                        }
+                                    }
+                                }
+                                else if(id_tactic_flag == FALSE && id_technique_flag == TRUE) {
+                                    smwarn(log_msg, "Mitre tacticID should be defined in rule '%d'",
+                                        config_ruleinfo->sigid);
+                                    failure = TRUE;
+                                }
+                                else if(id_tactic_flag == TRUE && id_technique_flag == FALSE) {
+                                    smwarn(log_msg, "Mitre techniqueID should be defined in rule '%d'",
+                                        config_ruleinfo->sigid);
+                                    failure = TRUE;
+                                }
+                            }
+                        }
+
+                        if(failure == FALSE) {
+                            for (ind = 0; mitre_opt[ind] != NULL; ind++) {
+                                if (strcasecmp(mitre_opt[ind]->element, xml_mitre_id) == 0) {
+                                    bool inarray = FALSE;
+                                    for (l = 0; l < mitre_size_deprecated; l++) {
+                                        if (strcmp(config_ruleinfo->mitre_id[l], mitre_opt[ind]->content) == 0) {
+                                            inarray = TRUE;
+                                        }
+                                    }
+                                    if (!inarray) {
+                                        os_realloc(config_ruleinfo->mitre_id, (mitre_size_deprecated + 2) * sizeof(char *),
+                                                config_ruleinfo->mitre_id);
+                                        os_strdup(mitre_opt[ind]->content, config_ruleinfo->mitre_id[mitre_size_deprecated]);
+                                        config_ruleinfo->mitre_id[mitre_size_deprecated + 1] = NULL;
+                                        mitre_size_deprecated++;
+                                    }
+                                } else if (strcasecmp(mitre_opt[ind]->element, xml_mitre_tactic_id) == 0) {
+                                    os_strdup(mitre_opt[ind]->content, tactic_id);
+
+                                } else if (strcasecmp(mitre_opt[ind]->element, xml_mitre_technique_id) == 0) {
+                                    os_strdup(mitre_opt[ind]->content, technique_id);
+                                }
+                            }
+                            if(tactic_id && technique_id) {
+                                bool inarray = FALSE;
+                                for (l = 0; l < mitre_size; l++) {
+                                    if (strcmp(config_ruleinfo->mitre_technique_id[l], technique_id) == 0 &&
+                                        strcmp(config_ruleinfo->mitre_tactic_id[l], tactic_id) == 0) {
+                                        inarray = TRUE;
+                                    }
+                                }
+                                if (!inarray) {
+                                    os_realloc(config_ruleinfo->mitre_tactic_id, (mitre_size + 2) * sizeof(char *),
+                                            config_ruleinfo->mitre_tactic_id);
+                                    os_strdup(tactic_id, config_ruleinfo->mitre_tactic_id[mitre_size]);
+                                        config_ruleinfo->mitre_tactic_id[mitre_size + 1] = NULL;
+
+                                    os_realloc(config_ruleinfo->mitre_technique_id, (mitre_size + 2) * sizeof(char *),
+                                                config_ruleinfo->mitre_technique_id);
+                                    os_strdup(technique_id, config_ruleinfo->mitre_technique_id[mitre_size]);
+                                        config_ruleinfo->mitre_technique_id[mitre_size + 1] = NULL;
+                                    mitre_size++;
+                                }
+                            }
+                            os_free(tactic_id);
+                            os_free(technique_id);
+                        }
+                        OS_ClearNode(mitre_opt);
                     } else {
                         smerror(log_msg, "Invalid option '%s' for rule '%d'.", rule_opt[k]->element,
                                config_ruleinfo->sigid);
@@ -1502,9 +1615,17 @@ int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_nod
                     goto cleanup;
                 }
 
+                /* Check for valid overwrite */
+                if ((config_ruleinfo->if_sid || config_ruleinfo->if_group || config_ruleinfo->if_level)
+                    && (config_ruleinfo->alert_opts & DO_OVERWRITE)) {
+                    smerror(log_msg, "Invalid use of overwrite option. "
+                            "Could not overwrite parent rule at rule '%d'.", config_ruleinfo->sigid);
+                    goto cleanup;
+                }
+
                 /* Check for valid use of frequency */
-                if ((config_ruleinfo->context_opts || config_ruleinfo->same_field 
-                    || config_ruleinfo->different_field || config_ruleinfo->frequency) 
+                if ((config_ruleinfo->context_opts || config_ruleinfo->same_field
+                    || config_ruleinfo->different_field || config_ruleinfo->frequency)
                     && !config_ruleinfo->context) {
                     smerror(log_msg, "Invalid use of frequency/context options. "
                            "Missing if_matched on rule '%d'.", config_ruleinfo->sigid);
@@ -1722,7 +1843,7 @@ int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_nod
 
                     os_free(location);
                 }
-                
+
                 /* Add location */
                 if (action) {
                     w_calloc_expression_t(&config_ruleinfo->action, action_type);
@@ -1789,7 +1910,9 @@ int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_nod
             } /* end of elements block */
 
             /* Assign an active response to the rule */
-            Rule_AddAR(config_ruleinfo);
+            if (os_analysisd_rulelist == *r_node) {
+                Rule_AddAR(config_ruleinfo);
+            }
 
             j++; /* next rule */
 
@@ -1876,6 +1999,7 @@ int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_nod
 
     /* Done over here */
     retval = 0;
+    config_ruleinfo = NULL;
 
 cleanup:
 
@@ -1902,8 +2026,8 @@ cleanup:
     os_free(action)
     OS_ClearNode(rule);
     OS_ClearNode(rule_opt);
-    
-    if (retval) {
+
+    if (config_ruleinfo != NULL) {
         os_remove_ruleinfo(config_ruleinfo);
     }
 
@@ -2498,9 +2622,10 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
     }
 
 #ifdef TESTRULE
-    if (full_output && !alert_only)
+    if (full_output && !alert_only) {
         print_out("    Trying rule: %d - %s", rule->sigid,
                   rule->comment);
+    }
 #endif
 
     /* Check if any decoder pre-matched here for syscheck event */
@@ -2520,7 +2645,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
             return (NULL);
         }
 
-        if (w_expression_match(rule->program_name, lf->program_name, NULL, NULL)
+        if (w_expression_match(rule->program_name, lf->program_name, NULL, rule_match)
             == rule->program_name->negate) {
             return (NULL);
         }
@@ -2532,7 +2657,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
             return (NULL);
         }
 
-        if (w_expression_match(rule->id, lf->id, NULL, NULL) == rule->id->negate) {
+        if (w_expression_match(rule->id, lf->id, NULL, rule_match) == rule->id->negate) {
             return (NULL);
         }
     }
@@ -2543,7 +2668,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
             return (NULL);
         }
 
-        if (w_expression_match(rule->system_name, lf->systemname, NULL, NULL)
+        if (w_expression_match(rule->system_name, lf->systemname, NULL, rule_match)
             == rule->system_name->negate) {
             return (NULL);
         }
@@ -2554,21 +2679,21 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
         if (!lf->protocol) {
             return (NULL);
         }
-        if (w_expression_match(rule->protocol, lf->protocol, NULL, NULL) == rule->protocol->negate) {
+        if (w_expression_match(rule->protocol, lf->protocol, NULL, rule_match) == rule->protocol->negate) {
             return (NULL);
         }
     }
 
     /* Check if any word to match exists */
     if (rule->match) {
-        if (w_expression_match(rule->match, lf->log, NULL, NULL) == rule->match->negate) {
+        if (w_expression_match(rule->match, lf->log, NULL, rule_match) == rule->match->negate) {
             return (NULL);
         }
     }
 
     /* Check if exist any regex for this rule */
     if (rule->regex) {
-        bool matches = w_expression_match(rule->regex, lf->log, NULL, NULL);
+        bool matches = w_expression_match(rule->regex, lf->log, NULL, rule_match);
         if (matches == rule->regex->negate) {
             return NULL;
         }
@@ -2580,7 +2705,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
             return (NULL);
         }
 
-        if (w_expression_match(rule->action, lf->action, NULL, NULL) == rule->action->negate) {
+        if (w_expression_match(rule->action, lf->action, NULL, rule_match) == rule->action->negate) {
             return (NULL);
         }
     }
@@ -2591,7 +2716,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
             return (NULL);
         }
 
-        if (w_expression_match(rule->url, lf->url, NULL, NULL) == rule->url->negate) {
+        if (w_expression_match(rule->url, lf->url, NULL, rule_match) == rule->url->negate) {
             return (NULL);
         }
     }
@@ -2602,7 +2727,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
             return (NULL);
         }
 
-        if (w_expression_match(rule->location, lf->location, NULL, NULL) == rule->location->negate) {
+        if (w_expression_match(rule->location, lf->location, NULL, rule_match) == rule->location->negate) {
             return (NULL);
         }
     }
@@ -2614,7 +2739,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
             return NULL;
         }
 
-        bool matches = w_expression_match(rule->fields[i]->regex, field, NULL, NULL);
+        bool matches = w_expression_match(rule->fields[i]->regex, field, NULL, rule_match);
         if (matches == rule->fields[i]->regex->negate) {
             return NULL;
         }
@@ -2628,7 +2753,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
                 return (NULL);
             }
 
-            if (w_expression_match(rule->srcip, lf->srcip, NULL, NULL) == rule->srcip->negate) {
+            if (w_expression_match(rule->srcip, lf->srcip, NULL, rule_match) == rule->srcip->negate) {
                 return (NULL);
             }
         }
@@ -2639,7 +2764,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
                 return (NULL);
             }
 
-            if (w_expression_match(rule->dstip, lf->dstip, NULL, NULL) == rule->dstip->negate) {
+            if (w_expression_match(rule->dstip, lf->dstip, NULL, rule_match) == rule->dstip->negate) {
                 return (NULL);
             }
         }
@@ -2649,7 +2774,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
                 return (NULL);
             }
 
-            if (w_expression_match(rule->srcport, lf->srcport, NULL, NULL) == rule->srcport->negate) {
+            if (w_expression_match(rule->srcport, lf->srcport, NULL, rule_match) == rule->srcport->negate) {
                 return (NULL);
             }
         }
@@ -2658,7 +2783,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
                 return (NULL);
             }
 
-            if (w_expression_match(rule->dstport, lf->dstport, NULL, NULL) == rule->dstport->negate) {
+            if (w_expression_match(rule->dstport, lf->dstport, NULL, rule_match) == rule->dstport->negate) {
                 return (NULL);
             }
         }
@@ -2676,11 +2801,11 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
         /* Checking if exist any user to match */
         if (rule->user) {
             if (lf->dstuser) {
-                if (w_expression_match(rule->user, lf->dstuser, NULL, NULL) == rule->user->negate) {
+                if (w_expression_match(rule->user, lf->dstuser, NULL, rule_match) == rule->user->negate) {
                     return (NULL);
                 }
             } else if (lf->srcuser) {
-                if (w_expression_match(rule->user, lf->srcuser, NULL, NULL) == rule->user->negate) {
+                if (w_expression_match(rule->user, lf->srcuser, NULL, rule_match) == rule->user->negate) {
                     return (NULL);
                 }
             } else {
@@ -2695,7 +2820,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
                 return NULL;
             }
 
-            if (w_expression_match(rule->srcgeoip, lf->srcgeoip, NULL, NULL) == rule->srcgeoip->negate) {
+            if (w_expression_match(rule->srcgeoip, lf->srcgeoip, NULL, rule_match) == rule->srcgeoip->negate) {
                 return NULL;
             }
         }
@@ -2706,7 +2831,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
                 return NULL;
             }
 
-            if (w_expression_match(rule->dstgeoip, lf->dstgeoip, NULL, NULL) == rule->dstgeoip->negate) {
+            if (w_expression_match(rule->dstgeoip, lf->dstgeoip, NULL, rule_match) == rule->dstgeoip->negate) {
                 return NULL;
             }
         }
@@ -2738,7 +2863,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
             if (!lf->data) {
                 return (NULL);
             }
-            if (w_expression_match(rule->data, lf->data, NULL, NULL) == rule->data->negate) {
+            if (w_expression_match(rule->data, lf->data, NULL, rule_match) == rule->data->negate) {
                 return (NULL);
             }
         }
@@ -2749,7 +2874,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
                 return(NULL);
             }
 
-            if (w_expression_match(rule->extra_data, lf->extra_data, NULL, NULL)
+            if (w_expression_match(rule->extra_data, lf->extra_data, NULL, rule_match)
                 == rule->extra_data->negate) {
                 return (NULL);
             }
@@ -2761,7 +2886,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
                 return (NULL);
             }
 
-            if (w_expression_match(rule->hostname, lf->hostname, NULL, NULL) == rule->hostname->negate) {
+            if (w_expression_match(rule->hostname, lf->hostname, NULL, rule_match) == rule->hostname->negate) {
                 return (NULL);
             }
         }
@@ -2772,7 +2897,7 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
                 return (NULL);
             }
 
-            if (w_expression_match(rule->status, lf->status, NULL, NULL) == rule->status->negate) {
+            if (w_expression_match(rule->status, lf->status, NULL, rule_match) == rule->status->negate) {
                 return (NULL);
             }
         }
@@ -2985,13 +3110,11 @@ RuleInfo *OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
     if (curr_node->child) {
         RuleNode *child_node = curr_node->child;
         RuleInfo *child_rule = NULL;
-
 #ifdef TESTRULE
         if (full_output && !alert_only) {
             print_out("       *Trying child rules.");
         }
 #endif
-
         while (child_node) {
             child_rule = OS_CheckIfRuleMatch(lf, last_events, cdblists, child_node, rule_match,
                                              fts_list, fts_store, save_fts_value);
@@ -3089,7 +3212,7 @@ w_exp_type_t w_check_attr_type(xml_node * node, w_exp_type_t default_type, int r
     const char * xml_type = "type";
     const char * str_type = w_get_attr_val_by_name(node, xml_type);
 
-    if (!str_type) { 
+    if (!str_type) {
         return default_type;
     }
 

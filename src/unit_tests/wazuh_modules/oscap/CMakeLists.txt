@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2020, Wazuh Inc.
+# Copyright (C) 2015-2021, Wazuh Inc.
 #
 # This program is free software; you can redistribute it
 # and/or modify it under the terms of the GNU General Public
@@ -56,6 +56,7 @@ foreach(counter RANGE ${count})
         ${WAZUHLIB}
         ${WAZUHEXT}
         OSCAP_O
+        -ldl
         -lcmocka
         -fprofile-arcs
         -ftest-coverage

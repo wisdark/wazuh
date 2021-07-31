@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it
@@ -17,4 +17,9 @@ WINBOOL wrap_ConvertSidToStringSid(__UNUSED_PARAM(PSID Sid),
                                    LPSTR *StringSid) {
     *StringSid = mock_type(LPSTR);
     return mock();
+}
+
+void expect_ConvertSidToStringSid_call(LPSTR StringSid, int ret_value) {
+    will_return(wrap_ConvertSidToStringSid, StringSid);
+    will_return(wrap_ConvertSidToStringSid, ret_value);
 }

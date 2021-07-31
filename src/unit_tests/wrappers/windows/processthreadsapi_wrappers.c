@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it
@@ -42,4 +42,10 @@ BOOL wrap_OpenProcessToken(__UNUSED_PARAM (HANDLE  ProcessHandle),
     check_expected(DesiredAccess);
     *TokenHandle = mock_type(HANDLE);
     return mock();
+}
+
+void expect_SetThreadPriority_call(HANDLE handle, int priority, int ret) {
+    expect_value(wrap_SetThreadPriority, hThread, handle);
+    expect_value(wrap_SetThreadPriority, nPriority, priority);
+    will_return(wrap_SetThreadPriority, ret);
 }

@@ -19,7 +19,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: &rules_response
             - description: !anystr
@@ -39,7 +39,7 @@ stages:
               mitre: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Try to show the rules of the system, offset = 0
     request:
@@ -51,7 +51,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - <<: *rules_response
@@ -77,7 +77,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - description: "{second_rule_description}"
@@ -86,7 +86,7 @@ stages:
             - <<: *rules_response
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Try to show the rules of the system, without limit
     request:
@@ -95,7 +95,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
 
@@ -109,14 +109,14 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - <<: *rules_response
             - <<: *rules_response
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Try to get all rules with limit = 0
     request:
@@ -134,14 +134,25 @@ stages:
       params:
         sort: -filename
     response:
+      verify_response_with:
+        - function: tavern_utils:test_sort_response
+          extra_kwargs:
+            key: "filename"
+            reverse: True
       status_code: 200
-      json:
-        error: !anyint
-        data:
-          affected_items: !anything
-          failed_items: []
-          total_affected_items: !anyint
-          total_failed_items: !anyint
+
+  - name: Sort rules by multiple fields
+    request:
+      verify: False
+      <<: *general_rules_request
+      params:
+        sort: level,filename
+    response:
+      verify_response_with:
+        - function: tavern_utils:test_sort_response
+          extra_kwargs:
+            key: "level,filename"
+      status_code: 200
 
   - name: Show rules of the system using valid select
     request:
@@ -158,7 +169,7 @@ stages:
           select_key: 'id,filename,details.noalert' # required_fields={'id'}
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
           failed_items: []
@@ -196,7 +207,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: []
           failed_items: []
@@ -216,14 +227,14 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - <<: *rules_response
             - <<: *rules_response
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
       save:
         json:
           rule_id: data.affected_items[1].id
@@ -239,13 +250,13 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - id: !int "{rule_id}"
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Invalid parameter
     request:
@@ -285,14 +296,14 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - <<: *rules_response
             - <<: *rules_response
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Filter status without limit
     request:
@@ -303,7 +314,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
 
@@ -328,14 +339,14 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - <<: *rules_response
               id: 200
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Test complex q
     request:
@@ -346,7 +357,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - <<: *rules_response
@@ -356,7 +367,8 @@ stages:
                   'squid'
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
+
 
 ---
 test_name: GET /rules filters
@@ -373,12 +385,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: *rules_response
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Filter group without limit
     request:
@@ -389,7 +401,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
 
@@ -403,14 +415,14 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - <<: *rules_response
             - <<: *rules_response
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Filter levels without limit
     request:
@@ -421,7 +433,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
 
@@ -434,7 +446,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
 
@@ -457,14 +469,14 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - <<: *rules_response
             - <<: *rules_response
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Filter relative_dirname without limit
     request:
@@ -475,7 +487,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
 
@@ -489,7 +501,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - <<: *rules_response
@@ -499,7 +511,7 @@ stages:
             - <<: *rules_response
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
       save:
         json:
           pci_dss_value: data.affected_items[1].pci_dss[0]
@@ -521,14 +533,14 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - pci_dss:
               - "{pci_dss_value}"
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Filter pci_dss
     request:
@@ -540,14 +552,14 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - pci_dss:
               - "{pci_dss_value}"
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Filter pci_dss without limit
     request:
@@ -558,7 +570,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
 
@@ -572,14 +584,14 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - gdpr:
               - "{gdpr_value}"
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Filter gdpr without limit
     request:
@@ -590,7 +602,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
 
@@ -604,14 +616,14 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - gpg13:
               - "{gpg13_value}"
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Filter gpg13 without limit
     request:
@@ -622,7 +634,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
 
@@ -636,14 +648,14 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - hipaa:
               - "{hipaa_value}"
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Filter hipaa without limit
     request:
@@ -654,7 +666,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
 
@@ -668,14 +680,14 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - nist_800_53:
               - "{nist-800-53_value}"
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Filter nist-800-53 without limit
     request:
@@ -686,7 +698,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
 
@@ -700,14 +712,14 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - tsc:
                 - "{tsc_value}"
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Filter tsc without limit
     request:
@@ -718,7 +730,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
 
@@ -731,14 +743,14 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - mitre:
               - "{mitre_value}"
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Filter mitre without limit
     request:
@@ -748,7 +760,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
 
@@ -769,7 +781,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - !anystr
@@ -788,7 +800,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - !anystr
@@ -805,7 +817,7 @@ stages:
     response:
       status_code: 400
 
-  - name: Filter sort
+  - name: Test limit
     request:
       verify: False
       <<: *pci_dss_rules_request
@@ -814,15 +826,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
           total_failed_items: 0
-      save:
-        json:
-          affected_items: data.affected_items
 
   - name: Filter sort
     request:
@@ -834,7 +843,9 @@ stages:
       verify_response_with:
         - function: tavern_utils:test_sort_response
           extra_kwargs:
-            affected_items: "{affected_items}"
+            reverse: True
+            # No `key` parameter needed as we are sorting a list of strings
+      status_code: 200
 
   - name: Filter search
     request:
@@ -845,12 +856,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Invalid filter
     request:
@@ -878,7 +889,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - !anystr
@@ -897,7 +908,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - !anystr
@@ -923,15 +934,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
           total_failed_items: 0
-      save:
-        json:
-          affected_items: data.affected_items
 
   - name: Filter reverse sort
     request:
@@ -944,7 +952,9 @@ stages:
       verify_response_with:
         - function: tavern_utils:test_sort_response
           extra_kwargs:
-            affected_items: "{affected_items}"
+            reverse: True
+            # No `key` parameter needed as we are sorting a list of strings
+      status_code: 200
 
   - name: Filter search
     request:
@@ -955,12 +965,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Invalid filter
     request:
@@ -986,7 +996,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           total_affected_items: !anyint
 
@@ -1000,7 +1010,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - !anystr
@@ -1025,15 +1035,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
-      save:
-        json:
-          affected_items: data.affected_items
+          total_failed_items: 0
 
   - name: Filter sort
     request:
@@ -1044,27 +1051,24 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
           total_failed_items: 0
-      save:
-        json:
-          affected_items: data.affected_items
 
   - name: Filter reverse sort
     request:
       verify: False
       <<: *gpg13_rules_request
       params:
-        sort: "-"
+        sort: "+"
     response:
       verify_response_with:
         - function: tavern_utils:test_sort_response
-          extra_kwargs:
-            affected_items: "{affected_items}"
+          # No `key` parameter needed as we are sorting a list of strings
+      status_code: 200
 
   - name: Filter search
     request:
@@ -1075,12 +1079,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Invalid filter
     request:
@@ -1106,12 +1110,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Try to show the rules by requirement hipaa, limit and offset
     request:
@@ -1123,7 +1127,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
@@ -1146,14 +1150,12 @@ stages:
       params:
         sort: "-"
     response:
+      verify_response_with:
+        - function: tavern_utils:test_sort_response
+          extra_kwargs:
+            reverse: True
+            # No `key` parameter needed as we are sorting a list of strings
       status_code: 200
-      json:
-        error: !anyint
-        data:
-          affected_items: !anything
-          failed_items: []
-          total_affected_items: !anyint
-          total_failed_items: !anyint
 
   - name: Filter search
     request:
@@ -1164,12 +1166,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Invalid filter
     request:
@@ -1195,12 +1197,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Try to show the rules by requirement nist-800-53, limit and offset
     request:
@@ -1212,12 +1214,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Try to show the rules by requirement nist-800-53, limit = 0
     request:
@@ -1235,14 +1237,12 @@ stages:
       params:
         sort: "-"
     response:
+      verify_response_with:
+        - function: tavern_utils:test_sort_response
+          extra_kwargs:
+            reverse: True
+            # No `key` parameter needed as we are sorting a list of strings
       status_code: 200
-      json:
-        error: !anyint
-        data:
-          affected_items: !anything
-          failed_items: []
-          total_affected_items: !anyint
-          total_failed_items: !anyint
 
   - name: Filter search
     request:
@@ -1253,12 +1253,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Invalid filter
     request:
@@ -1284,12 +1284,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Try to show the rules by requirement tsc, limit and offset
     request:
@@ -1301,12 +1301,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Try to show the rules by requirement tsc, limit = 0
     request:
@@ -1322,16 +1322,12 @@ stages:
       verify: False
       <<: *tsc_rules_request
       params:
-        sort: "-"
+        sort: "+"
     response:
+      verify_response_with:
+        - function: tavern_utils:test_sort_response
+          # No `key` parameter needed as we are sorting a list of strings
       status_code: 200
-      json:
-        error: !anyint
-        data:
-          affected_items: !anything
-          failed_items: []
-          total_affected_items: !anyint
-          total_failed_items: !anyint
 
   - name: Filter search
     request:
@@ -1342,12 +1338,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Invalid filter
     request:
@@ -1373,12 +1369,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Try to show the rules by requirement mitre, limit and offset
     request:
@@ -1390,12 +1386,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Try to show the rules by requirement mitre, limit = 0
     request:
@@ -1413,14 +1409,12 @@ stages:
       params:
         sort: "-"
     response:
+      verify_response_with:
+        - function: tavern_utils:test_sort_response
+          extra_kwargs:
+            reverse: True
+            # No `key` parameter needed as we are sorting a list of strings
       status_code: 200
-      json:
-        error: !anyint
-        data:
-          affected_items: !anything
-          failed_items: []
-          total_affected_items: !anyint
-          total_failed_items: !anyint
 
   - name: Filter search
     request:
@@ -1431,12 +1425,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Invalid filter
     request:
@@ -1462,12 +1456,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Try to show the groups of rules, limit and offset
     request:
@@ -1479,12 +1473,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Try to show the groups of rules, limit = 0
     request:
@@ -1500,16 +1494,12 @@ stages:
       verify: False
       <<: *groups_rules_request
       params:
-        sort: "-"
+        sort: "+"
     response:
+      verify_response_with:
+        - function: tavern_utils:test_sort_response
+          # No `key` parameter needed as we are sorting a list of strings
       status_code: 200
-      json:
-        error: !anyint
-        data:
-          affected_items: !anything
-          failed_items: []
-          total_affected_items: !anyint
-          total_failed_items: !anyint
 
   - name: Filter search
     request:
@@ -1520,12 +1510,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Invalid filter
     request:
@@ -1551,15 +1541,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
-      save:
-        json:
-          affected_items: data.affected_items
+          total_failed_items: 0
 
   - name: Get the rules files, limit = 1, offset = 0
     request:
@@ -1571,12 +1558,12 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
   - name: Get the rules files, limit = 0
     request:
@@ -1597,7 +1584,9 @@ stages:
       verify_response_with:
         - function: tavern_utils:test_sort_response
           extra_kwargs:
-            affected_items: "{affected_items}"
+            key: "filename"
+            reverse: True
+      status_code: 200
 
   - name: Invalid filter
     request:
@@ -1627,28 +1616,269 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
           total_affected_items: !anyint
-          total_failed_items: !anyint
+          total_failed_items: 0
 
 ---
-test_name: GET /rules/files/{filename}/download
+test_name: GET /rules/files/{filename}
 
 stages:
 
-  - name: Download rule
+  - name: Download rule (JSON format)
     request:
       verify: False
-      url: "{protocol:s}://{host:s}:{port:d}/rules/files/0350-amazon_rules.xml/download"
+      url: "{protocol:s}://{host:s}:{port:d}/rules/files/0350-amazon_rules.xml"
       headers:
         Authorization: "Bearer {test_login_token}"
     response:
       status_code: 200
+      json:
+        data:
+          affected_items:
+            - !anything
+          total_affected_items: 1
+          failed_items: []
+          total_failed_items: 0
+        error: 0
+
+  - name: Download rule (raw format)
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/rules/files/0350-amazon_rules.xml"
+      headers:
+        Authorization: "Bearer {test_login_token}"
+      params:
+        raw: True
+    response:
+      status_code: 200
       headers:
         content-type: "application/xml; charset=utf-8"
+
+  - name: Download rule (it does not exist)
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/rules/files/no_exists.xml"
+      headers:
+        Authorization: "Bearer {test_login_token}"
+    response:
+      status_code: 200
+      json:
+        data:
+          affected_items: []
+          total_affected_items: 0
+          failed_items:
+            - error:
+                code: 1415
+              id:
+                - "no_exists.xml"
+          total_failed_items: 1
+        error: 1
+
+  - name: Download rule (invalid file 1)
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/rules/files/rulexml"
+      headers:
+        Authorization: "Bearer {test_login_token}"
+    response:
+      status_code: 400
+      json:
+        detail: !anystr
+        title: !anystr
+
+  - name: Download rule (invalid file 2)
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/rules/files/..%2F..%2Fetc%local_rules.xml"
+      headers:
+        Authorization: "Bearer {test_login_token}"
+    response:
+      status_code: 400
+      json:
+        detail: !anystr
+        title: !anystr
+
+---
+test_name: PUT /rule/files/{filename}
+
+stages:
+
+  - name: Upload new valid rule
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/rules/files/new_rule.xml"
+      method: PUT
+      data: "{new_rules:s}"
+      headers:
+        Authorization: "Bearer {test_login_token}"
+        content-type: application/octet-stream
+    response: &upload_valid_rule
+      status_code: 200
+      json:
+        data:
+          affected_items:
+            - 'etc/rules/new_rule.xml'
+          failed_items: []
+          total_affected_items: 1
+          total_failed_items: 0
+        error: 0
+
+  - name: Upload same rule (overwrite=False)
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/rules/files/new_rule.xml"
+      method: PUT
+      data: "{new_rules:s}"
+      headers:
+        Authorization: "Bearer {test_login_token}"
+        content-type: application/octet-stream
+    response:
+      status_code: 200
+      json:
+        data:
+          affected_items: []
+          failed_items:
+            - error:
+                code: 1905
+              id:
+                - "etc/rules/new_rule.xml"
+          total_affected_items: 0
+          total_failed_items: 1
+        error: 1
+
+  - name: Upload same rule (overwrite=True)
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/rules/files/new_rule.xml"
+      method: PUT
+      data: "{new_rules:s}"
+      headers:
+        Authorization: "Bearer {test_login_token}"
+        content-type: application/octet-stream
+      params:
+        overwrite: True
+    response:
+      <<: *upload_valid_rule
+
+  - name: Upload rule with invalid name
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/rules/files/new_rule"
+      method: PUT
+      data: "{new_rules:s}"
+      headers:
+        Authorization: "Bearer {test_login_token}"
+        content-type: application/octet-stream
+    response:
+      status_code: 400
+      json:
+        title: !anystr
+        detail: !anystr
+
+  - name: Upload invalid rule
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/rules/files/invalid_rule.xml"
+      method: PUT
+      data: "{new_rules_with_syntax_error:s}"
+      headers:
+        Authorization: "Bearer {test_login_token}"
+        content-type: application/octet-stream
+    response:
+      status_code: 200
+      json:
+        data:
+          affected_items: []
+          failed_items:
+            - error:
+                code: 1113
+              id:
+                - "etc/rules/invalid_rule.xml"
+          total_affected_items: 0
+          total_failed_items: 1
+        error: 1
+
+---
+test_name: DELETE /rules/files/{filename}
+
+stages:
+
+  - name: Delete user rule
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/rules/files/new_rule.xml"
+      method: DELETE
+      headers:
+        Authorization: "Bearer {test_login_token}"
+    response:
+      status_code: 200
+      json:
+        data:
+          affected_items:
+            - "etc/rules/new_rule.xml"
+          total_affected_items: 1
+          failed_items: []
+          total_failed_items: 0
+        error: 0
+
+  - name: Delete same user rule (it does not exist now)
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/rules/files/new_rule.xml"
+      method: DELETE
+      headers:
+        Authorization: "Bearer {test_login_token}"
+    response: &delete_no_exists
+      status_code: 200
+      json:
+        data:
+          affected_items: []
+          total_affected_items: 0
+          failed_items:
+            - error:
+                code: 1906
+              id:
+                - "etc/rules/new_rule.xml"
+          total_failed_items: 1
+        error: 1
+
+  - name: Delete ruleset rule
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/rules/files/0010-rules_config.xml"
+      method: DELETE
+      headers:
+        Authorization: "Bearer {test_login_token}"
+    response:
+      status_code: 200
+      json:
+        data:
+          affected_items: []
+          total_affected_items: 0
+          failed_items:
+            - error:
+                code: 1906
+              id:
+                - "etc/rules/0010-rules_config.xml"
+          total_failed_items: 1
+        error: 1
+
+  - name: Delete invalid rule
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/rules/files/ossec.conf"
+      method: DELETE
+      headers:
+        Authorization: "Bearer {test_login_token}"
+    response:
+      status_code: 400
+      json:
+        title: !anystr
+        detail: !anystr
 
 ---
 test_name: GET /rules?rule_ids
@@ -1667,7 +1897,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - <<: *rules_response
@@ -1684,7 +1914,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - <<: *rules_response
@@ -1702,7 +1932,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 2
         data:
           affected_items:
             - <<: *rules_response
@@ -1724,7 +1954,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: []
           failed_items: []
@@ -1746,18 +1976,14 @@ stages:
       verify: False
       <<: *id_rules_request
       params:
-        sort: -filename
+        sort: filename
         rule_ids: 1
     response:
+      verify_response_with:
+        - function: tavern_utils:test_sort_response
+          extra_kwargs:
+            key: "filename"
       status_code: 200
-      json:
-        error: !anyint
-        data:
-          affected_items:
-            - <<: *rules_response
-          failed_items: []
-          total_affected_items: !anyint
-          total_failed_items: 0
 
   - name: Filter search error
     request:
@@ -1769,7 +1995,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: []
           failed_items: []
@@ -1798,7 +2024,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 1
         data:
           affected_items: []
           failed_items:

@@ -1,16 +1,20 @@
 /*
  * SQL Schema for global database
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * June 30, 2016.
  * This program is a free software, you can redistribute it
  * and/or modify it under the terms of GPLv2.
  */
 
 CREATE TABLE IF NOT EXISTS fim_entry (
-    file TEXT PRIMARY KEY,
-    type TEXT NOT NULL CHECK (type IN ('file', 'registry')),
+    full_path TEXT NOT NULL PRIMARY KEY,
+    file TEXT,
+    type TEXT NOT NULL CHECK (type IN ('file', 'registry_key', 'registry_value')),
     date INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
     changes INTEGER NOT NULL DEFAULT 1,
+    arch TEXT CHECK (arch IN (NULL, '[x64]', '[x32]')),
+    value_name TEXT,
+    value_type TEXT,
     size INTEGER,
     perm TEXT,
     uid TEXT,
@@ -27,6 +31,7 @@ CREATE TABLE IF NOT EXISTS fim_entry (
     checksum TEXT
 );
 
+CREATE INDEX IF NOT EXISTS fim_full_path_index ON fim_entry (full_path);
 CREATE INDEX IF NOT EXISTS fim_file_index ON fim_entry (file);
 CREATE INDEX IF NOT EXISTS fim_date_index ON fim_entry (date);
 
@@ -59,6 +64,8 @@ CREATE TABLE IF NOT EXISTS sys_netiface (
     rx_errors INTEGER,
     tx_dropped INTEGER,
     rx_dropped INTEGER,
+    checksum TEXT NOT NULL CHECK (checksum <> ''),
+    item_id TEXT,
     PRIMARY KEY (scan_id, name)
 );
 
@@ -71,6 +78,8 @@ CREATE TABLE IF NOT EXISTS sys_netproto (
     gateway TEXT,
     dhcp TEXT NOT NULL CHECK (dhcp IN ('enabled', 'disabled', 'unknown', 'BOOTP')) DEFAULT 'unknown',
     metric INTEGER,
+    checksum TEXT NOT NULL CHECK (checksum <> ''),
+    item_id TEXT,
     PRIMARY KEY (scan_id, iface, type)
 );
 
@@ -83,6 +92,8 @@ CREATE TABLE IF NOT EXISTS sys_netaddr (
     address TEXT,
     netmask TEXT,
     broadcast TEXT,
+    checksum TEXT NOT NULL CHECK (checksum <> ''),
+    item_id TEXT,
     PRIMARY KEY (scan_id, iface, proto, address)
 );
 
@@ -105,6 +116,7 @@ CREATE TABLE IF NOT EXISTS sys_osinfo (
     release TEXT,
     version TEXT,
     os_release TEXT,
+    checksum TEXT NOT NULL CHECK (checksum <> ''),
     PRIMARY KEY (scan_id, os_name)
 );
 
@@ -118,6 +130,7 @@ CREATE TABLE IF NOT EXISTS sys_hwinfo (
     ram_total INTEGER CHECK (ram_total > 0),
     ram_free INTEGER CHECK (ram_free > 0),
     ram_usage INTEGER CHECK (ram_usage >= 0 AND ram_usage <= 100),
+    checksum TEXT NOT NULL CHECK (checksum <> ''),
     PRIMARY KEY (scan_id, board_serial)
 );
 
@@ -134,7 +147,10 @@ CREATE TABLE IF NOT EXISTS sys_ports (
     inode INTEGER,
     state TEXT,
     PID INTEGER,
-    process TEXT
+    process TEXT,
+    checksum TEXT NOT NULL CHECK (checksum <> ''),
+    item_id TEXT,
+    PRIMARY KEY (protocol, local_ip, local_port, inode)
 );
 
 CREATE INDEX IF NOT EXISTS ports_id ON sys_ports (scan_id);
@@ -142,7 +158,7 @@ CREATE INDEX IF NOT EXISTS ports_id ON sys_ports (scan_id);
 CREATE TABLE IF NOT EXISTS sys_programs (
     scan_id INTEGER,
     scan_time TEXT,
-    format TEXT NOT NULL CHECK (format IN ('deb', 'rpm', 'win', 'pkg')),
+    format TEXT NOT NULL CHECK (format IN ('pacman', 'deb', 'rpm', 'win', 'pkg')),
     name TEXT,
     priority TEXT,
     section TEXT,
@@ -158,6 +174,8 @@ CREATE TABLE IF NOT EXISTS sys_programs (
     triaged INTEGER(1),
     cpe TEXT,
     msu_name TEXT,
+    checksum TEXT NOT NULL CHECK (checksum <> ''),
+    item_id TEXT,
     PRIMARY KEY (scan_id, name, version, architecture)
 );
 
@@ -167,6 +185,7 @@ CREATE TABLE IF NOT EXISTS sys_hotfixes (
     scan_id INTEGER,
     scan_time TEXT,
     hotfix TEXT,
+    checksum TEXT NOT NULL CHECK (checksum <> ''),
     PRIMARY KEY (scan_id, scan_time, hotfix)
 );
 
@@ -203,6 +222,7 @@ CREATE TABLE IF NOT EXISTS sys_processes (
     tgid INTEGER,
     tty INTEGER,
     processor INTEGER,
+    checksum TEXT NOT NULL CHECK (checksum <> ''),
     PRIMARY KEY (scan_id, pid)
 );
 
@@ -307,7 +327,7 @@ CREATE TABLE IF NOT EXISTS vuln_metadata (
     WAZUH_VERSION TEXT,
     HOTFIX_SCAN_ID TEXT
 );
-INSERT INTO vuln_metadata (LAST_SCAN, WAZUH_VERSION, WAZUH_VERSION)
+INSERT INTO vuln_metadata (LAST_SCAN, WAZUH_VERSION, HOTFIX_SCAN_ID)
     SELECT '0', '0', '0' WHERE NOT EXISTS (
         SELECT * FROM vuln_metadata
     );
@@ -320,9 +340,19 @@ CREATE TABLE IF NOT EXISTS sync_info (
     n_completions INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS vuln_cves (
+    name TEXT,
+    version TEXT,
+    architecture TEXT,
+    cve TEXT,
+    PRIMARY KEY (name, version, architecture, cve)
+);
+CREATE INDEX IF NOT EXISTS packages_id ON vuln_cves (name);
+CREATE INDEX IF NOT EXISTS cves_id ON vuln_cves (cve);
+
 BEGIN;
 
-INSERT INTO metadata (key, value) VALUES ('db_version', '6');
+INSERT INTO metadata (key, value) VALUES ('db_version', '8');
 INSERT INTO scan_info (module) VALUES ('fim');
 INSERT INTO scan_info (module) VALUES ('syscollector');
 INSERT INTO sync_info (component) VALUES ('fim');

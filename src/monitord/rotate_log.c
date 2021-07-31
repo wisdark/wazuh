@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * June 12, 2017.
  *
  * This program is free software; you can redistribute it
@@ -54,9 +54,9 @@ void w_rotate_log(int compress, int keep_log_days, int new_day, int rotate_json,
         minfo("Running daily rotation of log files.");
     else {
         if (rotate_json)
-            minfo("Rotating 'ossec.json' file: Maximum size reached.");
+            minfo("Rotating '%s' file: Maximum size reached.", LOGJSONFILE);
         else
-            minfo("Rotating 'ossec.log' file: Maximum size reached.");
+            minfo("Rotating '%s' file: Maximum size reached.", LOGFILE);
     }
 
     if (new_day)
@@ -75,11 +75,11 @@ void w_rotate_log(int compress, int keep_log_days, int new_day, int rotate_json,
     strcpy(base_dir, "logs");
 #else
     // /var/ossec/logs/ossec.log
-    snprintf(old_path, PATH_MAX, "%s%s", isChroot() ? "" : DEFAULTDIR, LOGFILE);
+    snprintf(old_path, PATH_MAX, "%s", LOGFILE);
     // /var/ossec/logs/ossec.json
-    snprintf(old_path_json, PATH_MAX, "%s%s", isChroot() ? "" : DEFAULTDIR, LOGJSONFILE);
+    snprintf(old_path_json, PATH_MAX, "%s", LOGJSONFILE);
     // /var/ossec/logs/ossec
-    snprintf(base_dir, PATH_MAX, "%s/logs/ossec", isChroot() ? "" : DEFAULTDIR);
+    snprintf(base_dir, PATH_MAX, "logs/wazuh");
 #endif
 
     os_snprintf(year_dir, PATH_MAX, "%s/%d", base_dir, tm.tm_year + 1900);

@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it
@@ -32,6 +32,8 @@ DWORD wrap_FormatMessage(DWORD dwFlags,
                          DWORD nSize,
                          va_list *Arguments);
 
+void expect_FormatMessage_call(char *buffer);
+
 HLOCAL wrap_LocalFree(HLOCAL hMem);
 
 WINBOOL wrap_GetFileSecurity(LPCSTR lpFileName,
@@ -46,6 +48,8 @@ WINBOOL wrap_LookupAccountSid(LPCSTR lpSystemName,
                               LPSTR ReferencedDomainName,
                               LPDWORD cchReferencedDomainName,
                               PSID_NAME_USE peUse);
+
+void expect_LookupAccountSid_call(char *name, char *DomainName, int ret_value);
 
 WINBOOL wrap_ReadDirectoryChangesW(HANDLE hDirectory,
                                    LPVOID lpBuffer,

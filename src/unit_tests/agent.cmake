@@ -13,15 +13,17 @@ endif()
 
 # # Add compiling flags and set tests dependencies
 if(${uname} STREQUAL "Darwin")
-    set(TEST_DEPS ${WAZUHLIB} ${WAZUHEXT} -lpthread -fprofile-arcs -ftest-coverage)
+    set(TEST_DEPS ${WAZUHLIB} ${WAZUHEXT} -lpthread -ldl -fprofile-arcs -ftest-coverage)
     add_compile_options(-ggdb -O0 -g -coverage -DTEST_AGENT -I/usr/local/include -DENABLE_SYSC -DWAZUH_UNIT_TESTING)
 else()
     add_compile_options(-ggdb -O0 -g -coverage -DTEST_AGENT -DENABLE_AUDIT -DINOTIFY_ENABLED)
-    set(TEST_DEPS ${WAZUHLIB} ${WAZUHEXT} -lpthread -lcmocka -fprofile-arcs -ftest-coverage)
+    set(TEST_DEPS ${WAZUHLIB} ${WAZUHEXT} -lpthread -lcmocka -ldl -fprofile-arcs -ftest-coverage)
 endif()
 
 if(NOT ${uname} STREQUAL "Darwin")
   add_subdirectory(client-agent)
+  add_subdirectory(logcollector)
+  add_subdirectory(os_execd)
 endif()
 
 add_subdirectory(wazuh_modules)

@@ -1,6 +1,6 @@
 /*
  * Label data operations
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * February 27, 2017.
  *
  * This program is free software; you can redistribute it
@@ -98,7 +98,7 @@ wlabel_t* labels_parse(cJSON *json_labels) {
     cJSON *json_key = NULL;
     cJSON *json_value = NULL;
     wlabel_t *labels = NULL;
-    label_flags_t flags = {0};
+    label_flags_t flags = {.hidden = 0};
     size_t size = 0;
 
     if (json_labels && json_labels->child) {

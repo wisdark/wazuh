@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it
@@ -13,8 +13,8 @@
 
 #define PCRE2_CODE_UNIT_WIDTH 8
 
-#include "../../../../external/libpcre2/include/pcre2.h"
-#include "../../../../analysisd/expression.h"
+#include "shared.h"
+#include "expression.h"
 
 #undef pcre2_match_data_create_from_pattern
 #define pcre2_match_data_create_from_pattern wrap_pcre2_match_data_create_from_pattern

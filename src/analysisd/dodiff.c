@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2010 Trend Micro Inc.
  * All rights reserved.
  *
@@ -81,6 +81,7 @@ int doDiff(RuleInfo *rule, struct _Eventinfo *lf)
         if (htpt) {
             *htpt = '\0';
         }
+
 #ifndef TESTRULE
         snprintf(flastfile, OS_SIZE_2048, "%s/%s/%d/%s", DIFF_DIR, lf->hostname + 1, rule->sigid, DIFF_LAST_FILE);
 #else

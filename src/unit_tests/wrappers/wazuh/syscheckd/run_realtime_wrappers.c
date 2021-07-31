@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it
@@ -13,13 +13,29 @@
 #include <setjmp.h>
 #include <cmocka.h>
 
-int __wrap_realtime_adddir(const char *dir, int whodata, __attribute__((unused)) int followsl) {
+int __wrap_realtime_adddir(const char *dir,
+                           __attribute__((unused)) directory_t *configuration) {
     check_expected(dir);
-    check_expected(whodata);
 
     return mock();
 }
 
+
 int __wrap_realtime_start() {
     return 0;
+}
+void __wrap_realtime_process() {
+    function_called();
+}
+
+void expect_realtime_adddir_call(const char *path, int ret) {
+    expect_string(__wrap_realtime_adddir, dir, path);
+    will_return(__wrap_realtime_adddir, ret);
+}
+
+int __wrap_fim_add_inotify_watch(const char *dir,
+                                 __attribute__((unused)) const directory_t *configuration) {
+    check_expected(dir);
+
+    return mock();
 }

@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -13,8 +13,10 @@
 #include "os_win32ui.h"
 #include "../os_win.h"
 
+ossec_config config_inst;
+HWND hStatus;
 
-/* Dialog -- About OSSEC */
+/* Dialog -- About WAZUH */
 BOOL CALLBACK AboutDlgProc(HWND hwnd, UINT Message,
        WPARAM wParam,
        __attribute__((unused))LPARAM lParam)
@@ -294,7 +296,7 @@ BOOL CALLBACK DlgProc(HWND hwnd, UINT Message, WPARAM wParam,
 
                 case UI_MENU_MANAGE_START:
 
-                    /* Start OSSEC  -- must have a valid config before */
+                    /* Start WAZUH  -- must have a valid config before */
                     if (strcmp(config_inst.server, FL_NOSERVER) != 0) {
                         ret_code = os_start_service();
                     } else {
@@ -319,7 +321,7 @@ BOOL CALLBACK DlgProc(HWND hwnd, UINT Message, WPARAM wParam,
                     break;
                 case UI_MENU_MANAGE_STOP:
 
-                    /* Stop OSSEC */
+                    /* Stop WAZUH */
                     ret_code = os_stop_service();
                     if (ret_code == 1) {
                         config_read(hwnd);
@@ -354,7 +356,7 @@ BOOL CALLBACK DlgProc(HWND hwnd, UINT Message, WPARAM wParam,
 
                     ret_code = os_stop_service();
 
-                    /* Start OSSEC */
+                    /* Start WAZUH */
                     ret_code = os_start_service();
                     if (ret_code == 0) {
                         MessageBox(hwnd, "Unable to restart agent (check config)",

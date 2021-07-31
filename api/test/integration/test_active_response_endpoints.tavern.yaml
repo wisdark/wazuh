@@ -6,7 +6,7 @@ marks:
 
 stages:
 
-  - name: Runs an Active Response command on a specified agent
+  - name: Runs an Active Response command on a specified agent with version >= 4.2.0
     request:
       verify: False
       url: "{protocol:s}://{host:s}:{port:d}/active-response"
@@ -15,14 +15,14 @@ stages:
         Authorization: "Bearer {test_login_token}"
         content-type: application/json
       json:
-        command: "restart-ossec0"
-        arguments: ["-", "null", "(from_the_server)", "(no_rule_id)"]
+        command: "custom"
+        custom: True
       params:
         agents_list: '001'
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - '001'
@@ -30,7 +30,7 @@ stages:
           total_affected_items: 1
           total_failed_items: 0
 
-  - name: Send a message to an agent (Status=Active)
+  - name: Send a message to an agent with version < 4.2.0 (Status=Active)
     request:
       verify: False
       url: "{protocol:s}://{host:s}:{port:d}/active-response"
@@ -39,21 +39,20 @@ stages:
         Authorization: "Bearer {test_login_token}"
         content-type: application/json
       json:
-        command: "restart-ossec0"
-        arguments: ["-", "null", "(from_the_server)", "(no_rule_id)"]
+        command: "custom"
+        custom: True
       params:
-        agents_list: '002'
+        agents_list: '006'
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
-            - '002'
+            - '006'
           failed_items: []
           total_affected_items: 1
           total_failed_items: 0
-    delay_after: !float "{restart_delay}"
 
   - name: Send a message to a list of agents (Status=Active)
     request:
@@ -64,14 +63,14 @@ stages:
         Authorization: "Bearer {test_login_token}"
         content-type: application/json
       json:
-        command: "restart-ossec0"
-        arguments: ["-", "null", "(from_the_server)", "(no_rule_id)"]
+        command: "custom"
+        custom: True
       params:
-        agents_list: 002,004,005,007,010
+        agents_list: 002,004,005,007,010,012
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 2
         data:
           affected_items: !anything
           failed_items:
@@ -79,9 +78,13 @@ stages:
                 code: 1651
               id:
                 - '010'
+            # Separated errors as the message is not the same (different status)
+            - error:
+                code: 1651
+              id:
+                - '012'
           total_affected_items: 4
-          total_failed_items: 1
-    delay_after: !float "{restart_delay}"
+          total_failed_items: 2
 
   - name: Try to send a message to an agent (status=disconnected/never_connected)
     request:
@@ -92,14 +95,14 @@ stages:
         Authorization: "Bearer {test_login_token}"
         content-type: application/json
       json:
-        command: "restart-ossec0"
+        command: "restart-wazuh0"
         arguments: ["-", "null", "(from_the_server)", "(no_rule_id)"]
       params:
         agents_list: '009'
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 1
         data:
           affected_items: []
           failed_items:
@@ -119,14 +122,14 @@ stages:
         Authorization: "Bearer {test_login_token}"
         content-type: application/json
       json:
-        command: "restart-ossec0"
+        command: "restart-wazuh0"
         arguments: ["-", "null", "(from_the_server)", "(no_rule_id)"]
       params:
         agents_list: '251'
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 1
         data:
           affected_items: []
           failed_items:
@@ -158,7 +161,7 @@ stages:
         Authorization: "Bearer {test_login_token}"
         content-type: application/json
       json:
-        comMmand: "restart-ossec0"
+        comMmand: "restart-wazuh0"
         arguments: ["-", "null", "(from_the_server)", "(no_rule_id)"]
       params:
         agents_list: '005'
@@ -174,14 +177,14 @@ stages:
         Authorization: "Bearer {test_login_token}"
         content-type: application/json
       json:
-        command: "restart-ossec0"
+        command: "restart-wazuh0"
         arguments: ["-", "null", "(from_the_server)", "(no_rule_id)"]
       params:
         agents_list: '003'
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 1
         data:
           affected_items: []
           failed_items:
@@ -199,7 +202,6 @@ stages:
 
     # PUT /active-response
   - name: Runs an Active Response command on all agents
-    delay_before: !float "{active_reponse_delay}"
     request:
       verify: False
       url: "{protocol:s}://{host:s}:{port:d}/active-response"
@@ -208,27 +210,38 @@ stages:
         Authorization: "Bearer {test_login_token}"
         content-type: application/json
       json:
-        command: "restart-ossec0"
+        command: "restart-wazuh0"
         arguments: ["-", "null", "(from_the_server)", "(no_rule_id)"]
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 2
         data:
-          affected_items: !anything
+          affected_items:
+            - '001'
+            - '002'
+            - '004'
+            - '005'
+            - '006'
+            - '007'
+            - '008'
           failed_items:
             - error:
                 code: 1651
               id:
                 - '009'
                 - '010'
+            # Separated errors as the message is not the same (different status)
+            - error:
+                code: 1651
+              id:
                 - '011'
                 - '012'
             - error:
                 code: 1750
               id:
                 - '003'
-          total_affected_items: 8
+          total_affected_items: 7
           total_failed_items: 5
 
     # PUT /active-response
@@ -241,7 +254,7 @@ stages:
         Authorization: "Bearer {test_login_token}"
         content-type: application/json
       json:
-        comMmand: "restart-ossec0"
+        comMmand: "restart-wazuh0"
         arguments: ["-", "null", "(from_the_server)", "(no_rule_id)"]
     response:
       status_code: 400

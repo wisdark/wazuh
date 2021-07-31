@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2010-2012 Trend Micro Inc.
  * All rights reserved.
  *
@@ -8,12 +8,12 @@
  * Foundation.
 */
 
-/* ossec-analysisd
+/* wazuh-analysisd
  * Responsible for correlation and log decoding
  */
 
 #ifndef ARGV0
-#define ARGV0 "ossec-analysisd"
+#define ARGV0 "wazuh-analysisd"
 #endif
 
 #include "shared.h"
@@ -97,9 +97,6 @@ static unsigned int hourly_events;
 static unsigned int hourly_syscheck;
 static unsigned int hourly_firewall;
 
-
-/* Output threads */
-void * w_main_output_thread(__attribute__((unused)) void * args);
 
 /* Archives writer thread */
 void * w_writer_thread(__attribute__((unused)) void * args );
@@ -248,7 +245,7 @@ static int cpu_cores;
 
 /* Print help statement */
 __attribute__((noreturn))
-static void help_analysisd(void)
+static void help_analysisd(char * home_path)
 {
     print_header();
     print_out("  %s: -[Vhdtf] [-u user] [-g group] [-c config] [-D dir]", ARGV0);
@@ -261,9 +258,10 @@ static void help_analysisd(void)
     print_out("    -f          Run in foreground");
     print_out("    -u <user>   User to run as (default: %s)", USER);
     print_out("    -g <group>  Group to run as (default: %s)", GROUPGLOBAL);
-    print_out("    -c <config> Configuration file to use (default: %s)", DEFAULTCPATH);
-    print_out("    -D <dir>    Directory to chroot into (default: %s)", DEFAULTDIR);
+    print_out("    -c <config> Configuration file to use (default: %s)", OSSECCONF);
+    print_out("    -D <dir>    Directory to chroot and chdir into (default: %s)", home_path);
     print_out(" ");
+    os_free(home_path);
     exit(1);
 }
 
@@ -279,16 +277,18 @@ int main_analysisd(int argc, char **argv)
 {
     int c = 0, m_queue = 0, test_config = 0, run_foreground = 0;
     int debug_level = 0;
-    const char *dir = DEFAULTDIR;
     const char *user = USER;
     const char *group = GROUPGLOBAL;
     uid_t uid;
     gid_t gid;
 
-    const char *cfg = DEFAULTCPATH;
+    const char *cfg = OSSECCONF;
 
     /* Set the name */
     OS_SetName(ARGV0);
+
+    // Define current working directory
+    char * home_path = w_homedir(argv[0]);
 
     thishour = 0;
     today = 0;
@@ -298,7 +298,6 @@ int main_analysisd(int argc, char **argv)
     hourly_events = 0;
     hourly_syscheck = 0;
     hourly_firewall = 0;
-    sys_debug_level = getDefine_Int("analysisd", "debug", 0, 2);
 
 #ifdef LIBGEOIP_ENABLED
     geoipdb = NULL;
@@ -311,7 +310,7 @@ int main_analysisd(int argc, char **argv)
                 print_version();
                 break;
             case 'h':
-                help_analysisd();
+                help_analysisd(home_path);
                 break;
             case 'd':
                 nowDebug();
@@ -336,7 +335,7 @@ int main_analysisd(int argc, char **argv)
                 if (!optarg) {
                     merror_exit("-D needs an argument");
                 }
-                dir = optarg;
+                snprintf(home_path, PATH_MAX, "%s", optarg);
                 break;
             case 'c':
                 if (!optarg) {
@@ -348,11 +347,18 @@ int main_analysisd(int argc, char **argv)
                 test_config = 1;
                 break;
             default:
-                help_analysisd();
+                help_analysisd(home_path);
                 break;
         }
 
     }
+
+    /* Change working directory */
+    if (chdir(home_path) == -1) {
+        merror_exit(CHDIR_ERROR, home_path, errno, strerror(errno));
+    }
+
+    sys_debug_level = getDefine_Int("analysisd", "debug", 0, 2);
 
     /* Check current debug_level
      * Command line setting takes precedence
@@ -366,8 +372,9 @@ int main_analysisd(int argc, char **argv)
         }
     }
 
+    mdebug1(WAZUH_HOMEDIR, home_path);
+
     /* Start daemon */
-    mdebug1(STARTED_MSG);
     DEBUG_MSG("%s: DEBUG: Starting on debug mode - %d ", ARGV0, (int)time(0));
 
     srandom_init();
@@ -423,7 +430,7 @@ int main_analysisd(int argc, char **argv)
     /* Get server's hostname */
     memset(__shost, '\0', 512);
     if (gethostname(__shost, 512 - 1) != 0) {
-        strncpy(__shost, OSSEC_SERVER, 512 - 1);
+        strncpy(__shost, WAZUH_SERVER, 512 - 1);
     } else {
         char *_ltmp;
 
@@ -486,14 +493,31 @@ int main_analysisd(int argc, char **argv)
     }
 
     /* Chroot */
-    if (Privsep_Chroot(dir) < 0) {
-        merror_exit(CHROOT_ERROR, dir, errno, strerror(errno));
+    if (Privsep_Chroot(home_path) < 0) {
+        merror_exit(CHROOT_ERROR, home_path, errno, strerror(errno));
     }
     nowChroot();
 
     /* Set the user */
     if (Privsep_SetUser(uid) < 0) {
         merror_exit(SETUID_ERROR, user, errno, strerror(errno));
+    }
+
+    /* Verbose message */
+    mdebug1(PRIVSEP_MSG, home_path, user);
+    os_free(home_path);
+
+    /* Signal manipulation */
+    StartSIG(ARGV0);
+
+    /* Create the PID file */
+    if (CreatePID(ARGV0, getpid()) < 0) {
+        merror_exit(PID_ERROR);
+    }
+
+    /* Set the queue */
+    if ((m_queue = StartMQ(DEFAULTQUEUE, READ, 0)) < 0) {
+        merror_exit(QUEUE_ERROR, DEFAULTQUEUE, strerror(errno));
     }
 
     Config.decoder_order_size = (size_t)getDefine_Int("analysisd", "decoder_order_size", MIN_ORDER_SIZE, MAX_DECODER_ORDER_SIZE);
@@ -518,7 +542,7 @@ int main_analysisd(int argc, char **argv)
             OSList_SetMaxSize(list_msg, ERRORLIST_MAXSIZE);
             OSListNode * node_log_msg;
             int error_exit = 0;
-            
+
 
             /* Initialize the decoders list */
             OS_CreateOSDecoderList();
@@ -538,9 +562,9 @@ int main_analysisd(int argc, char **argv)
                     if (!test_config) {
                         mdebug1("Reading decoder file %s.", *decodersfiles);
                     }
-                    if (!ReadDecodeXML(*decodersfiles, &os_analysisd_decoderlist_pn, 
+                    if (!ReadDecodeXML(*decodersfiles, &os_analysisd_decoderlist_pn,
                                         &os_analysisd_decoderlist_nopn, &os_analysisd_decoder_store, list_msg)) {
-                        error_exit = 1; 
+                        error_exit = 1;
                     }
                     node_log_msg = OSList_GetFirstNode(list_msg);
 
@@ -634,6 +658,7 @@ int main_analysisd(int argc, char **argv)
                 }
                 os_free(list_msg);
             }
+            mdebug1("Building CDB lists.");
             Lists_OP_MakeAll(0, 0, &os_analysisd_cdblists);
         }
 
@@ -738,22 +763,6 @@ int main_analysisd(int argc, char **argv)
         minfo("The option <queue_size> is deprecated and won't apply. Set up each queue size in the internal_options file.");
     }
 
-    /* Verbose message */
-    mdebug1(PRIVSEP_MSG, dir, user);
-
-    /* Signal manipulation */
-    StartSIG(ARGV0);
-
-    /* Create the PID file */
-    if (CreatePID(ARGV0, getpid()) < 0) {
-        merror_exit(PID_ERROR);
-    }
-
-    /* Set the queue */
-    if ((m_queue = StartMQ(DEFAULTQUEUE, READ, 0)) < 0) {
-        merror_exit(QUEUE_ERROR, DEFAULTQUEUE, strerror(errno));
-    }
-
     /* Whitelist */
     if (Config.white_list == NULL) {
         if (Config.ar) {
@@ -803,7 +812,7 @@ int main_analysisd(int argc, char **argv)
     w_create_thread(asyscom_main, NULL);
 
     /* Load Mitre JSON File and Mitre hash table */
-    mitre_load(NULL);
+    mitre_load();
 
     /* Initialize Logtest */
     w_create_thread(w_logtest_init, NULL);
@@ -865,26 +874,8 @@ void OS_ReadMSG_analysisd(int m_queue)
         if (Config.ar & REMOTE_AR) {
             if ((arq = StartMQ(ARQUEUE, WRITE, 1)) < 0) {
                 merror(ARQ_ERROR);
-
-                /* If LOCAL_AR is set, keep it there */
-                if (Config.ar & LOCAL_AR) {
-                    Config.ar = 0;
-                    Config.ar |= LOCAL_AR;
-                } else {
-                    Config.ar = 0;
-                }
             } else {
                 minfo(CONN_TO, ARQUEUE, "active-response");
-            }
-        }
-#else
-        /* Only for LOCAL_ONLY installs */
-        if (Config.ar & REMOTE_AR) {
-            if (Config.ar & LOCAL_AR) {
-                Config.ar = 0;
-                Config.ar |= LOCAL_AR;
-            } else {
-                Config.ar = 0;
             }
         }
 #endif
@@ -892,14 +883,6 @@ void OS_ReadMSG_analysisd(int m_queue)
         if (Config.ar & LOCAL_AR) {
             if ((execdq = StartMQ(EXECQUEUE, WRITE, 1)) < 0) {
                 merror(ARQ_ERROR);
-
-                /* If REMOTE_AR is set, keep it there */
-                if (Config.ar & REMOTE_AR) {
-                    Config.ar = 0;
-                    Config.ar |= REMOTE_AR;
-                } else {
-                    Config.ar = 0;
-                }
             } else {
                 minfo(CONN_TO, EXECQUEUE, "exec");
             }
@@ -1370,7 +1353,7 @@ void * ad_input_main(void * args) {
                         reported_dbsync = TRUE;
                     }
                 }
-            } else if (msg[0] == UPGRADE_MQ) { 
+            } else if (msg[0] == UPGRADE_MQ) {
                 result = -1;
 
                 if (!queue_full(upgrade_module_input)) {
@@ -1391,7 +1374,7 @@ void * ad_input_main(void * args) {
                         reported_upgrade_module = TRUE;
                     }
                 }
-                
+
             } else {
 
                 os_strdup(buffer, copy);
@@ -1466,7 +1449,7 @@ void * w_writer_log_thread(__attribute__((unused)) void * args ){
                     OS_CustomLog(lf, Config.custom_alert_output_format);
                 } else if (Config.alerts_log) {
                     __crt_ftell = ftell(_aflog);
-                    OS_Log(lf);
+                    OS_Log(lf, _aflog);
                 } else if(Config.jsonout_output){
                     __crt_ftell = ftell(_jflog);
                 }
@@ -2079,10 +2062,10 @@ void * w_process_event_thread(__attribute__((unused)) void * id){
                 AddtoIGnore(lf, t_id);
             }
 
+            lf->comment = ParseRuleComment(lf);
+
             /* Log the alert if configured to */
             if (t_currently_rule->alert_opts & DO_LOGALERT) {
-                lf->comment = ParseRuleComment(lf);
-
                 os_calloc(1, sizeof(Eventinfo), lf_cpy);
                 w_copy_event_for_log(lf, lf_cpy);
                 if (queue_push_ex_block(writer_queue_log, lf_cpy) < 0) {
@@ -2099,32 +2082,17 @@ void * w_process_event_thread(__attribute__((unused)) void * id){
 
                 while (*rule_ar) {
                     do_ar = 1;
-                    if ((*rule_ar)->ar_cmd->expect & USERNAME) {
-                        if (!lf->dstuser ||
-                                !OS_PRegex(lf->dstuser, "^[a-zA-Z._0-9@?-]*$")) {
-                            if (lf->dstuser) {
-                                mwarn(CRAFTED_USER, lf->dstuser);
-                            }
-                            do_ar = 0;
-                        }
+                    if (lf->dstuser && !OS_PRegex(lf->dstuser, "^[a-zA-Z._0-9@?-]*$")) {
+                        mwarn(CRAFTED_USER, lf->dstuser);
+                        do_ar = 0;
                     }
-                    if ((*rule_ar)->ar_cmd->expect & SRCIP) {
-                        if (!lf->srcip ||
-                                !OS_PRegex(lf->srcip, "^[a-zA-Z.:_0-9-]*$")) {
-                            if (lf->srcip) {
-                                mwarn(CRAFTED_IP, lf->srcip);
-                            }
-                            do_ar = 0;
-                        }
-                    }
-                    if ((*rule_ar)->ar_cmd->expect & FILENAME) {
-                        if (!lf->filename) {
-                            do_ar = 0;
-                        }
+                    if (lf->srcip && !OS_PRegex(lf->srcip, "^[a-zA-Z.:_0-9-]*$")) {
+                        mwarn(CRAFTED_IP, lf->srcip);
+                        do_ar = 0;
                     }
 
-                    if (do_ar && execdq >= 0) {
-                        OS_Exec(execdq, &arq, lf, *rule_ar);
+                    if (do_ar) {
+                        OS_Exec(&execdq, &arq, lf, *rule_ar);
                     }
                     rule_ar++;
                 }
@@ -2260,7 +2228,7 @@ void * w_writer_log_statistical_thread(__attribute__((unused)) void * args ){
                 OS_CustomLog(lf, Config.custom_alert_output_format);
             } else if (Config.alerts_log) {
                 __crt_ftell = ftell(_aflog);
-                OS_Log(lf);
+                OS_Log(lf, _aflog);
             } else if (Config.jsonout_output) {
                 __crt_ftell = ftell(_jflog);
             }

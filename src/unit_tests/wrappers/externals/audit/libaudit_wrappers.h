@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it
@@ -43,5 +43,8 @@ int __wrap_audit_send(int fd,
 
 int __wrap_audit_update_watch_perms(struct audit_rule_data *rule,
                                     int perms);
+
+
+int __wrap_audit_request_status(int fd);
 
 #endif

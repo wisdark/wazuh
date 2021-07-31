@@ -1,6 +1,6 @@
 /*
  * Anti-flooding mechanism
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * July 4, 2017
  *
  * This program is free software; you can redistribute it
@@ -18,8 +18,15 @@
 #include <windows.h>
 #endif
 
-static volatile int i = 0;
-static volatile int j = 0;
+#ifdef WAZUH_UNIT_TESTING
+// Remove STATIC qualifier from tests
+#define STATIC
+#else
+#define STATIC static
+#endif
+
+STATIC volatile int i = 0;
+STATIC volatile int j = 0;
 static volatile int state = NORMAL;
 
 int warn_level;
@@ -107,7 +114,7 @@ int buffer_append(const char *msg){
             break;
     }
 
-    agent_state.msg_count++;
+    w_agentd_state_update(INCREMENT_MSG_COUNT, NULL);
 
     /* When buffer is full, event is dropped */
 
@@ -191,7 +198,7 @@ void *dispatch_buffer(__attribute__((unused)) void * arg){
             buff.warn = 0;
             mwarn(WARN_BUFFER, warn_level);
             snprintf(warn_str, OS_SIZE_2048, OS_WARN_BUFFER, warn_level);
-            snprintf(warn_msg, OS_MAXSTR, "%c:%s:%s", LOCALFILE_MQ, "ossec-agent", warn_str);
+            snprintf(warn_msg, OS_MAXSTR, "%c:%s:%s", LOCALFILE_MQ, "wazuh-agent", warn_str);
             send_msg(warn_msg, -1);
         }
 
@@ -199,7 +206,7 @@ void *dispatch_buffer(__attribute__((unused)) void * arg){
 
             buff.full = 0;
             mwarn(FULL_BUFFER);
-            snprintf(full_msg, OS_MAXSTR, "%c:%s:%s", LOCALFILE_MQ, "ossec-agent", OS_FULL_BUFFER);
+            snprintf(full_msg, OS_MAXSTR, "%c:%s:%s", LOCALFILE_MQ, "wazuh-agent", OS_FULL_BUFFER);
             send_msg(full_msg, -1);
         }
 
@@ -207,7 +214,7 @@ void *dispatch_buffer(__attribute__((unused)) void * arg){
 
             buff.flood = 0;
             mwarn(FLOODED_BUFFER);
-            snprintf(flood_msg, OS_MAXSTR, "%c:%s:%s", LOCALFILE_MQ, "ossec-agent", OS_FLOOD_BUFFER);
+            snprintf(flood_msg, OS_MAXSTR, "%c:%s:%s", LOCALFILE_MQ, "wazuh-agent", OS_FLOOD_BUFFER);
             send_msg(flood_msg, -1);
         }
 
@@ -215,7 +222,7 @@ void *dispatch_buffer(__attribute__((unused)) void * arg){
 
             buff.normal = 0;
             minfo(NORMAL_BUFFER, normal_level);
-            snprintf(normal_msg, OS_MAXSTR, "%c:%s:%s", LOCALFILE_MQ, "ossec-agent", OS_NORMAL_BUFFER);
+            snprintf(normal_msg, OS_MAXSTR, "%c:%s:%s", LOCALFILE_MQ, "wazuh-agent", OS_NORMAL_BUFFER);
             send_msg(normal_msg, -1);
         }
 
@@ -233,9 +240,20 @@ void delay(struct timespec * ts_loop) {
     long interval_ns = 1000000000 / agt->events_persec;
     struct timespec ts_timeout = { interval_ns / 1000000000, interval_ns % 1000000000 };
     time_sub(&ts_timeout, ts_loop);
+    nanosleep(&ts_timeout, NULL);
+}
 
-    if (ts_timeout.tv_sec >= 0 && ts_timeout.tv_nsec >= 0) {
-        struct timeval timeout = { ts_timeout.tv_sec, ts_timeout.tv_nsec / 1000 };
-        select(0 , NULL, NULL, NULL, &timeout);
+int w_agentd_get_buffer_lenght() {
+
+    int retval = -1;
+
+    if (agt->buffer > 0) {
+        w_mutex_lock(&mutex_lock);
+        retval = (i - j) % (agt->buflength + 1);
+        w_mutex_unlock(&mutex_lock);
+
+        retval = (retval < 0) ? (retval + agt->buflength + 1) : retval;
     }
+
+    return retval;
 }

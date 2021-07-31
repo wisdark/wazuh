@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2019, Wazuh Inc.
+# Copyright (C) 2015-2021, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is free software; you can redistribute it and/or modify it under the terms of GP
 
@@ -99,6 +99,7 @@ class WazuhDBQuerySyscollector(WazuhDBQuery):
                          *args, **kwargs)
         self.array = array
         self.nested = nested
+        self.date_fields = {'scan.time', 'install_time'}
 
     def _format_data_into_dictionary(self):
         if self.nested:

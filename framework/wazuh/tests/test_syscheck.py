@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright (C) 2015-2020, Wazuh Inc.
+# Copyright (C) 2015-2021, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is free software; you can redistribute it and/or modify it under the terms of GPLv2
 
@@ -12,14 +12,15 @@ import pytest
 
 from wazuh.tests.util import InitWDBSocketMock
 
-with patch('wazuh.core.common.ossec_uid'):
-    with patch('wazuh.core.common.ossec_gid'):
+with patch('wazuh.core.common.wazuh_uid'):
+    with patch('wazuh.core.common.wazuh_gid'):
         sys.modules['wazuh.rbac.orm'] = MagicMock()
         import wazuh.rbac.decorators
 
         del sys.modules['wazuh.rbac.orm']
 
         from wazuh.tests.util import RBAC_bypasser
+
         wazuh.rbac.decorators.expose_resources = RBAC_bypasser
         from wazuh.syscheck import run, clear, last_scan, files
         from wazuh.syscheck import AffectedItemsWazuhResult
@@ -28,6 +29,7 @@ with patch('wazuh.core.common.ossec_uid'):
 
 callable_list = list()
 test_data_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data')
+test_agent_data_path = os.path.join(test_data_path, 'agent')
 
 
 # Retrieve used parameters in mocked method
@@ -57,28 +59,35 @@ test_result = [
 ]
 
 
-@pytest.mark.parametrize('agent_list, status_list, expected_result', [
-    (['002', '001'], [{'status': status} for status in ['active', 'active']], test_result[0]),
-    (['003', '001', '008'], [{'status': status} for status in ['active', 'disconnected', 'active']], test_result[1]),
-    (['001', '002', '003'], [{'status': status} for status in ['active', 'disconnected', 'disconnected']],
-     test_result[2]),
+@pytest.mark.parametrize('agent_list, failed_items, status_list, expected_result', [
+    (['002', '001'], [{'items': []}], ['active', 'active'], test_result[0]),
+    (['003', '001', '008'], [{'items': [{'id': '001', 'status': ['disconnected']}]}],
+     ['active', 'disconnected', 'active'], test_result[1]),
+    (['001', '002', '003'], [{'items': [{'id': '002', 'status': ['disconnected']},
+                                        {'id': '003', 'status': ['disconnected']}]}],
+     ['active', 'disconnected', 'disconnected'], test_result[2]),
 ])
-@patch('wazuh.syscheck.OssecQueue._connect')
-@patch('wazuh.syscheck.OssecQueue.send_msg_to_agent', side_effect=set_callable_list)
-@patch('wazuh.syscheck.OssecQueue.close')
-def test_syscheck_run(close_mock, send_mock, connect_mock, agent_list, status_list, expected_result):
+@patch('wazuh.core.common.client_keys', new=os.path.join(test_agent_data_path, 'client.keys'))
+@patch('wazuh.syscheck.WazuhDBQueryAgents.__init__', return_value=None)
+@patch('wazuh.syscheck.WazuhQueue._connect')
+@patch('wazuh.syscheck.WazuhQueue.send_msg_to_agent', side_effect=set_callable_list)
+@patch('wazuh.syscheck.WazuhQueue.close')
+def test_syscheck_run(close_mock, send_mock, connect_mock, agent_mock,
+                      agent_list, failed_items, status_list, expected_result):
     """Test function `run` from syscheck module.
 
     Parameters
     ----------
     agent_list : list
         List of agent IDs.
+    agent_list : list
+        List of failed items.
     status_list : list
         List of agent statuses.
     expected_result : list
         List of dicts with expected results for every test.
     """
-    with patch('wazuh.syscheck.Agent.get_basic_information', side_effect=status_list):
+    with patch('wazuh.syscheck.WazuhDBQueryAgents.run', return_value=failed_items[0]):
         result = run(agent_list=agent_list)
         for args, kwargs in callable_list:
             assert (isinstance(a, str) for a in args)
@@ -90,34 +99,6 @@ def test_syscheck_run(close_mock, send_mock, connect_mock, agent_list, status_li
             assert next(iter(result.failed_items.values())) == expected_result['failed_items']
         else:
             assert result.failed_items == expected_result['failed_items']
-        assert result.total_failed_items == expected_result['total_failed_items']
-
-
-@pytest.mark.parametrize('agent_list, status_list, expected_result', [
-    (['001'], {'status': 'active'}, test_result[3])
-])
-@patch('wazuh.syscheck.OssecQueue', side_effect=WazuhError(1000))
-def test_syscheck_run_exception(ossec_queue_mock, agent_list, status_list, expected_result):
-    """Test function `run` from syscheck module.
-
-    It will force an exception.
-
-    Parameters
-    ----------
-    agent_list : list
-        List of agent IDs.
-    status_list : list
-        List of agent statuses.
-    expected_result : list
-        List of dicts with expected results for every test.
-    """
-    with patch('wazuh.syscheck.Agent.get_basic_information', return_value=status_list):
-        result = run(agent_list=agent_list)
-        assert isinstance(result, AffectedItemsWazuhResult)
-        assert result.affected_items == expected_result['affected_items']
-        assert result.total_affected_items == expected_result['total_affected_items']
-        if result.failed_items:
-            assert next(iter(result.failed_items.values())) == expected_result['failed_items']
         assert result.total_failed_items == expected_result['total_failed_items']
 
 
@@ -191,7 +172,7 @@ def test_syscheck_clear_exception(execute_mock, wdb_init_mock, agent_list, expec
 @patch("wazuh.core.database.isfile", return_value=True)
 @patch("wazuh.syscheck.WazuhDBConnection.execute", return_value=[{'end': '', 'start': ''}])
 @patch('socket.socket.connect')
-def test_syscheck_last_scan(socket_mock, wdb_conn_mock, is_file_mock,  db_mock, agent_id, wazuh_version):
+def test_syscheck_last_scan(socket_mock, wdb_conn_mock, is_file_mock, db_mock, agent_id, wazuh_version):
     """Test function `last_scan` from syscheck module.
 
     Parameters
@@ -236,10 +217,17 @@ def test_syscheck_last_scan_internal_error(glob_mock, version):
 
 @pytest.mark.parametrize('agent_id, select, filters, distinct', [
     (['001'], None, None, None),
-    (['001'], ['file', 'size', 'mtime'], None, False),
-    (['001'], None, {'inode': '15470536'}, True),
-    (['001'], ['file', 'size'], {'hash': '15470536'}, False),
-    (['001'], None, {'date': '2019-05-21 12:10:20'}, True)
+    (['002'], ['file', 'size', 'mtime'], None, False),
+    (['003'], None, {'inode': '15470536'}, True),
+    (['004'], ['file', 'size'], {'hash': '15470536'}, False),
+    (['005'], None, {'date': '2019-05-21 12:10:20'}, True),
+    (['006'], None, {'type': 'registry_key'}, True),
+    (['007'], ['file', 'arch', 'value.name', 'value.type'], None, True),
+    (['008'], ['file', 'value.name'], None, True),
+    (['009'], ['value.name'], None, True),
+    (['000'], ['attributes'], None, True),
+    (['000'], None,
+     {'file': 'HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Services\\W32Time\\SecureTimeLimits\\RunTime'}, True)
 ])
 @patch('socket.socket.connect')
 @patch('wazuh.core.common.wdb_path', new=test_data_path)
@@ -257,15 +245,25 @@ def test_syscheck_files(socket_mock, agent_id, select, filters, distinct):
     distinct : bool
         True if all response items must be unique
     """
-    select_list = ['date', 'mtime', 'file', 'size', 'perm', 'uname', 'gname', 'md5', 'sha1', 'sha256', 'inode', 'gid', 'uid', 'type', 'changes', 'attributes']
+    select_list = ['date', 'mtime', 'file', 'size', 'perm', 'uname', 'gname', 'md5', 'sha1', 'sha256', 'inode', 'gid',
+                   'uid', 'type', 'changes', 'attributes', 'arch', 'value.name', 'value.type']
+    nested_fields = ['value']
+
     with patch('wazuh.core.utils.WazuhDBConnection') as mock_wdb:
         mock_wdb.return_value = InitWDBSocketMock(sql_schema_file='schema_syscheck_test.sql')
+        select = select if select else select_list
         result = files(agent_id, select=select, filters=filters)
         assert isinstance(result, AffectedItemsWazuhResult)
         assert isinstance(result.affected_items, list)
-        select = select if select else select_list
+        # Use flag for min_select_field, if file not in select, len(item.keys()) = len(select) + 1
+        flag_select_min = 1 if 'file' not in select else 0
         for item in result.affected_items:
-            assert len(select) == len(item.keys())
+            # Use flag for nested_fields in order to compare select and item.keys() lengths
+            flag_nested = 0
+            for nested_field in nested_fields:
+                if nested_field in item.keys():
+                    flag_nested += sum(1 for i in select if i.startswith(nested_field)) - 1
+            assert len(select) + flag_select_min == len(item.keys()) + flag_nested
             assert (param in select for param in item.keys())
         assert not any(result.affected_items.count(item) > 1 for item in result.affected_items) if distinct else True
         if filters:

@@ -1,6 +1,6 @@
 /*
  * Wazuh SQLite integration
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * June 06, 2016.
  *
  * This program is free software; you can redistribute it
@@ -63,23 +63,32 @@ typedef enum wdb_stmt {
     WDB_STMT_FIM_GET_ATTRIBUTES,
     WDB_STMT_FIM_UPDATE_ATTRIBUTES,
     WDB_STMT_OSINFO_INSERT,
+    WDB_STMT_OSINFO_INSERT2,
     WDB_STMT_OSINFO_DEL,
     WDB_STMT_PROGRAM_INSERT,
+    WDB_STMT_PROGRAM_INSERT2,
     WDB_STMT_PROGRAM_DEL,
     WDB_STMT_PROGRAM_UPD,
     WDB_STMT_PROGRAM_GET,
     WDB_STMT_HWINFO_INSERT,
+    WDB_STMT_HWINFO_INSERT2,
     WDB_STMT_HOTFIX_INSERT,
+    WDB_STMT_HOTFIX_INSERT2,
     WDB_STMT_HWINFO_DEL,
     WDB_STMT_HOTFIX_DEL,
     WDB_STMT_SET_HOTFIX_MET,
     WDB_STMT_PORT_INSERT,
+    WDB_STMT_PORT_INSERT2,
     WDB_STMT_PORT_DEL,
     WDB_STMT_PROC_INSERT,
+    WDB_STMT_PROC_INSERT2,
     WDB_STMT_PROC_DEL,
     WDB_STMT_NETINFO_INSERT,
+    WDB_STMT_NETINFO_INSERT2,
     WDB_STMT_PROTO_INSERT,
+    WDB_STMT_PROTO_INSERT2,
     WDB_STMT_ADDR_INSERT,
+    WDB_STMT_ADDR_INSERT2,
     WDB_STMT_NETINFO_DEL,
     WDB_STMT_PROTO_DEL,
     WDB_STMT_ADDR_DEL,
@@ -126,7 +135,14 @@ typedef enum wdb_stmt {
     WDB_STMT_FIM_CLEAR,
     WDB_STMT_SYNC_UPDATE_ATTEMPT,
     WDB_STMT_SYNC_UPDATE_COMPLETION,
-    WDB_STMT_MITRE_NAME_GET,
+    WDB_STMT_FIM_FILE_SELECT_CHECKSUM_RANGE,
+    WDB_STMT_FIM_FILE_CLEAR,
+    WDB_STMT_FIM_FILE_DELETE_AROUND,
+    WDB_STMT_FIM_FILE_DELETE_RANGE,
+    WDB_STMT_FIM_REGISTRY_SELECT_CHECKSUM_RANGE,
+    WDB_STMT_FIM_REGISTRY_CLEAR,
+    WDB_STMT_FIM_REGISTRY_DELETE_AROUND,
+    WDB_STMT_FIM_REGISTRY_DELETE_RANGE,
     WDB_STMT_ROOTCHECK_INSERT_PM,
     WDB_STMT_ROOTCHECK_UPDATE_PM,
     WDB_STMT_ROOTCHECK_DELETE_PM,
@@ -169,36 +185,57 @@ typedef enum wdb_stmt {
     WDB_STMT_TASK_DELETE_TASK,
     WDB_STMT_TASK_CANCEL_PENDING_UPGRADE_TASKS,
     WDB_STMT_PRAGMA_JOURNAL_WAL,
+    WDB_STMT_SYSCOLLECTOR_PROCESSES_SELECT_CHECKSUM_RANGE,
+    WDB_STMT_SYSCOLLECTOR_PROCESSES_DELETE_AROUND,
+    WDB_STMT_SYSCOLLECTOR_PROCESSES_DELETE_RANGE,
+    WDB_STMT_SYSCOLLECTOR_PROCESSES_CLEAR,
+    WDB_STMT_SYSCOLLECTOR_PACKAGES_SELECT_CHECKSUM_RANGE,
+    WDB_STMT_SYSCOLLECTOR_PACKAGES_DELETE_AROUND,
+    WDB_STMT_SYSCOLLECTOR_PACKAGES_DELETE_RANGE,
+    WDB_STMT_SYSCOLLECTOR_PACKAGES_CLEAR,
+    WDB_STMT_SYSCOLLECTOR_HOTFIXES_SELECT_CHECKSUM_RANGE,
+    WDB_STMT_SYSCOLLECTOR_HOTFIXES_DELETE_AROUND,
+    WDB_STMT_SYSCOLLECTOR_HOTFIXES_DELETE_RANGE,
+    WDB_STMT_SYSCOLLECTOR_HOTFIXES_CLEAR,
+    WDB_STMT_SYSCOLLECTOR_PORTS_SELECT_CHECKSUM_RANGE,
+    WDB_STMT_SYSCOLLECTOR_PORTS_DELETE_AROUND,
+    WDB_STMT_SYSCOLLECTOR_PORTS_DELETE_RANGE,
+    WDB_STMT_SYSCOLLECTOR_PORTS_CLEAR,
+    WDB_STMT_SYSCOLLECTOR_NETPROTO_SELECT_CHECKSUM_RANGE,
+    WDB_STMT_SYSCOLLECTOR_NETPROTO_DELETE_AROUND,
+    WDB_STMT_SYSCOLLECTOR_NETPROTO_DELETE_RANGE,
+    WDB_STMT_SYSCOLLECTOR_NETPROTO_CLEAR,
+    WDB_STMT_SYSCOLLECTOR_NETADDRESS_SELECT_CHECKSUM_RANGE,
+    WDB_STMT_SYSCOLLECTOR_NETADDRESS_DELETE_AROUND,
+    WDB_STMT_SYSCOLLECTOR_NETADDRESS_DELETE_RANGE,
+    WDB_STMT_SYSCOLLECTOR_NETADDRESS_CLEAR,
+    WDB_STMT_SYSCOLLECTOR_NETINFO_SELECT_CHECKSUM_RANGE,
+    WDB_STMT_SYSCOLLECTOR_NETINFO_DELETE_AROUND,
+    WDB_STMT_SYSCOLLECTOR_NETINFO_DELETE_RANGE,
+    WDB_STMT_SYSCOLLECTOR_NETINFO_CLEAR,
+    WDB_STMT_SYSCOLLECTOR_HWINFO_SELECT_CHECKSUM_RANGE,
+    WDB_STMT_SYSCOLLECTOR_HWINFO_DELETE_AROUND,
+    WDB_STMT_SYSCOLLECTOR_HWINFO_DELETE_RANGE,
+    WDB_STMT_SYSCOLLECTOR_HWINFO_CLEAR,
+    WDB_STMT_SYSCOLLECTOR_OSINFO_SELECT_CHECKSUM_RANGE,
+    WDB_STMT_SYSCOLLECTOR_OSINFO_DELETE_AROUND,
+    WDB_STMT_SYSCOLLECTOR_OSINFO_DELETE_RANGE,
+    WDB_STMT_SYSCOLLECTOR_OSINFO_CLEAR,
+    WDB_STMT_VULN_CVE_INSERT,
+    WDB_STMT_VULN_CVE_CLEAR,
     WDB_STMT_SIZE // This must be the last constant
 } wdb_stmt;
 
-typedef enum global_db_access {
-    WDB_INSERT_AGENT,
-    WDB_INSERT_AGENT_GROUP,
-    WDB_INSERT_AGENT_BELONG,
-    WDB_UPDATE_AGENT_NAME,
-    WDB_UPDATE_AGENT_DATA,
-    WDB_UPDATE_AGENT_KEEPALIVE,
-    WDB_UPDATE_AGENT_CONNECTION_STATUS,
-    WDB_UPDATE_AGENT_GROUP,
-    WDB_SET_AGENT_LABELS,
-    WDB_GET_ALL_AGENTS,
-    WDB_FIND_AGENT,
-    WDB_GET_AGENT_INFO,
-    WDB_GET_AGENT_LABELS,
-    WDB_SELECT_AGENT_NAME,
-    WDB_SELECT_AGENT_GROUP,
-    WDB_SELECT_KEEPALIVE,
-    WDB_FIND_GROUP,
-    WDB_SELECT_GROUPS,
-    WDB_DELETE_AGENT,
-    WDB_DELETE_GROUP,
-    WDB_DELETE_AGENT_BELONG,
-    WDB_DELETE_GROUP_BELONG,
-    WDB_RESET_AGENTS_CONNECTION,
-    WDB_GET_AGENTS_BY_CONNECTION_STATUS,
-    WDB_DISCONNECT_AGENTS
-} global_db_access;
+
+struct stmt_cache {
+    sqlite3_stmt *stmt;
+    char *query;
+};
+
+struct stmt_cache_list {
+    struct stmt_cache value;
+    struct stmt_cache_list *next;
+};
 
 typedef struct wdb_t {
     sqlite3 * db;
@@ -209,6 +246,7 @@ typedef struct wdb_t {
     time_t last;
     time_t transaction_begin_time;
     pthread_mutex_t mutex;
+    struct stmt_cache_list *cache_list;
     struct wdb_t * next;
 } wdb_t;
 
@@ -222,7 +260,18 @@ typedef struct wdb_config {
 
 /// Enumeration of components supported by the integrity library.
 typedef enum {
-    WDB_FIM         ///< File integrity monitoring.
+    WDB_FIM,                         ///< File integrity monitoring.
+    WDB_FIM_FILE,                    ///< File integrity monitoring.
+    WDB_FIM_REGISTRY,                ///< Registry integrity monitoring.
+    WDB_SYSCOLLECTOR_PROCESSES,      ///< Processes integrity monitoring.
+    WDB_SYSCOLLECTOR_PACKAGES,       ///< Packages integrity monitoring.
+    WDB_SYSCOLLECTOR_HOTFIXES,       ///< Hotfixes integrity monitoring.
+    WDB_SYSCOLLECTOR_PORTS,          ///< Ports integrity monitoring.
+    WDB_SYSCOLLECTOR_NETPROTO,       ///< Net protocols integrity monitoring.
+    WDB_SYSCOLLECTOR_NETADDRESS,     ///< Net addresses integrity monitoring.
+    WDB_SYSCOLLECTOR_NETINFO,        ///< Net info integrity monitoring.
+    WDB_SYSCOLLECTOR_HWINFO,         ///< Hardware info integrity monitoring.
+    WDB_SYSCOLLECTOR_OSINFO,         ///< OS info integrity monitoring.
 } wdb_component_t;
 
 extern char *schema_global_sql;
@@ -234,6 +283,8 @@ extern char *schema_upgrade_v3_sql;
 extern char *schema_upgrade_v4_sql;
 extern char *schema_upgrade_v5_sql;
 extern char *schema_upgrade_v6_sql;
+extern char *schema_upgrade_v7_sql;
+extern char *schema_upgrade_v8_sql;
 extern char *schema_global_upgrade_v1_sql;
 extern char *schema_global_upgrade_v2_sql;
 
@@ -268,6 +319,37 @@ typedef struct agent_info_data {
     char *connection_status;
     char *sync_status;
 } agent_info_data;
+
+typedef enum {
+    FIELD_INTEGER,
+    FIELD_TEXT,
+    FIELD_REAL
+} field_type_t;
+
+struct field {
+    field_type_t type;
+    int index;
+    bool is_old_implementation;
+    bool is_pk;
+    char name[OS_SIZE_256];
+};
+
+struct column_list {
+    struct field value;
+    const struct column_list *next;
+};
+
+struct kv {
+    char key[OS_SIZE_256];
+    char value[OS_SIZE_256];
+    bool single_row_table;
+    struct column_list const *column_list;
+};
+
+struct kv_list {
+    struct kv current;
+    const struct kv_list *next;
+};
 
 /**
  * @brief Opens global database and stores it in DB pool.
@@ -422,269 +504,13 @@ void wdb_free_agent_info_data(agent_info_data *agent_data);
 wdbc_result wdb_parse_chunk_to_int(char* input, int** output, const char* item, int* last_item, int* last_size);
 
 /**
- * @brief Insert agent to the global.db.
+ * @brief Function to initialize a new transaction and cache the statement.
  *
- * @param[in] id The agent ID.
- * @param[in] name The agent name.
- * @param[in] ip The agent ip address.
- * @param[in] register_ip The agent register IP.
- * @param[in] internal_key The client key of the agent.
- * @param[in] group The agent group.
- * @param[in] keep_date If 1, the addition date will be taken from agents-timestamp. If 0, the addition date is the current time.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns 0 on success or -1 on error.
+ * @param [in] wdb The global struct database.
+ * @param [in] statement_index The index of the statement to be cached.
+ * @return Pointer to the statement already cached. NULL On error.
  */
-int wdb_insert_agent(int id,
-                     const char *name,
-                     const char *ip,
-                     const char *register_ip,
-                     const char *internal_key,
-                     const char *group,
-                     int keep_date,
-                     int *sock);
-
-/**
- * @brief Insert a new group.
- *
- * @param[in] name The group name.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns OS_SUCCESS on success or OS_INVALID on failure.
- */
-int wdb_insert_group(const char *name, int *sock);
-
-/**
- * @brief Update agent belongs table.
- *
- * @param[in] id_group Id of the group to be updated.
- * @param[in] id_agent Id of the agent to be updated.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns OS_SUCCESS on success or OS_INVALID on failure.
- */
-int wdb_update_agent_belongs(int id_group, int id_agent, int *sock);
-
-/**
- * @brief Update agent name in global.db.
- *
- * @param[in] id The agent ID.
- * @param[in] name The agent name.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns 0 on success or -1 on error.
- */
-int wdb_update_agent_name(int id, const char *name, int *sock);
-
-/**
- * @brief Update agent data in global.db.
- *
- * @param[in] agent_data A pointer to an agent_info_data structure with the agent information.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns 0 on success or -1 on error.
- */
-int wdb_update_agent_data(agent_info_data *agent_data, int *sock);
-
-/**
- * @brief Update agent's last keepalive and modifies the cluster synchronization status.
- *
- * @param[in] id Id of the agent for whom the keepalive must be updated.
- * @param[in] connection_status String with the connection status to be set.
- * @param[in] sync_status String with the cluster synchronization status to be set.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return OS_SUCCESS on success or OS_INVALID on failure.
- */
-int wdb_update_agent_keepalive(int id, const char *connection_status, const char *sync_status, int *sock);
-
-/**
- * @brief Update agent's connection status.
- *
- * @param[in] id Id of the agent for whom the connection status must be updated.
- * @param[in] connection_status String with the connection status to be set.
- * @param[in] sync_status String with the cluster synchronization status to be set.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return OS_SUCCESS on success or OS_INVALID on failure.
- */
-int wdb_update_agent_connection_status(int id, const char *connection_status, const char *sync_status, int *sock);
-
-/**
- * @brief Update agent group. If the group is not specified, it is set to NULL.
- *
- * @param[in] id ID of the agent.
- * @param[in] group The group to be set.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns OS_SUCCESS if success. OS_INVALID on error.
- */
-int wdb_update_agent_group(int id,char *group, int *sock);
-
-/**
- * @brief Update agent's labels.
- *
- * @param[in] id Id of the agent for whom the labels must be updated.
- * @param[in] labels String with the key-values separated by EOL.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return OS_SUCCESS on success or OS_INVALID on failure.
- */
-int wdb_set_agent_labels(int id, const char *labels, int *sock);
-
-/**
- * @brief Returns an array containing the ID of every agent (except 0), ended with -1.
- * This method creates and sends a command to WazuhDB to receive the ID of every agent.
- * If the response is bigger than the capacity of the socket, multiple commands will be sent until every agent ID is obtained.
- * The array is heap allocated memory that must be freed by the caller.
- *
- * @param [in] include_manager flag to include the manager on agents list
- * @param [in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Pointer to the array, on success.
- * @retval NULL on errors.
- */
-int* wdb_get_all_agents(bool include_manager, int *sock);
-
-/**
- * @brief Find agent id by name and address.
- *
- * @param[in] name Name of the agent.
- * @param[in] ip IP address of the agent.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns id if success. OS_INVALID on error.
- */
-int wdb_find_agent(const char *name, const char *ip, int *sock);
-
-/**
- * @brief Returns a JSON with all the agent's information.
- *
- * @param[in] id Id of the agent for whom the information is requested.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return JSON* with the information on success or NULL on failure.
- */
-cJSON* wdb_get_agent_info(int id, int *sock);
-
-/**
- * @brief Returns a JSON with all the agent's labels.
- *
- * @param[in] id Id of the agent for whom the labels are requested.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return JSON* with the labels on success or NULL on failure.
- */
-cJSON* wdb_get_agent_labels(int id, int *sock);
-
-/**
- * @brief Get name from agent table in global.db by using its ID.
- *
- * @param[in] id Id of the agent that the name must be selected.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return A string with the agent name on success or NULL on failure.
- */
-char* wdb_get_agent_name(int id, int *sock);
-
-/**
- * @brief Get group from agent table in global.db by using its ID.
- *
- * @param[in] id Id of the agent that the name must be selected.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return A string with the agent group on success or NULL on failure.
- */
-char* wdb_get_agent_group(int id, int *sock);
-
-/**
- * @brief Function to get the agent last keepalive.
- *
- * @param [in] name String with the name of the agent.
- * @param [in] ip String with the ip of the agent.
- * @param [in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns this value, 0 on NULL or OS_INVALID on error.
- */
-time_t wdb_get_agent_keepalive(const char *name, const char *ip, int *sock);
-
-/**
- * @brief Find group by name.
- *
- * @param[in] name The group name.
- * @param [in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns id if success or OS_INVALID on failure.
- */
-int wdb_find_group(const char *name, int *sock);
-
-/**
- * @brief Update groups table.
- *
- * @param[in] name The groups directory.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns OS_SUCCESS if success or OS_INVALID on failure.
- */
-int wdb_update_groups(const char *dirname, int *sock);
-
-/**
- * @brief Delete an agent from agent table in global.db by using its ID.
- *
- * @param[in] id Id of the agent to be deleted.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return OS_SUCCESS on success or OS_INVALID on failure.
- */
-int wdb_remove_agent(int id, int *sock);
-
-/**
- * @brief Delete group.
- *
- * @param[in] name The group name.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns OS_SUCCESS on success or OS_INVALID on failure.
- */
-int wdb_remove_group_db(const char *name, int *sock);
-
-/**
- * @brief Delete an agent from belongs table in global.db by using its ID.
- *
- * @param[in] id Id of the agent to be deleted.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns OS_SUCCESS on success or OS_INVALID on failure.
- */
-int wdb_delete_agent_belongs(int id, int *sock);
-
-/**
- * @brief Delete group from belongs table.
- *
- * @param[in] name The group name.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns OS_SUCCESS on success or OS_INVALID on failure.
- */
-int wdb_remove_group_from_belongs_db(const char *name, int *sock);
-
-/**
- * @brief Reset the connection_status column of every agent (excluding the manager).
- *        If connection_status is pending or connected it will be changed to disconnected.
- *        If connection_status is disconnected or never_connected it will not be changed.
- *        It also set the 'sync_status' with the specified value.
- *
- * @param[in] sync_status String with the cluster synchronization status to be set.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns OS_SUCCESS on success or OS_INVALID on failure.
- */
-int wdb_reset_agents_connection(const char *sync_status, int *sock);
-
-/**
- * @brief Returns an array containing the ID of every agent (excluding the manager) that matches
- *        the specified connection status, ended with -1.
- *        This method creates and sends a command to WazuhDB to receive the ID of every agent.
- *        If the response is bigger than the capacity of the socket, multiple commands will be sent until every
- *        agent ID is obtained. The array is heap allocated memory that must be freed by the caller.
- *
- * @param[in] connection_status The connection status.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Pointer to the array, on success. NULL on errors.
- */
-int* wdb_get_agents_by_connection_status(const char* connection_status, int *sock);
-
-/**
- * @brief Set agents as disconnected based on the keepalive and return an array containing
- * the ID of every agent that had been set as disconnected.
- * This method creates and sends a command to WazuhDB to set as disconnected all the
- * agents (excluding the manager) with a last_keepalive before the specified keepalive threshold.
- * If the response is bigger than the capacity of the socket, multiple commands will be sent until every agent is covered.
- * The array is heap-allocated memory that must be freed by the caller.
- *
- * @param [in] keepalive The keepalive threshold before which an agent should be set as disconnected.
- * @param [in] sync_status String with the cluster synchronization status to be set.
- * @param [in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Pointer to the array, on success. NULL if no agents were set as disconnected or an error ocurred.
- */
-int* wdb_disconnect_agents(int keepalive, const char *sync_status, int *sock);
+sqlite3_stmt* wdb_init_stmt_in_cache(wdb_t* wdb, wdb_stmt statement_index);
 
 /**
  * @brief Create database for agent from profile.
@@ -711,32 +537,6 @@ int wdb_create_agent_db2(const char * agent_id);
  * @return OS_SUCCESS on success or OS_INVALID on failure.
  */
 int wdb_remove_agent_db(int id, const char * name);
-
-/**
- * @brief Update agent multi group.
- *
- * @param[in] id The agent id.
- * @param[in] group The group name.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns OS_SUCCESS on success or OS_INVALID on failure.
- */
-int wdb_update_agent_multi_group(int id, char *group, int *sock);
-
-/**
- * @brief Fill belongs table on start.
- * @param [in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- *
- * @return Returns OS_SUCCESS.
- */
-int wdb_agent_belongs_first_time(int *sock);
-
-/**
- * @brief Get the agent first registration date.
- *
- * @param[in] agent_id The agent ID.
- * @return Returns the agent first registration date.
- */
-time_t get_agent_date_added(int agent_id);
 
 /* Remove agents databases from id's list. */
 cJSON *wdb_remove_multiple_agents(char *agent_list);
@@ -819,10 +619,10 @@ int wdb_vacuum(sqlite3 *db);
 int wdb_insert_info(const char *key, const char *value);
 
 // Insert network info tuple. Return 0 on success or -1 on error.
-int wdb_netinfo_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * name, const char * adapter, const char * type, const char * state, int mtu, const char * mac, long tx_packets, long rx_packets, long tx_bytes, long rx_bytes, long tx_errors, long rx_errors, long tx_dropped, long rx_dropped);
+int wdb_netinfo_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * name, const char * adapter, const char * type, const char * state, int mtu, const char * mac, long tx_packets, long rx_packets, long tx_bytes, long rx_bytes, long tx_errors, long rx_errors, long tx_dropped, long rx_dropped, const char * checksum, const char * item_id, const bool replace);
 
 // Save Network info into DB.
-int wdb_netinfo_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * name, const char * adapter, const char * type, const char * state, int mtu, const char * mac, long tx_packets, long rx_packets, long tx_bytes, long rx_bytes, long tx_errors, long rx_errors, long tx_dropped, long rx_dropped);
+int wdb_netinfo_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * name, const char * adapter, const char * type, const char * state, int mtu, const char * mac, long tx_packets, long rx_packets, long tx_bytes, long rx_bytes, long tx_errors, long rx_errors, long tx_dropped, long rx_dropped, const char * checksum, const char * item_id, const bool replace);
 
 // Delete Network info from DB.
 int wdb_netinfo_delete(wdb_t * wdb, const char * scan_id);
@@ -834,40 +634,40 @@ int wdb_hotfix_delete(wdb_t * wdb, const char * scan_id);
 int wdb_set_hotfix_metadata(wdb_t * wdb, const char * scan_id);
 
 // Insert IPv4/IPv6 protocol info tuple. Return 0 on success or -1 on error.
-int wdb_netproto_insert(wdb_t * wdb, const char * scan_id, const char * iface,  int type, const char * gateway, const char * dhcp, int metric);
+int wdb_netproto_insert(wdb_t * wdb, const char * scan_id, const char * iface,  int type, const char * gateway, const char * dhcp, int metric, const char * checksum, const char * item_id, const bool replace);
 
 // Save IPv4/IPv6 protocol info into DB.
-int wdb_netproto_save(wdb_t * wdb, const char * scan_id, const char * iface,  int type, const char * gateway, const char * dhcp, int metric);
+int wdb_netproto_save(wdb_t * wdb, const char * scan_id, const char * iface,  int type, const char * gateway, const char * dhcp, int metric, const char * checksum, const char * item_id, const bool replace);
 
 // Insert IPv4/IPv6 address info tuple. Return 0 on success or -1 on error.
-int wdb_netaddr_insert(wdb_t * wdb, const char * scan_id, const char * iface, int proto, const char * address, const char * netmask, const char * broadcast);
+int wdb_netaddr_insert(wdb_t * wdb, const char * scan_id, const char * iface, int proto, const char * address, const char * netmask, const char * broadcast, const char * checksum, const char * item_id, const bool replace);
 
 // Save IPv4/IPv6 address info into DB.
-int wdb_netaddr_save(wdb_t * wdb, const char * scan_id, const char * iface, int proto, const char * address, const char * netmask, const char * broadcast);
+int wdb_netaddr_save(wdb_t * wdb, const char * scan_id, const char * iface, int proto, const char * address, const char * netmask, const char * broadcast, const char * checksum, const char * item_id, const bool replace);
 
 // Insert OS info tuple. Return 0 on success or -1 on error.
-int wdb_osinfo_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * hostname, const char * architecture, const char * os_name, const char * os_version, const char * os_codename, const char * os_major, const char * os_minor, const char * os_patch, const char * os_build, const char * os_platform, const char * sysname, const char * release, const char * version, const char * os_release);
+int wdb_osinfo_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * hostname, const char * architecture, const char * os_name, const char * os_version, const char * os_codename, const char * os_major, const char * os_minor, const char * os_patch, const char * os_build, const char * os_platform, const char * sysname, const char * release, const char * version, const char * os_release, const char * checksum, const bool replace);
 
 // Save OS info into DB.
-int wdb_osinfo_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * hostname, const char * architecture, const char * os_name, const char * os_version, const char * os_codename, const char * os_major, const char * os_minor, const char * os_patch, const char * os_build, const char * os_platform, const char * sysname, const char * release, const char * version, const char * os_release);
+int wdb_osinfo_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * hostname, const char * architecture, const char * os_name, const char * os_version, const char * os_codename, const char * os_major, const char * os_minor, const char * os_patch, const char * os_build, const char * os_platform, const char * sysname, const char * release, const char * version, const char * os_release, const char * checksum, const bool replace);
 
 // Insert HW info tuple. Return 0 on success or -1 on error.
-int wdb_hardware_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * serial, const char * cpu_name, int cpu_cores, const char * cpu_mhz, uint64_t ram_total, uint64_t ram_free, int ram_usage);
+int wdb_hardware_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * serial, const char * cpu_name, int cpu_cores, double cpu_mhz, uint64_t ram_total, uint64_t ram_free, int ram_usage, const char * checksum, const bool replace);
 
 // Save HW info into DB.
-int wdb_hardware_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * serial, const char * cpu_name, int cpu_cores, const char * cpu_mhz, uint64_t ram_total, uint64_t ram_free, int ram_usage);
+int wdb_hardware_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * serial, const char * cpu_name, int cpu_cores, double cpu_mhz, uint64_t ram_total, uint64_t ram_free, int ram_usage, const char * checksum, const bool replace);
 
 // Insert package info tuple. Return 0 on success or -1 on error.
-int wdb_package_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * format, const char * name, const char * priority, const char * section, long size, const char * vendor, const char * install_time, const char * version, const char * architecture, const char * multiarch, const char * source, const char * description, const char * location, const char triaged);
+int wdb_package_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * format, const char * name, const char * priority, const char * section, long size, const char * vendor, const char * install_time, const char * version, const char * architecture, const char * multiarch, const char * source, const char * description, const char * location, const char triaged, const char * checksum, const char * item_id, const bool replace);
 
 // Save Packages info into DB.
-int wdb_package_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * format, const char * name, const char * priority, const char * section, long size, const char * vendor, const char * install_time, const char * version, const char * architecture, const char * multiarch, const char * source, const char * description, const char * location);
+int wdb_package_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * format, const char * name, const char * priority, const char * section, long size, const char * vendor, const char * install_time, const char * version, const char * architecture, const char * multiarch, const char * source, const char * description, const char * location, const char* checksum, const char * item_id, const bool replace);
 
 // Insert hotfix info tuple. Return 0 on success or -1 on error.
-int wdb_hotfix_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char *hotfix);
+int wdb_hotfix_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char *hotfix, const char * checksum, const bool replace);
 
 // Save Hotfixes info into DB.
-int wdb_hotfix_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char *hotfix);
+int wdb_hotfix_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char *hotfix, const char * checksum, const bool replace);
 
 // Update the new Package info with the previous scan.
 int wdb_package_update(wdb_t * wdb, const char * scan_id);
@@ -876,22 +676,24 @@ int wdb_package_update(wdb_t * wdb, const char * scan_id);
 int wdb_package_delete(wdb_t * wdb, const char * scan_id);
 
 // Insert process info tuple. Return 0 on success or -1 on error.
-int wdb_process_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, int pid, const char * name, const char * state, int ppid, int utime, int stime, const char * cmd, const char * argvs, const char * euser, const char * ruser, const char * suser, const char * egroup, const char * rgroup, const char * sgroup, const char * fgroup, int priority, int nice, int size, int vm_size, int resident, int share, int start_time, int pgrp, int session, int nlwp, int tgid, int tty, int processor);
+int wdb_process_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, int pid, const char * name, const char * state, int ppid, int utime, int stime, const char * cmd, const char * argvs, const char * euser, const char * ruser, const char * suser, const char * egroup, const char * rgroup, const char * sgroup, const char * fgroup, int priority, int nice, int size, int vm_size, int resident, int share, int start_time, int pgrp, int session, int nlwp, int tgid, int tty, int processor, const char * checksum, const bool replace);
 
 // Save Process info into DB.
-int wdb_process_save(wdb_t * wdb, const char * scan_id, const char * scan_time, int pid, const char * name, const char * state, int ppid, int utime, int stime, const char * cmd, const char * argvs, const char * euser, const char * ruser, const char * suser, const char * egroup, const char * rgroup, const char * sgroup, const char * fgroup, int priority, int nice, int size, int vm_size, int resident, int share, int start_time, int pgrp, int session, int nlwp, int tgid, int tty, int processor);
+int wdb_process_save(wdb_t * wdb, const char * scan_id, const char * scan_time, int pid, const char * name, const char * state, int ppid, int utime, int stime, const char * cmd, const char * argvs, const char * euser, const char * ruser, const char * suser, const char * egroup, const char * rgroup, const char * sgroup, const char * fgroup, int priority, int nice, int size, int vm_size, int resident, int share, int start_time, int pgrp, int session, int nlwp, int tgid, int tty, int processor, const char* checksum, const bool replace);
 
 // Delete Process info about previous scan from DB.
 int wdb_process_delete(wdb_t * wdb, const char * scan_id);
 
 // Insert port info tuple. Return 0 on success or -1 on error.
-int wdb_port_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * protocol, const char * local_ip, int local_port, const char * remote_ip, int remote_port, int tx_queue, int rx_queue, int inode, const char * state, int pid, const char * process);
+int wdb_port_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * protocol, const char * local_ip, int local_port, const char * remote_ip, int remote_port, int tx_queue, int rx_queue, int inode, const char * state, int pid, const char * process, const char * checksum, const char * item_id, const bool replace);
 
 // Save port info into DB.
-int wdb_port_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * protocol, const char * local_ip, int local_port, const char * remote_ip, int remote_port, int tx_queue, int rx_queue, int inode, const char * state, int pid, const char * process);
+int wdb_port_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * protocol, const char * local_ip, int local_port, const char * remote_ip, int remote_port, int tx_queue, int rx_queue, int inode, const char * state, int pid, const char * process, const char * checksum, const char * item_id, const bool replace);
 
 // Delete port info about previous scan from DB.
 int wdb_port_delete(wdb_t * wdb, const char * scan_id);
+
+int wdb_syscollector_save2(wdb_t * wdb, wdb_component_t component, const char * payload);
 
 // Save CIS-CAT scan results.
 int wdb_ciscat_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * benchmark, const char * profile, int pass, int fail, int error, int notchecked, int unknown, int score);
@@ -910,6 +712,16 @@ void wdb_pool_append(wdb_t * wdb);
 
 void wdb_pool_remove(wdb_t * wdb);
 
+/**
+ * @brief Duplicate the database pool
+ *
+ * Gets a copy of the database pool. This function fills the member "id" and
+ * creates the mutex only.
+ *
+ * @return Pointer to a database list.
+ */
+wdb_t * wdb_pool_copy();
+
 void wdb_close_all();
 
 void wdb_commit_old();
@@ -926,6 +738,14 @@ int wdb_remove_database(const char * agent_id);
  * @return JSON array with the statement execution results. NULL On error.
  */
 cJSON* wdb_exec_row_stmt(sqlite3_stmt * stmt, int* status);
+
+/**
+ * @brief Function to execute an SQL statement without a response.
+ *
+ * @param [in] stmt The SQL statement to be executed.
+ * @return OS_SUCCESS on success, OS_INVALID on error.
+ */
+int wdb_exec_stmt_silent(sqlite3_stmt* stmt);
 
 /**
  * @brief Function to execute a SQL statement and save the result in a JSON array limited by size.
@@ -971,7 +791,8 @@ int wdb_stmt_cache(wdb_t * wdb, int index);
 
 int wdb_parse(char * input, char * output);
 
-int wdb_parse_syscheck(wdb_t * wdb, char * input, char * output);
+int wdb_parse_syscheck(wdb_t * wdb, wdb_component_t component, char * input, char * output);
+int wdb_parse_syscollector(wdb_t * wdb, const char * query, char * input, char * output);
 
 /**
  * @brief Parses a rootcheck command
@@ -1009,15 +830,19 @@ int wdb_parse_ciscat(wdb_t * wdb, char * input, char * output);
 
 int wdb_parse_sca(wdb_t * wdb, char * input, char * output);
 
+
 /**
- * @brief Function to get values from MITRE database.
+ * @brief Function to parse generic dbsync message operation, and generate
+ * a message to process in wazuh-db process.
  *
- * @param [in] wdb The MITRE struct database.
- * @param [in] input The query to get a value.
- * @param [out] output The response of the query.
- * @return 1 Success: response contains the value. 0 On error: the value was not found. -1 On error: invalid DB query syntax.
+ * @param wdb The Global struct database.
+ * @param input buffer input
+ * @param output buffer output, on success responses are:
+ *        "ok" -> If entry was processed
+ *        "error" -> If entry wasn't processed.
+ * @return -1 on error, and 0 on success.
  */
-int wdb_parse_mitre_get(wdb_t * wdb, char * input, char * output);
+int wdb_parse_dbsync(wdb_t * wdb, char * input, char * output);
 
 /**
  * @brief Function to parse the agent insert request.
@@ -1417,18 +1242,6 @@ int wdbi_query_clear(wdb_t * wdb, wdb_component_t component, const char * payloa
 int wdb_journal_wal(sqlite3 *db);
 
 /**
- * @brief Function to get a MITRE technique's name.
- *
- * @param [in] wdb The MITRE struct database.
- * @param [in] id MITRE technique's ID.
- * @param [out] output MITRE technique's name.
- * @retval 1 Sucess: name found on MITRE database.
- * @retval 0 On error: name not found on MITRE database.
- * @retval -1 On error: invalid DB query syntax.
- */
-int wdb_mitre_name_get(wdb_t *wdb, char *id, char *output);
-
-/**
  * @brief Function to insert an agent.
  *
  * @param [in] wdb The Global struct database.
@@ -1780,6 +1593,54 @@ cJSON* wdb_global_get_agents_to_disconnect(wdb_t *wdb, int last_agent_id, int ke
 int wdb_global_check_manager_keepalive(wdb_t *wdb);
 
 /**
+ * @brief Function to clean table and write new values, this is only
+ * for single row tables. Its necessary to have the table PKs well.
+ *
+ * @param wdb The Global struct database.
+ * @param kv_value Table metadata to build dynamic queries.
+ * @param data Values separated with pipe character '|'.
+ * @retval true when the database single row insertion is executed successfully.
+ * @retval false on error.
+ */
+bool wdb_single_row_insert_dbsync(wdb_t * wdb, struct kv const *kv_value, char *data);
+
+/**
+ * @brief Function to insert new rows with a dynamic query based on metadata.
+ * Its necessary to have the table PKs well.
+ *
+ * @param wdb The Global struct database.
+ * @param kv_value Table metadata to build dynamic queries.
+ * @param data Values separated with pipe character '|'.
+ * @retval true when the database insertion is executed successfully.
+ * @retval false on error.
+ */
+bool wdb_insert_dbsync(wdb_t * wdb, struct kv const *kv_value, char *data);
+
+/**
+ * @brief Function to modify existing rows with a dynamic query based on metadata.
+ * Its necessary to have the table PKs well.
+ *
+ * @param wdb The Global struct database.
+ * @param kv_value Table metadata to build dynamic queries.
+ * @param data Values separated with pipe character '|'.
+ * @retval true when the database update is executed successfully.
+ * @retval false on error.
+ */
+bool wdb_modify_dbsync(wdb_t * wdb, struct kv const *kv_value, char *data);
+
+/**
+ * @brief Function to delete rows with a dynamic query based on metadata.
+ * Its necessary to have the table PKs well.
+ *
+ * @param wdb The Global struct database.
+ * @param kv_value Table metadata to build dynamic queries.
+ * @param data Values separated with pipe character '|'.
+ * @retval true when the database delete is executed successfully.
+ * @retval false on error.
+ */
+bool wdb_delete_dbsync(wdb_t * wdb, struct kv const *kv_value, char *data);
+
+/**
  * @brief Function to parse the insert upgrade request.
  *
  * @param [in] wdb The global struct database.
@@ -1856,6 +1717,39 @@ int wdb_parse_task_set_timeout(wdb_t* wdb, const cJSON *parameters, char* output
  *        -1 On error: response contains "err" and an error description.
  */
 int wdb_parse_task_delete_old(wdb_t* wdb, const cJSON *parameters, char* output);
+
+/**
+ * @brief Function to parse the vuln_cve requests.
+ *
+ * @param [in] wdb The global struct database.
+ * @param [in] input String with the action and the data if needed.
+ * @param [out] output Response of the query.
+ * @return 0 Success: response contains "ok".
+ *        -1 On error: response contains "err" and an error description.
+ */
+ int wdb_parse_vuln_cve(wdb_t* wdb, char* input, char* output);
+
+ /**
+ * @brief Function to parse the vuln_cve insert action.
+ *
+ * @param [in] wdb The global struct database.
+ * @param [in] input String with the the data in json format.
+ * @param [out] output Response of the query.
+ * @return 0 Success: response contains "ok".
+ *        -1 On error: response contains "err" and an error description.
+ */
+ int wdb_parse_agents_insert_vuln_cve(wdb_t* wdb, char* input, char* output);
+
+/**
+ * @brief Function to parse the vuln_cve clear action.
+ *
+ * @param [in] wdb The global struct database.
+ * @param [out] output Response of the query.
+ * @return 0 Success: response contains "ok".
+ *        -1 On error: response contains "err" and an error description.
+ */
+ int wdb_parse_agents_clear_vuln_cve(wdb_t* wdb, char* output);
+
 
 /**
  * Update old tasks with status in progress to status timeout

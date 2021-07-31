@@ -1,6 +1,6 @@
 /*
  * Wazuh Integration with Osquery
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * April 5, 2018.
  *
  * This program is free software; you can redistribute it
@@ -50,7 +50,9 @@ const wm_context WM_OSQUERYMONITOR_CONTEXT = {
     "osquery",
     (wm_routine)wm_osquery_monitor_main,
     (wm_routine)(void *)wm_osquery_monitor_destroy,
-    (cJSON * (*)(const void *))wm_osquery_dump
+    (cJSON * (*)(const void *))wm_osquery_dump,
+    NULL,
+    NULL
 };
 
 void *Read_Log(wm_osquery_monitor_t * osquery)
@@ -295,11 +297,19 @@ void *Execute_Osquery(wm_osquery_monitor_t *osquery)
 
         // Run osquery
 
-        if (wfd = wpopenl(osqueryd_path, W_BIND_STDERR | W_APPEND_POOL, osqueryd_path, config_path, NULL), !wfd) {
+        if (wfd = wpopenl(osqueryd_path, W_BIND_STDERR, osqueryd_path, config_path, NULL), !wfd) {
             mwarn("Couldn't execute osquery (%s). Sleeping for 10 minutes.", osqueryd_path);
             sleep(600);
             continue;
         }
+
+#ifdef WIN32
+        wm_append_handle(wfd->pinfo.hProcess);
+#else
+        if (0 <= wfd->pid) {
+            wm_append_sid(wfd->pid);
+        }
+#endif
 
         time_started = time(NULL);
 
@@ -349,6 +359,14 @@ void *Execute_Osquery(wm_osquery_monitor_t *osquery)
                 }
             }
         }
+
+#ifdef WIN32
+        wm_remove_handle(wfd->pinfo.hProcess);
+#else
+        if (0 <= wfd->pid) {
+            wm_remove_sid(wfd->pid);
+        }
+#endif
 
         // If this point is reached, osquery exited
         int wp_closefd = wpclose(wfd);
@@ -418,7 +436,7 @@ int wm_osquery_decorators(wm_osquery_monitor_t * osquery)
 
     os_calloc(1, sizeof(wlabel_t), labels);
 
-    if (ReadConfig(CLABELS, DEFAULTCPATH, &labels, NULL) < 0)
+    if (ReadConfig(CLABELS, OSSECCONF, &labels, NULL) < 0)
         goto end;
 
 #ifdef CLIENT
@@ -480,11 +498,7 @@ int wm_osquery_decorators(wm_osquery_monitor_t * osquery)
 
     free(osquery->config_path);
 
-#ifdef WIN32
     os_strdup(TMP_CONFIG_PATH, osquery->config_path);
-#else
-    os_strdup(DEFAULTDIR "/" TMP_CONFIG_PATH, osquery->config_path);
-#endif
 
     // Write new configuration
 
@@ -554,11 +568,7 @@ int wm_osquery_packs(wm_osquery_monitor_t *osquery)
 
     free(osquery->config_path);
 
-#ifdef WIN32
     os_strdup(TMP_CONFIG_PATH, osquery->config_path);
-#else
-    os_strdup(DEFAULTDIR "/" TMP_CONFIG_PATH, osquery->config_path);
-#endif
 
     // Write new configuration
 
@@ -587,7 +597,7 @@ void *wm_osquery_monitor_main(wm_osquery_monitor_t *osquery)
 #ifndef WIN32
     // Connect to queue
 
-    osquery->queue_fd = StartMQ(DEFAULTQPATH, WRITE, INFINITE_OPENQ_ATTEMPTS);
+    osquery->queue_fd = StartMQ(DEFAULTQUEUE, WRITE, INFINITE_OPENQ_ATTEMPTS);
     if (osquery->queue_fd < 0) {
         mterror(WM_OSQUERYMONITOR_LOGTAG, "Can't connect to queue. Closing module.");
         return NULL;

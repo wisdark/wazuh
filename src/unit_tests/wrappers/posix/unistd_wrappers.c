@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it
@@ -16,11 +16,17 @@
 #include <stdio.h>
 #include "../common.h"
 
-
 int __wrap_unlink(const char *file) {
     check_expected_ptr(file);
     return mock();
 }
+
+#ifdef WIN32
+int wrap__unlink(const char *file) {
+    check_expected_ptr(file);
+    return mock();
+}
+#endif
 
 int __wrap_close(__attribute__ ((__unused__)) int fd) {
     return 1;

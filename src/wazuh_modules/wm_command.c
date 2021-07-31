@@ -1,6 +1,6 @@
 /*
  * Wazuh Module for custom command execution
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * October 26, 2017.
  *
  * This program is free software; you can redistribute it
@@ -21,7 +21,9 @@ const wm_context WM_COMMAND_CONTEXT = {
     "command",
     (wm_routine)wm_command_main,
     (wm_routine)(void *)wm_command_destroy,
-    (cJSON * (*)(const void *))wm_command_dump
+    (cJSON * (*)(const void *))wm_command_dump,
+    NULL,
+    NULL
 };
 
 // Module module main function. It won't return.
@@ -38,7 +40,7 @@ void * wm_command_main(wm_command_t * command) {
     char * timestamp = NULL;
 
     if (!command->enabled) {
-        mtwarn(WM_COMMAND_LOGTAG, "Module command:%s is disabled. Exiting.", command->tag);
+        mtinfo(WM_COMMAND_LOGTAG, "Module command:%s is disabled. Exiting.", command->tag);
         pthread_exit(0);
     }
 
@@ -54,7 +56,7 @@ void * wm_command_main(wm_command_t * command) {
 
         command_cpy = strdup(command->command);
 
-        argv = wm_strtok(command_cpy);
+        argv = w_strtok(command_cpy);
     #ifndef __clang_analyzer__
         if (!argv) {
             merror("Could not split command: %s", command_cpy);
@@ -73,7 +75,7 @@ void * wm_command_main(wm_command_t * command) {
             os_malloc(strlen(full_path) + strlen(command->command) - strlen(binary) + 1, command->full_command);
         }
         snprintf(command->full_command, strlen(full_path) + strlen(command->command) - strlen(binary) + 1, "%s %s", full_path, command->command + strlen(binary) + 1);
-        free(argv);
+        free_strarray(argv);
 
 
         if (command->md5_hash && command->md5_hash[0]) {
@@ -153,7 +155,7 @@ void * wm_command_main(wm_command_t * command) {
 #ifndef WIN32
     if (!command->ignore_output) {
 
-        command->queue_fd = StartMQ(DEFAULTQPATH, WRITE, INFINITE_OPENQ_ATTEMPTS);
+        command->queue_fd = StartMQ(DEFAULTQUEUE, WRITE, INFINITE_OPENQ_ATTEMPTS);
 
         if (command->queue_fd < 0) {
             mterror(WM_COMMAND_LOGTAG, "Can't connect to queue.");
@@ -192,7 +194,7 @@ void * wm_command_main(wm_command_t * command) {
             }
             break;
         case WM_ERROR_TIMEOUT:
-            mterror(WM_COMMAND_LOGTAG, "%s: Timeout overtaken. You can modify your command timeout at ossec.conf. Exiting...", command->tag);
+            mterror(WM_COMMAND_LOGTAG, "%s: Timeout overtaken. You can modify your command timeout at '%s'. Exiting...", command->tag, OSSECCONF);
             break;
 
         default:

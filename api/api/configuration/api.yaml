@@ -3,9 +3,6 @@
 # host: 0.0.0.0
 # port: 55000
 
-# Set this option to "yes" in case the API is running behind a proxy server. Values: yes, no
-# behind_proxy_server: no
-
 # Advanced configuration
 
 # https:
@@ -14,6 +11,12 @@
 #  cert: "api/configuration/ssl/server.crt"
 #  use_ca: False
 #  ca: "api/configuration/ssl/ca.crt"
+#  ssl_protocol: "TLSv1.2"
+#  ssl_ciphers: ""
+
+# Modify API's intervals (time in seconds)
+# intervals:
+#   request_timeout: 10
 
 # Logging configuration
 # Values for API log level: disabled, info, warning, error, debug, debug2 (each level includes the previous level).
@@ -43,9 +46,21 @@
 # Force the use of authd when adding and removing agents. Values: yes, no
 # use_only_authd: no
 
-# Drop privileges (Run as ossec user)
+# Drop privileges (Run as wazuh user)
 # drop_privileges: yes
 
 # Enable features under development
 # experimental_features: no
 
+# Maximum body size that the API can accept, in bytes (0 -> limitless)
+# max_upload_size: 10485760
+
+# Enable remote commands
+# remote_commands:
+#   localfile:
+#     enabled: yes
+#     exceptions: []
+#
+#   wodle_command:
+#     enabled: yes
+#     exceptions: []

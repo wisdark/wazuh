@@ -1,6 +1,6 @@
 /*
  * Wazuh Module for Task management.
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * July 13, 2020.
  *
  * This program is free software; you can redistribute it
@@ -33,7 +33,9 @@ const wm_context WM_TASK_MANAGER_CONTEXT = {
     TASK_MANAGER_WM_NAME,
     (wm_routine)wm_task_manager_main,
     (wm_routine)(void *)wm_task_manager_destroy,
-    (cJSON * (*)(const void *))wm_task_manager_dump
+    (cJSON * (*)(const void *))wm_task_manager_dump,
+    NULL,
+    NULL
 };
 
 size_t wm_task_manager_dispatch(const char *msg, char **response) {
@@ -105,7 +107,7 @@ STATIC int wm_task_manager_init(wm_task_manager *task_config) {
     w_create_thread(wm_task_manager_clean_tasks, task_config);
 
     /* Set the queue */
-    if (sock = OS_BindUnixDomain(DEFAULTDIR TASK_QUEUE, SOCK_STREAM, OS_MAXSTR), sock < 0) {
+    if (sock = OS_BindUnixDomain(TASK_QUEUE, SOCK_STREAM, OS_MAXSTR), sock < 0) {
         mterror(WM_TASK_MANAGER_LOGTAG, MOD_TASK_CREATE_SOCK_ERROR, TASK_QUEUE, strerror(errno)); // LCOV_EXCL_LINE
         pthread_exit(NULL);
     }

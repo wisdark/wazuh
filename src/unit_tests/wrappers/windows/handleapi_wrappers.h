@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it
@@ -17,5 +17,7 @@
 #define CloseHandle wrap_CloseHandle
 
 WINBOOL wrap_CloseHandle (HANDLE hObject);
+
+void expect_CloseHandle_call(HANDLE object, int ret);
 
 #endif

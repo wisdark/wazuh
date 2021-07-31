@@ -1,17 +1,11 @@
 ---
 - actions:
-  - manager:read_file
-  resources:
-  - file:path:*
-  effect: allow
-- actions:
-  - manager:read_api_config
-  - manager:update_api_config
+  - manager:update_config
   resources:
   - "*:*:*"
   effect: allow
 - actions:
-  - manager:delete_file
+  - manager:read_api_config
   resources:
-  - file:path:etc/rules/local_rules.xml
+  - "*:*:*"
   effect: allow

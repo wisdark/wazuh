@@ -1,19 +1,18 @@
 #!/usr/bin/env python
-# Copyright (C) 2015-2019, Wazuh Inc.
+# Copyright (C) 2015-2021, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is a free software; you can redistribute it and/or modify it under the terms of GPLv2
 
-import jsonschema as js
 import os
+
+import jsonschema as js
 import pytest
-from unittest.mock import patch
 
-from api.validator import check_cdb_list, check_exp, check_xml, _alphanumeric_param, \
-    _array_numbers, _array_names, _boolean, _dates, _empty_boolean, _hashes,\
-    _ips, _names, _numbers, _wazuh_key, _paths, _query_param, _ranges, _search_param,\
-    _sort_param, _timeframe_type, _type_format, _yes_no_boolean, format_etc_file_path, _etc_file_path, \
-    _etc_and_ruleset_file_path, _etc_and_ruleset_path, allowed_fields, is_safe_path
-
+from api.validator import check_exp, check_xml, _alphanumeric_param, \
+    _array_numbers, _array_names, _boolean, _dates, _empty_boolean, _hashes, \
+    _ips, _names, _numbers, _wazuh_key, _paths, _query_param, _ranges, _search_param, \
+    _sort_param, _timeframe_type, _type_format, _yes_no_boolean, _get_dirnames_path, \
+    allowed_fields, is_safe_path
 
 test_data_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data')
 
@@ -26,8 +25,8 @@ test_data_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data
     (100, _alphanumeric_param),
     # names
     ('alphanumeric1_param2', _alphanumeric_param),
-    ('file_1,file_2,file-3', _array_names),
-    ('file-test_name1', _names),
+    ('file_%1,file_2,file-3', _array_names),
+    ('file%1-test_name1', _names),
     # IPs
     ('192.168.122.255', _ips),
     ('any', _ips),
@@ -60,9 +59,7 @@ test_data_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data
     ('/var/ossec/etc/internal_options', _paths),
     ('/var/ossec/etc/rules/local_rules.xml', _paths),
     # relative paths
-    ('etc/ossec.conf', _etc_file_path),
-    ('etc/rules/new_rules2.xml', _etc_and_ruleset_file_path),
-    ('etc/lists/new_lists3', _etc_and_ruleset_path),
+    ('etc/lists/new_lists3', _get_dirnames_path),
 ])
 def test_validation_check_exp_ok(exp, regex_name):
     """Verify that check_exp() returns True with correct params"""
@@ -107,55 +104,15 @@ def test_validation_check_exp_ok(exp, regex_name):
     ('/var/ossec/etc/internal_options$', _paths),
     ('/var/ossec/etc/rules/local_rules.xml()', _paths),
     # relative paths
-    ('etc/internal_options', _etc_and_ruleset_path),
-    ('../../path', _etc_and_ruleset_path),
-    ('/var/ossec/etc/lists/new_lists3', _etc_and_ruleset_path),
-    ('../ossec', _etc_and_ruleset_path),
-    ('etc/rules/../../../dir', _etc_and_ruleset_path)
+    ('etc/internal_options', _get_dirnames_path),
+    ('../../path', _get_dirnames_path),
+    ('/var/ossec/etc/lists/new_lists3', _get_dirnames_path),
+    ('../ossec', _get_dirnames_path),
+    ('etc/rules/../../../dir', _get_dirnames_path)
 ])
 def test_validation_check_exp_ko(exp, regex_name):
     """Verify that check_exp() returns False with incorrect params"""
     assert not check_exp(exp, regex_name)
-
-
-@pytest.mark.parametrize('relative_path', [
-    ('etc/rules/new_rule.xml'),
-    ('etc/decoders/new_decoder.xml'),
-    ('etc/lists/new_list'),
-    ('etc/ossec.conf')
-])
-def test_validation_paths_ok(relative_path):
-    """Verify that format_etc_file_path() returns True with correct params"""
-    assert format_etc_file_path(relative_path)
-
-
-@pytest.mark.parametrize('relative_path', [
-    ('etc/rules/new_rule'),
-    ('../../bin'),
-    ('etc/decoders/decoder'),
-    ('etc/internal_options')
-])
-def test_validation_paths_ko(relative_path):
-    """Verify that format_etc_file_path() returns False with incorrect params"""
-    assert not format_etc_file_path(relative_path)
-
-
-@pytest.mark.parametrize('cdb_list', [
-    ('audit-wazuh-w:write \n audit-wazuh-r:read \n audit-wazuh-a:attribute \n'
-     'audit-wazuh-x:execute \n audit-wazuh-c:command')
-])
-def test_validation_cdb_list_ok(cdb_list):
-    """Verify that check_cdb_list() returns True with correct params"""
-    assert check_cdb_list(cdb_list)
-
-
-@pytest.mark.parametrize('cdb_list', [
-    (':write \n audit-wazuh-r:read \n audit-wazuh-a:attribute'),
-    ('audit-wazuh:write \n $variable:read \n audit-wazuh-a:attribute')
-])
-def test_validation_cdb_list_ko(cdb_list):
-    """Verify that check_cdb_list() returns False with incorrect params"""
-    assert not check_cdb_list(cdb_list)
 
 
 @pytest.mark.parametrize('xml_file', [
@@ -189,17 +146,22 @@ def test_allowed_fields():
 def test_is_safe_path():
     """Verify that is_safe_path() works as expected"""
     assert is_safe_path('/api/configuration/api.yaml')
-    assert not is_safe_path('/api/configuration/api.yaml', basedir='non-existent')
-    assert is_safe_path('api/configuration/api.yaml', follow_symlinks=False)
+    assert is_safe_path('etc/rules/local_rules.xml', relative=False)
+    assert is_safe_path('etc/ossec.conf', relative=True)
+    assert is_safe_path('ruleset/decoders/decoder.xml', relative=False)
+    assert not is_safe_path('/api/configuration/api.yaml', basedir='non-existent', relative=False)
+    assert not is_safe_path('etc/lists/../../../../../../var/ossec/api/scripts/wazuh-apid.py', relative=True)
+    assert not is_safe_path('./etc/rules/rule.xml', relative=False)
+    assert not is_safe_path('./ruleset/decoders/decoder.xml./', relative=False)
 
 
 @pytest.mark.parametrize('value, format', [
     ("test.33alphanumeric:", "alphanumeric"),
     ("cGVwZQ==", "base64"),
-    ("etc/lists/list.csv", "etc_file_path"),
-    ("etc/decoders/dec35.xml", "etc_and_ruleset_file_path"),
-    ("etc/decoders/test/dec35.xml", "etc_and_ruleset_file_path"),
-    ("etc/decoders", "etc_and_ruleset_path"),
+    ("etc/lists/list_me", "delete_files_path"),
+    ("etc/decoders/dec35.xml", "edit_files_path"),
+    ("etc/decoders/test/dec35.xml", "edit_files_path"),
+    ("etc/decoders", "get_dirnames_path"),
     ("AB0264EA00FD9BCDCF1A5B88BC1BDEA4", "hash"),
     ("file_test-33.xml", "names"),
     ("651403650840", "numbers"),
@@ -224,6 +186,9 @@ def test_is_safe_path():
     ("12345", "numbers_or_empty"),
     ("", "numbers_or_empty"),
     ("group_name.test", "group_names"),
+    ("cdb_test", "cdb_filename_path"),
+    ("local_rules.xml", "xml_filename_path"),
+    ("local_rules.xml,test_rule.xml", "xml_filename"),
 ])
 def test_validation_json_ok(value, format):
     """Verify that each value is of the indicated format."""
@@ -235,8 +200,6 @@ def test_validation_json_ok(value, format):
 @pytest.mark.parametrize('value, format', [
     ("~test.33alphanumeric:", "alphanumeric"),
     ("cGVwZQ===", "base64"),
-    ("etc/../lists/list.csv", "etc_and_ruleset_file_path"),
-    ("/etc/decoders/dec35.xml", "etc_and_ruleset_file_path"),
     ("AB0264EA00FD9BCDCF1A5B88BC1BDEA4.", "hash"),
     ("../../file_test-33.xml", "names"),
     ("a651403650840", "numbers"),
@@ -257,6 +220,12 @@ def test_validation_json_ok(value, format):
     ("test_name test", "names_or_empty"),
     ("12345abc", "numbers_or_empty"),
     ("group_name.test ", "group_names"),
+    ("cdb_test../../test", "cdb_filename_path"),
+    ("cdb_test.test", "cdb_filename_path"),
+    ("local_rules../../.xml", "xml_filename_path"),
+    ("local_rules", "xml_filename_path"),
+    ("local_rules.xml,../test_rule.xml", "xml_filename"),
+    ("local_rules.xml,test_rule", "xml_filename"),
 ])
 def test_validation_json_ko(value, format):
     """Verify that each value is not of the indicated format."""

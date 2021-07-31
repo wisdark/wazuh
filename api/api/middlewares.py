@@ -1,10 +1,9 @@
-# Copyright (C) 2015-2020, Wazuh Inc.
+# Copyright (C) 2015-2021, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is a free software; you can redistribute it and/or modify it under the terms of GPLv2
 
 import concurrent.futures
 from json import JSONDecodeError
-
 from logging import getLogger
 from time import time
 
@@ -12,10 +11,14 @@ from aiohttp import web
 from aiohttp.web_exceptions import HTTPException
 from connexion.exceptions import ProblemException, OAuthProblem, Unauthorized
 from connexion.problem import problem as connexion_problem
+from secure import SecureHeaders
 
 from api.configuration import api_conf
 from api.util import raise_if_exc
 from wazuh.core.exception import WazuhTooManyRequests, WazuhPermissionError
+
+# API secure headers
+secure_headers = SecureHeaders(server="Wazuh", csp="none", xfo="DENY")
 
 logger = getLogger('wazuh-api')
 pool = concurrent.futures.ThreadPoolExecutor()
@@ -26,6 +29,13 @@ async def set_user_name(request, handler):
     if 'token_info' in request:
         request['user'] = request['token_info']['sub']
     return await handler(request)
+
+
+@web.middleware
+async def set_secure_headers(request, handler):
+    resp = await handler(request)
+    secure_headers.aiohttp(resp)
+    return resp
 
 
 ip_stats = dict()
@@ -69,10 +79,11 @@ async def request_logging(request, handler):
     """Add request info to logging."""
     logger.debug2(f'Receiving headers {dict(request.headers)}')
     try:
-        body = f' and body {await request.json()}'
+        body = await request.json()
+        request['body'] = body
     except JSONDecodeError:
-        body = ''
-    logger.debug(f'Receiving request "{request.method} {request.path}" with parameters {dict(request.query)}{body}')
+        pass
+
     return await handler(request)
 
 
@@ -97,7 +108,8 @@ async def prevent_denial_of_service(request, max_requests=300):
 @web.middleware
 async def security_middleware(request, handler):
     access_conf = api_conf['access']
-    await prevent_denial_of_service(request, max_requests=access_conf['max_request_per_minute'])
+    if access_conf['max_request_per_minute'] > 0:
+        await prevent_denial_of_service(request, max_requests=access_conf['max_request_per_minute'])
     await unlock_ip(request=request, block_time=access_conf['block_time'])
 
     return await handler(request)
@@ -146,6 +158,6 @@ async def response_postprocessing(request, handler):
             problem = connexion_problem(401, "Unauthorized", type="about:blank",
                                         detail="No authorization token provided")
     finally:
-        if problem:
-            remove_unwanted_fields()
-            return problem
+        problem and remove_unwanted_fields()
+
+    return problem

@@ -1,6 +1,6 @@
 /*
  * Wazuh Module for Security Configuration Assessment
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * November 25, 2018.
  *
  * This program is free software; you can redistribute it
@@ -28,10 +28,6 @@
 #define WM_SCA_COND_INV       0x010
 #define WM_SCA_STAMP          "sca"
 #define WM_CONFIGURATION_ASSESSMENT_DB_DUMP                   "sca-dump"
-
-#ifdef WIN32
-HKEY wm_sca_sub_tree;
-#endif
 
 typedef struct wm_sca_policy_t {
     unsigned int enabled:1;
@@ -71,6 +67,7 @@ extern const wm_context WM_SCA_CONTEXT;
 // Read configuration and return a module (if enabled) or NULL (if disabled)
 int wm_sca_read(const OS_XML *xml,xml_node **nodes, wmodule *module);
 char *wm_sca_hash_integrity_file(const char *file);
+char **wm_sort_variables(const cJSON * const variables);
 #ifdef WIN32
 void wm_sca_push_request_win(char *msg);
 #endif

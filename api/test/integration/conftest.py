@@ -21,6 +21,11 @@ login_url = f"{common['protocol']}://{common['host']}:{common['port']}/{common['
 basic_auth = f"{common['user']}:{common['pass']}".encode()
 login_headers = {'Content-Type': 'application/json',
                  'Authorization': f'Basic {b64encode(basic_auth).decode()}'}
+environment_status = None
+
+
+def pytest_addoption(parser):
+    parser.addoption('--nobuild', action='store_false', help='Do not run docker-compose build.')
 
 
 def get_token_login_api():
@@ -44,30 +49,51 @@ def pytest_tavern_beta_before_every_test_run(test_dict, variables):
     variables["test_login_token"] = get_token_login_api()
 
 
-def build_and_up(interval: int = 10):
+def build_and_up(interval: int = 10, interval_build_env: int = 10, build: bool = True):
     """Build all Docker environments needed for the current test.
 
     Parameters
     ----------
     interval : int
-        Time interval between every healthcheck
+        Time interval between every healthcheck.
+    interval_build_env : int
+        Time interval between every docker environment healthcheck.
+    build : bool
+        Flag to indicate if images need to be built.
 
     Returns
     -------
     dict
-        Dict with healthchecks parameters
+        Dict with healthchecks parameters.
     """
     pwd = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'env')
     os.chdir(pwd)
     values = {
         'interval': interval,
-        'max_retries': 30,
+        'max_retries': 60,
         'retries': 0
     }
-    current_process = subprocess.Popen(["docker-compose", "build"])
-    current_process.wait()
-    current_process = subprocess.Popen(["docker-compose", "up", "-d"])
-    current_process.wait()
+    values_build_env = {
+        'interval': interval_build_env,
+        'max_retries': 3,
+        'retries': 0
+    }
+    # Get current branch
+    current_branch = '/'.join(open('../../../../.git/HEAD', 'r').readline().split('/')[2:])
+    while values_build_env['retries'] < values_build_env['max_retries']:
+        if build:
+            current_process = subprocess.Popen(["docker-compose", "build", "--build-arg",
+                                                f"WAZUH_BRANCH={current_branch}"])
+            current_process.wait()
+        current_process = subprocess.Popen(["docker-compose", "up", "-d"])
+        current_process.wait()
+
+        if current_process.returncode == 0:
+            time.sleep(values_build_env['interval'])
+            break
+        else:
+            time.sleep(values_build_env['interval'])
+            values_build_env['retries'] += 1
 
     return values
 
@@ -100,9 +126,12 @@ def check_health(interval: int = 10, node_type: str = 'manager', agents: list = 
     """
     time.sleep(interval)
     if node_type == 'manager':
-        health = subprocess.check_output(
-            "docker inspect env_wazuh-master_1 -f '{{json .State.Health.Status}}'", shell=True)
-        return False if not health.startswith(b'"healthy"') else True
+        for node in ['master', 'worker1', 'worker2']:
+            health = subprocess.check_output(
+                f"docker inspect env_wazuh-{node}_1 -f '{{{{json .State.Health.Status}}}}'", shell=True)
+            if not health.startswith(b'"healthy"'):
+                return False
+        return True
     elif node_type == 'agent':
         for agent in agents:
             health = subprocess.check_output(
@@ -110,12 +139,6 @@ def check_health(interval: int = 10, node_type: str = 'manager', agents: list = 
             if not health.startswith(b'"healthy"'):
                 return False
         return True
-
-
-def create_tmp_folders():
-    """Create basic temporal structure for integration tests."""
-    os.makedirs(os.path.join(current_path, 'env', 'configurations', 'tmp', 'manager'), exist_ok=True)
-    os.makedirs(os.path.join(current_path, 'env', 'configurations', 'tmp', 'agent'), exist_ok=True)
 
 
 def general_procedure(module: str):
@@ -127,39 +150,15 @@ def general_procedure(module: str):
     module : str
         Name of the tested module
     """
-    folder_content = os.path.join(current_path, 'env', 'configurations', module, '*')
+    base_content = os.path.join(current_path, 'env', 'configurations', 'base', '*')
+    module_content = os.path.join(current_path, 'env', 'configurations', module, '*')
     tmp_content = os.path.join(current_path, 'env', 'configurations', 'tmp')
     os.makedirs(tmp_content, exist_ok=True)
-    os.popen(f'cp -rf {folder_content} {tmp_content}')
-    healthcheck_procedure(module)
+    os.popen(f'cp -rf {base_content} {tmp_content}').close()
+    os.popen(f'cp -rf {module_content} {tmp_content}').close()
 
 
-def healthcheck_procedure(module: str):
-    """Copy base healthchecks for managers and agents.
-    If the environment need a specific one, the base healthcheck will be replaced.
-
-    Parameters
-    ----------
-    module : str
-        Name of the tested module
-    """
-    manager_folder = os.path.join(current_path, 'env', 'configurations', module, 'manager', 'healthcheck')
-    agent_folder = os.path.join(current_path, 'env', 'configurations', module, 'agent', 'healthcheck')
-    master_base_folder = os.path.join(current_path, 'env', 'configurations', 'base', 'manager', 'healthcheck')
-    agent_base_folder = os.path.join(current_path, 'env', 'configurations', 'base', 'agent', 'healthcheck')
-    tmp_content = os.path.join(current_path, 'env', 'configurations', 'tmp')
-
-    os.popen(f'cp -rf {master_base_folder} {os.path.join(tmp_content, "manager")}')
-    os.popen(f'cp -rf {agent_base_folder} {os.path.join(tmp_content, "agent")}')
-    # Avoid race condition
-    time.sleep(2)
-    if os.path.exists(manager_folder):
-        os.popen(f'cp -rf {manager_folder} {os.path.join(tmp_content, "manager")}')
-    if os.path.exists(agent_folder):
-        os.popen(f'cp -rf {agent_folder} {os.path.join(tmp_content, "agent")}')
-
-
-def change_rbac_mode(rbac_mode: str):
+def change_rbac_mode(rbac_mode: str = 'white'):
     """Modify security.yaml in base folder to change RBAC mode for the current test.
 
     Parameters
@@ -167,23 +166,28 @@ def change_rbac_mode(rbac_mode: str):
     rbac_mode : str
         RBAC Mode: Black (by default: all allowed), White (by default: all denied)
     """
-    with open(os.path.join(current_path, 'env', 'configurations', 'base', 'manager', 'security.yaml'),
-              'r+') as rbac_conf:
+    with open(os.path.join(current_path, 'env', 'configurations', 'base', 'manager', 'config', 'api', 'configuration',
+                           'security', 'security.yaml'), 'r+') as rbac_conf:
         content = rbac_conf.read()
         rbac_conf.seek(0)
         rbac_conf.write(re.sub(r'rbac_mode: (white|black)', f'rbac_mode: {rbac_mode}', content))
 
 
+def enable_white_mode():
+    """Set white mode for non-rbac integration tests
+    """
+    with open(os.path.join(current_path, 'env', 'configurations', 'base', 'manager', 'config', 'api', 'configuration',
+                           'security', 'security.yaml'), '+r') as rbac_conf:
+        content = rbac_conf.read()
+        rbac_conf.seek(0)
+        rbac_conf.write(re.sub(r'rbac_mode: (white|black)', f'rbac_mode: white', content))
+
+
 def clean_tmp_folder():
     """Remove temporal folder used te configure the environment and set RBAC mode to Black.
     """
-    with open(os.path.join(current_path, 'env', 'configurations', 'base', 'manager', 'security.yaml'),
-              'r+') as rbac_conf:
-        content = rbac_conf.read()
-        rbac_conf.seek(0)
-        rbac_conf.write(re.sub(r'rbac_mode: (white|black)', f'rbac_mode: black', content))
-
-    shutil.rmtree(os.path.join(current_path, 'env', 'configurations', 'tmp'), ignore_errors=True)
+    shutil.rmtree(os.path.join(current_path, 'env', 'configurations', 'tmp', 'manager'), ignore_errors=True)
+    shutil.rmtree(os.path.join(current_path, 'env', 'configurations', 'tmp', 'agent'), ignore_errors=True)
 
 
 def generate_rbac_pair(index: int, permission: dict):
@@ -221,7 +225,8 @@ def rbac_custom_config_generator(module: str, rbac_mode: str):
     rbac_mode : str
         RBAC Mode: Black (by default: all allowed), White (by default: all denied)
     """
-    custom_rbac_path = os.path.join(current_path, 'env', 'configurations', 'tmp', 'manager', 'custom_rbac_schema.sql')
+    custom_rbac_path = os.path.join(current_path, 'env', 'configurations', 'tmp', 'manager',
+                                    'configuration_files', 'custom_rbac_schema.sql')
 
     try:
         with open(os.path.join(current_path, 'env', 'configurations', 'rbac', module,
@@ -233,14 +238,37 @@ def rbac_custom_config_generator(module: str, rbac_mode: str):
     sql_sentences = list()
     sql_sentences.append('PRAGMA foreign_keys=OFF;\n')
     sql_sentences.append('BEGIN TRANSACTION;\n')
-    sql_sentences.append('DELETE FROM roles_policies WHERE role_id=99;\n')
+    sql_sentences.append('DELETE FROM user_roles WHERE user_id=99;\n')  # Current DB status: User 99 - Role 1 (Base)
     for index, permission in enumerate(list_custom_policy):
         sql_sentences.extend(generate_rbac_pair(index, permission))
+    sql_sentences.append('INSERT INTO user_roles VALUES(99,99,99,0,\'1970-01-01 00:00:00\');')
     sql_sentences.append('COMMIT')
 
     os.makedirs(os.path.dirname(custom_rbac_path), exist_ok=True)
     with open(custom_rbac_path, 'w') as rbac_config:
         rbac_config.writelines(sql_sentences)
+
+
+def save_logs(test_name):
+    """Save api, cluster and ossec log if tests fail.
+
+    Parameters
+    ----------
+    test_name : str
+        Name of the test.
+    """
+    logs_path = '/var/ossec/logs'
+    logs = ['api.log', 'cluster.log', 'ossec.log']
+    test_logs_path = os.path.join(current_path, '_test_results', 'logs')
+    os.makedirs(test_logs_path, exist_ok=True)
+    for log in logs:
+        try:
+            subprocess.check_output(
+                f"docker cp env_wazuh-master_1:{os.path.join(logs_path, log)} "
+                f"{os.path.join(test_logs_path, f'{test_name}-{log}')}",
+                shell=True)
+        except:
+            continue
 
 
 @pytest.fixture(scope='session', autouse=True)
@@ -260,25 +288,63 @@ def api_test(request):
     else:
         rbac_mode = None
         module = test_filename[1]
-    create_tmp_folders()
-    general_procedure(module)
+
+    def clean_up_env():
+        clean_tmp_folder()
+        if request.session.testsfailed > 0:
+            save_logs(f"{rbac_mode}_{module.split('.')[0]}" if rbac_mode else f"{module.split('.')[0]}")
+
+        # Get the environment current status
+        global environment_status
+        environment_status = get_health()
+        down_env()
+
+    request.addfinalizer(clean_up_env)
+
+    clean_tmp_folder()
 
     if rbac_mode:
         change_rbac_mode(rbac_mode)
         rbac_custom_config_generator(module, rbac_mode)
+    else:
+        enable_white_mode()
 
-    values = build_and_up(interval=10)
+    general_procedure(module)
+    values = build_and_up(interval=10, build=request.config.getoption('--nobuild'))
+
     while values['retries'] < values['max_retries']:
         managers_health = check_health(interval=values['interval'])
         agents_health = check_health(interval=values['interval'], node_type='agent', agents=list(range(1, 9)))
+        # Check if entrypoint was successful
+        try:
+            error_message = subprocess.check_output(["docker", "exec", "-t", "env_wazuh-master_1", "sh", "-c",
+                                                     "cat /entrypoint_error"]).decode().strip()
+            pytest.fail(error_message)
+        except subprocess.CalledProcessError:
+            pass
+
         if managers_health and agents_health:
             time.sleep(values['interval'])
-            yield
-            break
+            return
         else:
             values['retries'] += 1
-    clean_tmp_folder()
-    down_env()
+
+
+def get_health():
+    """Get the current status of the integration environment
+
+    Returns
+    -------
+    str
+        Current status
+    """
+    health = "\nEnvironment final status\n"
+    health += subprocess.check_output(
+        "docker ps --format 'table {{.Names}}\t{{.RunningFor}}\t{{.Status}}' --filter name=^env_wazuh",
+        shell=True).decode()
+    health += '\n'
+
+    return health
 
 
 # HTML report
@@ -366,6 +432,11 @@ def pytest_runtest_makereport(item, call):
 
     elif report.outcome == 'failed':
         results[report.location[0]]['error'] += 1
+
+    if report.when == 'setup' and \
+            report.longrepr and ('api_test did not yield a value' in report.longrepr.reprcrash.message or
+                                 'StopIteration' in report.longrepr.reprcrash.message):
+        report.sections.append(('Environment section', environment_status))
 
 
 def pytest_html_results_summary(prefix, summary, postfix):

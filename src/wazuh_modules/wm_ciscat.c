@@ -1,6 +1,6 @@
 /*
  * Wazuh Module for CIS-CAT
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * December, 2017.
  *
  * This program is free software; you can redistribute it
@@ -45,7 +45,9 @@ const wm_context WM_CISCAT_CONTEXT = {
     "cis-cat",
     (wm_routine)wm_ciscat_main,
     (wm_routine)(void *)wm_ciscat_destroy,
-    (cJSON * (*)(const void *))wm_ciscat_dump
+    (cJSON * (*)(const void *))wm_ciscat_dump,
+    NULL,
+    NULL
 };
 
 // CIS-CAT module main function. It won't return.
@@ -92,7 +94,7 @@ void* wm_ciscat_main(wm_ciscat *ciscat) {
                     skip_java = 1;
                 }
             #else
-                snprintf(java_fullpath, OS_MAXSTR - 1, "%s/%s", DEFAULTDIR, ciscat->java_path);
+                snprintf(java_fullpath, OS_MAXSTR - 1, "%s", ciscat->java_path);
             #endif
                 break;
             default:
@@ -114,6 +116,8 @@ void* wm_ciscat_main(wm_ciscat *ciscat) {
     // Define path where CIS-CAT is installed
 
     if (ciscat->ciscat_path) {
+        char pwd[PATH_MAX];
+
         switch (wm_relative_path(ciscat->ciscat_path)) {
             case 0:
                 // Full path
@@ -126,7 +130,12 @@ void* wm_ciscat_main(wm_ciscat *ciscat) {
                     snprintf(cis_path, OS_MAXSTR - 1, "%s\\%s", current, ciscat->ciscat_path);
                 }
             #else
-                snprintf(cis_path, OS_MAXSTR - 1, "%s/%s", DEFAULTDIR, ciscat->ciscat_path);
+                if (getcwd(pwd, sizeof(pwd)) == NULL) {
+                    mterror(WM_CISCAT_LOGTAG, "Could not get the current working directory: %s (%d)", strerror(errno), errno);
+                    ciscat->flags.error = 1;
+                } else {
+                    os_snprintf(cis_path, OS_MAXSTR - 1, "%s/%s", pwd, ciscat->ciscat_path);
+                }
             #endif
                 break;
             default:
@@ -170,7 +179,13 @@ void* wm_ciscat_main(wm_ciscat *ciscat) {
             if (id < 0)
                 id = -id;
         #else
-            int id = wm_sys_get_random_id();
+            char random_id[RANDOM_LENGTH];
+            snprintf(random_id, RANDOM_LENGTH - 1, "%u%u", os_random(), os_random());
+            int id = atoi(random_id);
+
+            if (id < 0) {
+                id = -id;
+            }
         #endif
 
             for (eval = ciscat->evals; eval; eval = eval->next) {
@@ -230,7 +245,7 @@ void wm_ciscat_setup(wm_ciscat *_ciscat) {
 
 #ifndef WIN32
 
-    queue_fd = StartMQ(DEFAULTQPATH, WRITE, INFINITE_OPENQ_ATTEMPTS);
+    queue_fd = StartMQ(DEFAULTQUEUE, WRITE, INFINITE_OPENQ_ATTEMPTS);
 
     if (queue_fd < 0) {
         mterror(WM_CISCAT_LOGTAG, "Can't connect to queue.");
@@ -413,6 +428,12 @@ void wm_ciscat_run(wm_ciscat_eval *eval, char *path, int id, const char * java_p
     char msg[OS_MAXSTR];
     char *ciscat_script = "./CIS-CAT.sh";
     wm_scan_data *scan_info = NULL;
+    char pwd[PATH_MAX];
+
+    if (getcwd(pwd, sizeof(pwd)) == NULL) {
+        mterror(WM_CISCAT_LOGTAG, "Could not get the current working directory: %s (%d)", strerror(errno), errno);
+        pthread_exit(NULL);
+    }
 
     // Create arguments
 
@@ -446,7 +467,9 @@ void wm_ciscat_run(wm_ciscat_eval *eval, char *path, int id, const char * java_p
     // Specify location for reports
 
     wm_strcat(&command, "-r", ' ');
-    wm_strcat(&command, WM_CISCAT_REPORTS, ' ');
+    char reports_path[PATH_MAX];
+    os_snprintf(reports_path, sizeof(reports_path), "%s/%s", pwd, WM_CISCAT_REPORTS);
+    wm_strcat(&command, reports_path, ' ');
 
     // Set reports file name
 

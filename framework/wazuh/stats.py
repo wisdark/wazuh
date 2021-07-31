@@ -1,15 +1,16 @@
-# Copyright (C) 2015-2020, Wazuh Inc.
+# Copyright (C) 2015-2021, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is free software; you can redistribute it and/or modify it under the terms of GPLv2
 
 import os
 from io import StringIO
 
-from wazuh.core import common
+from wazuh.core import common, stats
+from wazuh.core.agent import Agent, get_agents_info
 from wazuh.core.cluster.cluster import get_node
 from wazuh.core.cluster.utils import read_cluster_config
-from wazuh.core.exception import WazuhError, WazuhInternalError
-from wazuh.core.results import AffectedItemsWazuhResult
+from wazuh.core.exception import WazuhError, WazuhInternalError, WazuhException, WazuhResourceNotFound
+from wazuh.core.results import AffectedItemsWazuhResult, WazuhResult
 from wazuh.rbac.decorators import expose_resources
 
 try:
@@ -21,7 +22,7 @@ except ImportError:
 
 DAYS = "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
 MONTHS = "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-cluster_enabled = not read_cluster_config()['disabled']
+cluster_enabled = not read_cluster_config(from_import=True)['disabled']
 node_id = get_node().get('node') if cluster_enabled else None
 
 
@@ -66,7 +67,8 @@ def totals(date):
                 if len(data) in (0, 1):
                     continue
                 else:
-                    result.add_failed_item(id_=node_id, error=WazuhInternalError(1309))
+                    result.add_failed_item(id_=node_id if cluster_enabled else 'manager',
+                                           error=WazuhInternalError(1309))
                     return result
 
             hour = int(data[0])
@@ -191,4 +193,37 @@ def get_daemons_stats(filename):
         raise WazuhError(1308, extra_message=filename)
 
     result.total_affected_items = len(result.affected_items)
+    return result
+
+
+@expose_resources(actions=["agent:read"], resources=["agent:id:{agent_list}"], post_proc_func=None)
+def get_agents_component_stats_json(agent_list=None, component=None):
+    """Get statistics of an agent's component.
+
+    Parameters
+    ----------
+    agent_list : list
+        List of agents ID's.
+    component : string
+        Name of the component to get stats from.
+
+    Returns
+    -------
+    result : AffectedItemsWazuhResult
+        Component stats.
+    """
+    result = AffectedItemsWazuhResult(all_msg=f'Statistical information for each agent was successfully read',
+                                      some_msg=f'Could not read statistical information for some agents',
+                                      none_msg=f'Could not read statistical information for any agent')
+
+    system_agents = get_agents_info()
+    for agent_id in agent_list:
+        try:
+            if agent_id not in system_agents:
+                raise WazuhResourceNotFound(1701)
+            result.affected_items.append(Agent(agent_id).get_stats(component=component))
+        except WazuhException as e:
+            result.add_failed_item(id_=agent_id, error=e)
+    result.total_affected_items = len(result.affected_items)
+
     return result

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * January 17, 2018.
  *
  * This program is free software; you can redistribute it
@@ -92,12 +92,14 @@
 #define VU_METADATA_CLEAN     "(5484): Cleaning metadata for target '%s'"
 #define VU_UNS_OS             "(5485): Agent '%.3d' has an unsupported OS: '%s'"
 #define VU_PACKAGE_TP_SOURCE  "(5486): Discarded package '%s' from a third-party source ('%s') for agent '%.3d'"
+#define VU_ERROR_CMP_VER      "(5487): Unknown relation '%s' between versions '%s' and '%s' for package '%s'"
+#define VU_DISCARD_CVE_ENTRY  "(5488): Package '%s' not affected by '%s' with misleading condition (%s '%s')."
 
 /* File integrity monitoring debug messages */
 #define FIM_DIFF_SKIPPED                    "(6200): Diff execution skipped for containing insecure characters."
 #define FIM_SCHED_BATCH                     "(6201): Setting SCHED_BATCH returned: '%d'"
 #define FIM_LOCAL_DIFF_DELETE               "(6202): Deleting backup '%s'. Not monitored anymore."
-#define FIM_FILE_IGNORE_RESTRICT            "(6203): Ignoring file '%s' due to restriction '%s'"
+#define FIM_FILE_IGNORE_RESTRICT            "(6203): Ignoring entry '%s' due to restriction '%s'"
 #define FIM_IGNORE_ENTRY                    "(6204): Ignoring '%s' '%s' due to '%s'"
 #define FIM_IGNORE_SREGEX                   "(6205): Ignoring '%s' '%s' due to sregex '%s'"
 #define FIM_TAG_ADDED                       "(6206): Adding tag '%s' to directory '%s'"
@@ -153,11 +155,12 @@
 #define FIM_HEALTHCHECK_THREAD_FINISHED     "(6256): Whodata health-check: Reading thread finished."
 #define FIM_HEALTHCHECK_CREATE_ERROR        "(6257): Whodata health-check: Failed to receive creation event."
 #define FIM_UNABLE_TO_READ_TEMP_FILE        "(6258): Detected error or EOF before processing all entries."
-
-
+#define FIM_REG_IGNORE_SREGEX               "(6259): Ignoring '%s' '%s %s' due to sregex '%s'"
+#define FIM_REG_IGNORE_ENTRY                "(6260): Ignoring '%s' '%s %s' due to '%s'"
 #define FIM_HEALTHCHECK_SUCCESS             "(6261): Whodata health-check: Success."
 #define FIM_HEALTHCHECK_CHECK_RULE          "(6262): Couldn't delete audit health check rule."
 #define FIM_SACL_CHECK_CONFIGURE            "(6263): Setting up SACL for '%s'"
+#define FIM_REACHED_MAX_FPS                 "(6264): Maximum number of files read per second reached, sleeping."
 #define FIM_SACL_RESTORED                   "(6265): The SACL of '%s' has been restored correctly."
 #define FIM_SACL_CONFIGURE                  "(6266): The SACL of '%s' will be configured."
 #define FIM_SACL_NOT_FOUND                  "(6267): No SACL found on target. A new one will be created."
@@ -215,7 +218,7 @@
 #define FIM_CONFIGURATION_NOTFOUND          "(6319): No configuration found for (%s):'%s'"
 #define FIM_PROCESS_PRIORITY                "(6320): Setting process priority to: '%d'"
 #define FIM_SEND                            "(6321): Sending FIM event: %s"
-#define FIM_AUDIT_RELOADED                  "(6322): Reloaded audit rule for monitoring directory: '%s'"
+#define FIM_AUDIT_ALREADY_ADDED             "(6322): Already added audit rule for monitoring directory: '%s'"
 #define FIM_REALTIME_DIRECTORYCHANGES       "(6323): Unable to set 'ReadDirectoryChangesW' for directory: '%s'"
 #define FIM_HASHES_FAIL                     "(6324): Couldn't generate hashes for '%s'"
 #define FIM_EXTRACT_PERM_FAIL               "(6325): It was not possible to extract the permissions of '%s'. Error: %d"
@@ -235,19 +238,30 @@
 #define FIM_DELETE_EVENT_PATH_NOCONF        "(6339): Delete event from path without configuration: '%s'"
 #define FIM_DELETE_DB_TRY                   "(6340): Failed to delete FIM database '%s'- %dº try."
 #define FIM_DELETE_DB                       "(6341): Failed to delete FIM database '%s'."
-#define FIM_FILE_LIMIT_VALUE                "(6342): Maximum number of files to be monitored: '%u'"
-#define FIM_FILE_LIMIT_UNLIMITED            "(6343): No limit set to maximum number of files to be monitored"
+#define FIM_FILE_LIMIT_VALUE                "(6342): Maximum number of entries to be monitored: '%u'"
+#define FIM_FILE_LIMIT_UNLIMITED            "(6343): No limit set to maximum number of entries to be monitored"
 #define FIM_INOTIFY_WATCH_DELETED           "(6344): Inotify watch deleted for '%s'"
 #define FIM_NUM_WATCHES                     "(6345): Folders monitored with real-time engine: %u"
 #define FIM_REALTIME_CALLBACK               "(6346): Realtime watch deleted for '%s'"
 #define FIM_DIR_RECURSION_LEVEL             "(6347): Directory '%s' is already on the max recursion_level (%d), it will not be scanned."
 #define FIM_DIFF_FOLDER_SIZE                "(6348): Size of '%s' folder: %.5f KB."
 #define FIM_BIG_FILE_REPORT_CHANGES         "(6349): File '%s' is too big for configured maximum size to perform diff operation."
-#define FIM_DISK_QUOTA_LIMIT_REACHED        "(6350): The maximum configured size for the '%s' folder has been reached, the diff operation cannot be performed."
-#define FIM_DIFF_FILE_SIZE_LIMIT            "(6351): Maximum file size limit to generate diff information configured to '%d KB' for '%s'."
-#define FIM_DISK_QUOTA_LIMIT                "(6352): Maximum disk quota size limit configured to '%d KB'."
-#define FIM_DIFF_FOLDER_DELETED             "(6353): Folder '%s' has been deleted."
-#define GLOB_NO_MATCH                       "(6354): No matches found for the glob pattern: '%s'"
+#define FIM_DISK_QUOTA_LIMIT_REACHED        "(6350): The %s of the file size '%s' exceeds the disk_quota. Operation discarded."
+#define FIM_DIFF_IDENTICAL_MD5_FILES        "(6351): The files are identical, don't compute differences"
+#define FIM_DIFF_COMMAND_OUTPUT_EQUAL       "(6352): Command diff/fc output 0, files are the same"
+#define FIM_EMPTY_REGISTRY_CONFIG           "(6353): Empty windows_registry tag found in the configuration."
+#define FIM_REGISTRY_ENTRIES_INFO           "(6354): Fim registry entries: %d"
+#define FIM_DIFF_FOLDER_NOT_EXIST           "(6355): Can't remove folder '%s', it does not exist."
+#define FIM_DIFF_FILE_SIZE_LIMIT            "(6356): Maximum file size limit to generate diff information configured to '%d KB' for '%s'."
+#define FIM_DISK_QUOTA_LIMIT                "(6357): Maximum disk quota size limit configured to '%d KB'."
+#define FIM_DIFF_FOLDER_DELETED             "(6358): Folder '%s' has been deleted."
+#define GLOB_NO_MATCH                       "(6359): No matches found for the glob pattern: '%s'"
+#define FIM_DB_FAIL_TO_GET_SCANNED_FILE     "(6360): Failed to get scanned value of '%s' - %s"
+#define FIM_WILDCARDS_UPDATE_START          "(6361): Starting configuration wildcards update."
+#define FIM_WILDCARDS_REMOVE_DIRECTORY      "(6362): Removing entry '%s' due to it has not been expanded by the wildcards"
+#define FIM_WILDCARDS_UPDATE_FINALIZE       "(6363): Configuration wildcards update finalize."
+#define FIM_REALTIME_MAXNUM_WATCHES         "(6364): Unable to add directory to real time monitoring: '%s' - Maximum size permitted."
+#define FIM_ADDED_RULE_TO_FILE              "(6365): Added directory '%s' to audit rules file."
 
 /* Modules messages */
 #define WM_UPGRADE_RESULT_AGENT_INFO         "(8151): Agent Information obtained: '%s'"
@@ -278,5 +292,12 @@
 #define MOD_TASK_DISABLED_WORKER            "(8207): Module Task Manager only runs on Master nodes in cluster configuration."
 #define MOD_TASK_TASKS_DB_ERROR_IN_QUERY    "(8208): Tasks DB Error reported in the result of the query, message: '%s'"
 #define MOD_TASK_TASKS_DB_ERROR_EXECUTE     "(8209): Tasks DB Cannot execute SQL query: err database '%s/%s.db'"
+
+/* Generic messages */
+#define SUCCESSFULLY_RECONNECTED_SOCKET     "(8300): Successfully reconnected to '%s'"
+
+/* Logcollector */
+
+#define LOGCOLLECTOR_FILE_NOT_EXIST           "(9000): File '%s' no longer exists."
 
 #endif /* DEBUG_MESSAGES_H */

@@ -1,6 +1,6 @@
 /*
  * Wazuh Module for remote key requests
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * November 25, 2018.
  *
  * This program is free software; you can redistribute it
@@ -52,7 +52,9 @@ const wm_context WM_KEY_REQUEST_CONTEXT = {
     KEY_WM_NAME,
     (wm_routine)wm_key_request_main,
     (wm_routine)(void *)wm_key_request_destroy,
-    (cJSON * (*)(const void *))wm_key_request_dump
+    (cJSON * (*)(const void *))wm_key_request_dump,
+    NULL,
+    NULL
 };
 
 typedef enum _request_type{
@@ -86,8 +88,8 @@ void * wm_key_request_main(wm_krequest_t * data) {
     /* Init the queue input */
     request_queue = queue_init(data->queue_size);
 
-    if ((sock = StartMQ(WM_KEY_REQUEST_SOCK_PATH, READ, 0)) < 0) {
-        merror(QUEUE_ERROR, WM_KEY_REQUEST_SOCK_PATH, strerror(errno));
+    if ((sock = StartMQ(WM_KEY_REQUEST_SOCK, READ, 0)) < 0) {
+        merror(QUEUE_ERROR, WM_KEY_REQUEST_SOCK, strerror(errno));
         pthread_exit(NULL);
     }
 
@@ -474,7 +476,7 @@ void * w_socket_launcher(void * args) {
 
     mdebug1("Running integration daemon: %s", exec_path);
 
-    if (argv = wm_strtok(exec_path), !argv) {
+    if (argv = w_strtok(exec_path), !argv) {
         merror("Could not split integration command: %s", exec_path);
         pthread_exit(NULL);
     }
@@ -485,11 +487,19 @@ void * w_socket_launcher(void * args) {
 
         // Run integration
 
-        if (wfd = wpopenv(argv[0], argv, W_BIND_STDERR | W_APPEND_POOL), !wfd) {
+        if (wfd = wpopenv(argv[0], argv, W_BIND_STDERR), !wfd) {
             mwarn("Couldn not execute '%s'. Trying again in %d seconds.", exec_path, RELAUNCH_TIME);
             sleep(RELAUNCH_TIME);
             continue;
         }
+
+#ifdef WIN32
+        wm_append_handle(wfd->pinfo.hProcess);
+#else
+        if (0 <= wfd->pid) {
+            wm_append_sid(wfd->pid);
+        }
+#endif
 
         time_started = time(NULL);
 
@@ -506,10 +516,16 @@ void * w_socket_launcher(void * args) {
             // Dump into the log
             mdebug1("Integration STDERR: %s", buffer);
         }
-
+#ifdef WIN32
+        wm_remove_handle(wfd->pinfo.hProcess);
+#else
+        if (0 <= wfd->pid) {
+            wm_remove_sid(wfd->pid);
+        }
+#endif
         // At this point, the process exited
-
         wstatus = wpclose(wfd);
+
         wstatus = WEXITSTATUS(wstatus);
 
         if (wstatus == EXECVE_ERROR) {

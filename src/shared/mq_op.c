@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -40,7 +40,6 @@ int StartMQ(const char *path, short int type, short int n_attempts)
         }
 
         if (rc < 0) {
-            merror(QUEUE_ERROR, path, strerror(errno));
             return OS_INVALID;
         }
 
@@ -113,6 +112,7 @@ int SendMSGtoSCK(int queue, const char *message, const char *locmsg, __attribute
     char tmpstr[OS_MAXSTR + 1];
     time_t mtime;
     char * _message = NULL;
+    int retval = 0;
 
     _message = log_builder_build(mq_log_builder, target->format, message, locmsg);
 
@@ -163,7 +163,7 @@ int SendMSGtoSCK(int queue, const char *message, const char *locmsg, __attribute
             } else {
                 mdebug2("Discarding event from '%s' due to connection issue with '%s'", locmsg, target->log_socket->name);
                 free(_message);
-                return 0;
+                return 1;
             }
         }
 
@@ -192,13 +192,11 @@ int SendMSGtoSCK(int queue, const char *message, const char *locmsg, __attribute
                 merror("Cannot send message to socket '%s'. (Retry)", target->log_socket->name);
                 SendMSG(queue, "Cannot send message to socket.", "logcollector", LOCALFILE_MQ);
             }
+            retval = 1;
         }
-
-        free(_message);
-        return (0);
     }
     free(_message);
-    return (0);
+    return (retval);
 }
 
 #else

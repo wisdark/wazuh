@@ -18,7 +18,7 @@ stages:
       json:
         error: 4000
 
-  - name: Try to get rootcheck scan results for agent 002 (Allow)
+  - name: Get rootcheck scan results for agent 002 (Allow)
     request:
       verify: False
       method: GET
@@ -28,7 +28,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items: !anything
           failed_items: []
@@ -36,7 +36,39 @@ stages:
           total_failed_items: 0
 
 ---
-test_name: GET /rootcheck/001/last_scan
+test_name: DELETE /rootcheck/{agent_id}
+
+stages:
+
+  - name: Delete rootcheck scans in agent 002 (Allow)
+    request:
+      verify: False
+      method: DELETE
+      url: "{protocol:s}://{host:s}:{port:d}/rootcheck/002"
+      headers:
+        Authorization: "Bearer {test_login_token}"
+    response:
+      status_code: 200
+      json:
+        error: 0
+        data:
+          affected_items: !anything
+          failed_items: []
+          total_affected_items: 1
+          total_failed_items: 0
+
+  - name: Try to delete rootcheck scans in agent 001 (Deny)
+    request:
+      verify: False
+      method: DELETE
+      url: "{protocol:s}://{host:s}:{port:d}/rootcheck/001"
+      headers:
+        Authorization: "Bearer {test_login_token}"
+    response:
+      <<: *permission_denied
+
+---
+test_name: GET /rootcheck/{agent_id}/last_scan
 
 stages:
 
@@ -50,7 +82,7 @@ stages:
     response:
       <<: *permission_denied
 
-  - name: Try to get when the last scan for agent 002 started and ended
+  - name: Get when the last scan for agent 002 started and ended
     request:
       verify: False
       method: GET
@@ -60,7 +92,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 0
         data:
           affected_items:
             - end: !anything
@@ -84,7 +116,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 2
         data:
           affected_items: !anything
           failed_items:
@@ -113,7 +145,7 @@ stages:
     response:
       status_code: 200
       json:
-        error: !anyint
+        error: 2
         data:
           affected_items: !anything
           failed_items:
@@ -135,41 +167,5 @@ stages:
         Authorization: "Bearer {test_login_token}"
       params:
         agents_list: '001'
-    response:
-      <<: *permission_denied
-
----
-test_name: DELETE /rootcheck
-
-stages:
-
-  - name: Try to delete rootcheck scans in agent 002
-    request:
-      verify: False
-      method: DELETE
-      url: "{protocol:s}://{host:s}:{port:d}/rootcheck"
-      headers:
-        Authorization: "Bearer {test_login_token}"
-      params:
-        agents_list: "002"
-    response:
-      status_code: 200
-      json:
-        error: !anyint
-        data:
-          affected_items: !anything
-          failed_items: []
-          total_affected_items: 1
-          total_failed_items: 0
-
-  - name: Try to delete rootcheck scans in agent 001
-    request:
-      verify: False
-      method: DELETE
-      url: "{protocol:s}://{host:s}:{port:d}/rootcheck"
-      headers:
-        Authorization: "Bearer {test_login_token}"
-      params:
-        agents_list: "001"
     response:
       <<: *permission_denied

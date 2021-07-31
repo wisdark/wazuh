@@ -98,7 +98,7 @@ class CORSModel(Model):
             'source_route': str,
             'expose_headers': str,
             'allow_headers': bool,
-            'allow_credentials': str
+            'allow_credentials': bool
         }
 
         self.attribute_map = {
@@ -232,11 +232,10 @@ class AccessModel(Model):
 
 
 class APIConfigurationModel(Body):
-    """API configuration model."""
-    def __init__(self, behind_proxy_server=None, https=None, logs=None, cors=None,
-                 cache=None, use_only_authd=None, drop_privileges=None, experimental_features=None, access=None):
+    """API configuration model. Deprecated since v4.0.4, we maintain Model"""
+    def __init__(self, https=None, logs=None, cors=None, cache=None, use_only_authd=None, drop_privileges=None,
+                 experimental_features=None, access=None):
         self.swagger_types = {
-            'behind_proxy_server': bool,
             'https': HTTPSModel,
             'logs': LogsModel,
             'cors': CORSModel,
@@ -248,7 +247,6 @@ class APIConfigurationModel(Body):
         }
 
         self.attribute_map = {
-            'behind_proxy_server': 'behind_proxy_server',
             'https': 'https',
             'logs': 'logs',
             'cors': 'cors',
@@ -259,7 +257,6 @@ class APIConfigurationModel(Body):
             'access': 'access'
         }
 
-        self._behind_proxy_server = behind_proxy_server
         self._https = https
         self._logs = logs
         self._cors = cors
@@ -268,14 +265,6 @@ class APIConfigurationModel(Body):
         self._drop_privileges = drop_privileges
         self._experimental_features = experimental_features
         self._access = access
-
-    @property
-    def behind_proxy_server(self):
-        return self._behind_proxy_server
-
-    @behind_proxy_server.setter
-    def behind_proxy_server(self, behind_proxy_server):
-        self._behind_proxy_server = behind_proxy_server
 
     @property
     def https(self):

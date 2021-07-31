@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  *
  * This program is free software; you can redistribute it
  * and/or modify it under the terms of the GNU General Public
@@ -22,9 +22,18 @@
 #include "../wrappers/wazuh/shared/string_op_wrappers.h"
 #include "../wrappers/wazuh/os_net/os_net_wrappers.h"
 #include "../wrappers/wazuh/shared/file_op_wrappers.h"
+#include "../wrappers/wazuh/shared/privsep_op_wrappers.h"
 
 #ifdef TEST_WINAGENT
 #include "../wrappers/wazuh/syscheckd/syscom_wrappers.h"
+#include "../wrappers/windows/sddl_wrappers.h"
+#include "../wrappers/windows/winreg_wrappers.h"
+#include "../wrappers/windows/aclapi_wrappers.h"
+#include "../wrappers/windows/winbase_wrappers.h"
+#include "../wrappers/windows/fileapi_wrappers.h"
+#include "../wrappers/windows/handleapi_wrappers.h"
+#include "../wrappers/windows/errhandlingapi_wrappers.h"
+#include "../wrappers/windows/securitybaseapi_wrappers.h"
 #else
 #include "../wrappers/posix/unistd_wrappers.h"
 #endif
@@ -53,13 +62,20 @@ typedef struct __unescape_syscheck_field_data_s {
     char *output;
 }unescape_syscheck_field_data_t;
 
+typedef struct __registry_group_information {
+    char *name;
+    char *id;
+} registry_group_information_t;
+
 /* setup/teardown */
+
 static int teardown_string(void **state) {
     free(*state);
     return 0;
 }
 
 #ifdef TEST_WINAGENT
+
 static int setup_string_array(void **state) {
     char **array = calloc(10, sizeof(char*));
 
@@ -78,9 +94,41 @@ static int teardown_string_array(void **state) {
 
     return 0;
 }
+
+static int setup_get_registry_group(void **state) {
+    registry_group_information_t *group_information = (registry_group_information_t *)
+                                                        calloc(1, sizeof(registry_group_information_t));
+
+    if (group_information == NULL) {
+        return -1;
+    }
+
+    group_information->name = (char *)calloc(OS_SIZE_6144 + 1, sizeof(char));
+    group_information->id = (char *)calloc(OS_SIZE_6144 + 1, sizeof(char));
+
+    if (group_information->name == NULL || group_information->id == NULL) {
+        return -1;
+    }
+
+    *state = group_information;
+
+    return 0;
+}
+
+static int teardown_get_registry_group(void **state) {
+    registry_group_information_t *group_information = *state;
+
+    free(group_information->name);
+    free(group_information->id);
+    free(group_information);
+
+    return 0;
+}
+
 #endif
 
 #if defined(TEST_SERVER)
+
 static int setup_sk_decode(void **state) {
     sk_decode_data_t *data = calloc(1, sizeof(sk_decode_data_t));
 
@@ -108,7 +156,6 @@ static int teardown_sk_decode(void **state) {
     }
     return 0;
 }
-
 
 static int setup_sk_fill_event(void **state) {
     sk_fill_event_t* data = calloc(1, sizeof(sk_fill_event_t));
@@ -173,8 +220,11 @@ static int teardown_sk_build_sum(void **state) {
     }
     return 0;
 }
+
 #endif
+
 #ifndef TEST_WINAGENT
+
 static int setup_unescape_syscheck_field(void **state) {
     *state = calloc(1, sizeof(unescape_syscheck_field_data_t));
 
@@ -194,6 +244,7 @@ static int teardown_unescape_syscheck_field(void **state) {
     }
     return 0;
 }
+
 #endif
 
 static int teardown_cjson(void **state) {
@@ -205,76 +256,6 @@ static int teardown_cjson(void **state) {
 }
 
 /* Tests */
-
-/* delete_target_file tests */
-#ifndef TEST_WINAGENT
-static void test_delete_target_file_success(void **state) {
-    int ret = -1;
-    char *path = "/test_file.tmp";
-
-    expect_string(__wrap_rmdir_ex, name, "/var/ossec/queue/diff/local/test_file.tmp");
-    will_return(__wrap_rmdir_ex, 0);
-
-    ret = delete_target_file(path);
-
-    assert_int_equal(ret, 0);
-}
-
-static void test_delete_target_file_rmdir_ex_error(void **state) {
-    int ret = -1;
-    char *path = "/test_file.tmp";
-
-    expect_string(__wrap_rmdir_ex, name, "/var/ossec/queue/diff/local/test_file.tmp");
-    will_return(__wrap_rmdir_ex, -1);
-
-    ret = delete_target_file(path);
-
-    assert_int_equal(ret, 1);
-}
-#else
-static void test_delete_target_file_success(void **state) {
-    int ret = -1;
-    char *path = "c:\\test_file.tmp";
-
-    expect_string(__wrap_rmdir_ex, name, "queue/diff\\local\\c\\test_file.tmp");
-    will_return(__wrap_rmdir_ex, 0);
-
-    expect_string(__wrap_wreaddir, name, "queue/diff\\local\\c");
-    will_return(__wrap_wreaddir, NULL);
-
-    expect_string(__wrap__mdebug1, formatted_msg, "Removing empty directory 'queue/diff\\local\\c'.");
-
-    expect_string(__wrap_rmdir_ex, name, "queue/diff\\local\\c");
-    will_return(__wrap_rmdir_ex, 0);
-
-    ret = delete_target_file(path);
-
-    assert_int_equal(ret, 0);
-}
-
-static void test_delete_target_file_rmdir_ex_error(void **state) {
-    int ret = -1;
-    char *path = "c:\\test_file.tmp";
-
-    expect_string(__wrap_rmdir_ex, name, "queue/diff\\local\\c\\test_file.tmp");
-    will_return(__wrap_rmdir_ex, -1);
-
-    ret = delete_target_file(path);
-
-    assert_int_equal(ret, 1);
-}
-
-static void test_delete_target_file_invalid_path(void **state) {
-    int ret = -1;
-    char *path = "an\\invalid\\path";
-
-    expect_string(__wrap__mdebug1, formatted_msg, "Incorrect path. This does not contain ':' ");
-
-    ret = delete_target_file(path);
-
-    assert_int_equal(ret, 0);
-}
-#endif
 
 /* escape_syscheck_field tests */
 static void test_escape_syscheck_field_escape_all(void **state) {
@@ -308,7 +289,7 @@ static void test_normalize_path_success(void **state) {
 }
 
 static void test_normalize_path_linux_dir(void **state) {
-    char *test_string = strdup("/var/ossec/unchanged/path");
+    char *test_string = strdup("unchanged/path");
 
     if(test_string != NULL) {
         *state = test_string;
@@ -318,7 +299,7 @@ static void test_normalize_path_linux_dir(void **state) {
 
     normalize_path(test_string);
 
-    assert_string_equal(test_string, "/var/ossec/unchanged/path");
+    assert_string_equal(test_string, "unchanged/path");
 }
 
 static void test_normalize_path_null_input(void **state) {
@@ -330,23 +311,32 @@ static void test_normalize_path_null_input(void **state) {
 /* remove_empty_folders tests */
 static void test_remove_empty_folders_success(void **state) {
 #ifndef TEST_WINAGENT
-    char *input = "/var/ossec/queue/diff/local/test-dir/";
-    char *first_subdir = "/var/ossec/queue/diff/local/test-dir";
+    char *input = "queue/diff/local/test-dir/";
+    char *first_subdir = "queue/diff/local/test-dir";
+    char *second_subdir = "queue/diff/local";
 #else
     char *input = "queue/diff\\local\\test-dir\\";
     char *first_subdir = "queue/diff\\local\\test-dir";
+    char *second_subdir = "queue/diff\\local";
 #endif
     int ret = -1;
     char message[OS_SIZE_1024];
+    char **mock_directory_content;
 
-    expect_string(__wrap_wreaddir, name, first_subdir);
-    will_return(__wrap_wreaddir, NULL);
+    if(mock_directory_content = calloc(2, sizeof(char*)), !mock_directory_content)
+        fail();
+
+    mock_directory_content[0] = strdup("some-file.tmp");
+    mock_directory_content[1] = NULL;
+
+    expect_wreaddir_call(first_subdir, NULL);
 
     snprintf(message, OS_SIZE_1024, "Removing empty directory '%s'.", first_subdir);
     expect_string(__wrap__mdebug1, formatted_msg, message);
 
-    expect_string(__wrap_rmdir_ex, name, first_subdir);
-    will_return(__wrap_rmdir_ex, 0);
+    expect_rmdir_ex_call(first_subdir, 0);
+
+    expect_wreaddir_call(second_subdir, mock_directory_content);
 
     ret = remove_empty_folders(input);
 
@@ -355,41 +345,48 @@ static void test_remove_empty_folders_success(void **state) {
 
 static void test_remove_empty_folders_recursive_success(void **state) {
 #ifndef TEST_WINAGENT
-    char *input = "/var/ossec/queue/diff/local/dir1/dir2/";
+    char *input = "queue/diff/local/dir1/dir2/";
     static const char *parent_dirs[] = {
-        "/var/ossec/queue/diff/local/dir1/dir2",
-        "/var/ossec/queue/diff/local/dir1"
+        "queue/diff/local/dir1/dir2",
+        "queue/diff/local/dir1",
+        "queue/diff/local"
     };
 #else
     char *input = "queue/diff\\local\\dir1\\dir2\\";
     static const char *parent_dirs[] = {
         "queue/diff\\local\\dir1\\dir2",
-        "queue/diff\\local\\dir1"
+        "queue/diff\\local\\dir1",
+        "queue/diff\\local"
     };
 #endif
-    char messages[2][OS_SIZE_1024];
+    char messages[3][OS_SIZE_1024];
     int ret = -1;
+    char **mock_directory_content;
+
+    if(mock_directory_content = calloc(2, sizeof(char*)), !mock_directory_content)
+        fail();
+
+    mock_directory_content[0] = strdup("some-file.tmp");
+    mock_directory_content[1] = NULL;
 
     snprintf(messages[0], OS_SIZE_1024, "Removing empty directory '%s'.", parent_dirs[0]);
     snprintf(messages[1], OS_SIZE_1024, "Removing empty directory '%s'.", parent_dirs[1]);
 
     // Remove dir2
-    expect_string(__wrap_wreaddir, name, parent_dirs[0]);
-    will_return(__wrap_wreaddir, NULL);
+    expect_wreaddir_call(parent_dirs[0], NULL);
 
     expect_string(__wrap__mdebug1, formatted_msg, messages[0]);
 
-    expect_string(__wrap_rmdir_ex, name, parent_dirs[0]);
-    will_return(__wrap_rmdir_ex, 0);
+    expect_rmdir_ex_call(parent_dirs[0], 0);
 
     // Remove dir1
-    expect_string(__wrap_wreaddir, name, parent_dirs[1]);
-    will_return(__wrap_wreaddir, NULL);
+    expect_wreaddir_call(parent_dirs[1], NULL);
 
     expect_string(__wrap__mdebug1, formatted_msg, messages[1]);
 
-    expect_string(__wrap_rmdir_ex, name, parent_dirs[1]);
-    will_return(__wrap_rmdir_ex, 0);
+    expect_rmdir_ex_call(parent_dirs[1], 0);
+
+    expect_wreaddir_call(parent_dirs[2], mock_directory_content);
 
     ret = remove_empty_folders(input);
 
@@ -416,19 +413,17 @@ static void test_remove_empty_folders_relative_path(void **state) {
     snprintf(messages[1], OS_SIZE_1024, "Removing empty directory '%s'.", parent_dirs[1]);
     snprintf(messages[2], OS_SIZE_1024, "Removing empty directory '%s'.", parent_dirs[2]);
 
-    expect_string(__wrap_wreaddir, name, parent_dirs[0]);
-    expect_string(__wrap_wreaddir, name, parent_dirs[1]);
-    expect_string(__wrap_wreaddir, name, parent_dirs[2]);
-    will_return_always(__wrap_wreaddir, NULL);
+    expect_wreaddir_call(parent_dirs[0], NULL);
+    expect_wreaddir_call(parent_dirs[1], NULL);
+    expect_wreaddir_call(parent_dirs[2], NULL);
 
     expect_string(__wrap__mdebug1, formatted_msg, messages[0]);
     expect_string(__wrap__mdebug1, formatted_msg, messages[1]);
     expect_string(__wrap__mdebug1, formatted_msg, messages[2]);
 
-    expect_string(__wrap_rmdir_ex, name, parent_dirs[0]);
-    expect_string(__wrap_rmdir_ex, name, parent_dirs[1]);
-    expect_string(__wrap_rmdir_ex, name, parent_dirs[2]);
-    will_return_always(__wrap_rmdir_ex, 0);
+    expect_rmdir_ex_call(parent_dirs[0], 0);
+    expect_rmdir_ex_call(parent_dirs[1], 0);
+    expect_rmdir_ex_call(parent_dirs[2], 0);
 
     ret = remove_empty_folders(input);
 
@@ -459,19 +454,17 @@ static void test_remove_empty_folders_absolute_path(void **state) {
     snprintf(messages[1], OS_SIZE_1024, "Removing empty directory '%s'.", parent_dirs[1]);
     snprintf(messages[2], OS_SIZE_1024, "Removing empty directory '%s'.", parent_dirs[2]);
 
-    expect_string(__wrap_wreaddir, name, parent_dirs[0]);
-    expect_string(__wrap_wreaddir, name, parent_dirs[1]);
-    expect_string(__wrap_wreaddir, name, parent_dirs[2]);
-    will_return_always(__wrap_wreaddir, NULL);
+    expect_wreaddir_call(parent_dirs[0], NULL);
+    expect_wreaddir_call(parent_dirs[1], NULL);
+    expect_wreaddir_call(parent_dirs[2], NULL);
 
     expect_string(__wrap__mdebug1, formatted_msg, messages[0]);
     expect_string(__wrap__mdebug1, formatted_msg, messages[1]);
     expect_string(__wrap__mdebug1, formatted_msg, messages[2]);
 
-    expect_string(__wrap_rmdir_ex, name, parent_dirs[0]);
-    expect_string(__wrap_rmdir_ex, name, parent_dirs[1]);
-    expect_string(__wrap_rmdir_ex, name, parent_dirs[2]);
-    will_return_always(__wrap_rmdir_ex, 0);
+    expect_rmdir_ex_call(parent_dirs[0], 0);
+    expect_rmdir_ex_call(parent_dirs[1], 0);
+    expect_rmdir_ex_call(parent_dirs[2], 0);
 
     ret = remove_empty_folders(input);
 
@@ -480,8 +473,8 @@ static void test_remove_empty_folders_absolute_path(void **state) {
 
 static void test_remove_empty_folders_non_empty_dir(void **state) {
 #ifndef TEST_WINAGENT
-    char *input = "/var/ossec/queue/diff/local/test-dir/";
-    static const char *parent_dir = "/var/ossec/queue/diff/local/test-dir";
+    char *input = "queue/diff/local/test-dir/";
+    static const char *parent_dir = "queue/diff/local/test-dir";
 #else
     char *input = "queue/diff\\local\\c\\test-dir\\";
     static const char *parent_dir = "queue/diff\\local\\c\\test-dir";
@@ -495,8 +488,7 @@ static void test_remove_empty_folders_non_empty_dir(void **state) {
     subdir[0] = strdup("some-file.tmp");
     subdir[1] = NULL;
 
-    expect_string(__wrap_wreaddir, name, parent_dir);
-    will_return(__wrap_wreaddir, subdir);
+    expect_wreaddir_call(parent_dir, subdir);
 
     ret = remove_empty_folders(input);
 
@@ -505,8 +497,8 @@ static void test_remove_empty_folders_non_empty_dir(void **state) {
 
 static void test_remove_empty_folders_error_removing_dir(void **state) {
 #ifndef TEST_WINAGENT
-    char *input = "/var/ossec/queue/diff/local/test-dir/";
-    static const char *parent_dir = "/var/ossec/queue/diff/local/test-dir";
+    char *input = "queue/diff/local/test-dir/";
+    static const char *parent_dir = "queue/diff/local/test-dir";
 #else
     char *input = "queue/diff\\local\\test-dir\\";
     static const char *parent_dir = "queue/diff\\local\\test-dir";
@@ -515,14 +507,12 @@ static void test_remove_empty_folders_error_removing_dir(void **state) {
     char remove_dir_message[OS_SIZE_1024];
     char dir_not_deleted_message[OS_SIZE_1024];
 
-    expect_string(__wrap_wreaddir, name, parent_dir);
-    will_return(__wrap_wreaddir, NULL);
+    expect_wreaddir_call(parent_dir, NULL);
 
     snprintf(remove_dir_message, OS_SIZE_1024, "Removing empty directory '%s'.", parent_dir);
     expect_string(__wrap__mdebug1, formatted_msg, remove_dir_message);
 
-    expect_string(__wrap_rmdir_ex, name, parent_dir);
-    will_return(__wrap_rmdir_ex, -1);
+    expect_rmdir_ex_call(parent_dir, -1);
 
     snprintf(dir_not_deleted_message, OS_SIZE_1024,
         "Empty directory '%s' couldn't be deleted. ('Directory not empty')", parent_dir);
@@ -530,7 +520,7 @@ static void test_remove_empty_folders_error_removing_dir(void **state) {
 
     ret = remove_empty_folders(input);
 
-    assert_int_equal(ret, 1);
+    assert_int_equal(ret, -1);
 }
 
 #if defined(TEST_SERVER)
@@ -1533,7 +1523,7 @@ static void test_sk_fill_event_full_event(void **state) {
 
     sk_fill_event(data->lf, data->f_name, data->sum);
 
-    assert_string_equal(data->lf->filename, "f_name");
+    assert_string_equal(data->lf->fields[FIM_FILE].value, "f_name");
     assert_string_equal(data->lf->fields[FIM_FILE].value, "f_name");
     assert_string_equal(data->lf->fields[FIM_SIZE].value, "size");
     assert_string_equal(data->lf->fields[FIM_PERM].value, "361100");
@@ -1543,50 +1533,24 @@ static void test_sk_fill_event_full_event(void **state) {
     assert_string_equal(data->lf->fields[FIM_SHA1].value, "sha1");
     assert_string_equal(data->lf->fields[FIM_UNAME].value, "uname");
     assert_string_equal(data->lf->fields[FIM_GNAME].value, "gname");
-    assert_int_equal(data->lf->mtime_after, data->sum->mtime);
     assert_string_equal(data->lf->fields[FIM_MTIME].value, "2345678");
-    assert_int_equal(data->lf->inode_after, data->sum->inode);
     assert_string_equal(data->lf->fields[FIM_INODE].value, "3456789");
     assert_string_equal(data->lf->fields[FIM_SHA256].value, "sha256");
     assert_string_equal(data->lf->fields[FIM_ATTRS].value, "attributes");
-
-    assert_string_equal(data->lf->user_id, "user_id");
     assert_string_equal(data->lf->fields[FIM_USER_ID].value, "user_id");
-
-    assert_string_equal(data->lf->user_name, "user_name");
     assert_string_equal(data->lf->fields[FIM_USER_NAME].value, "user_name");
-
-    assert_string_equal(data->lf->group_id, "group_id");
     assert_string_equal(data->lf->fields[FIM_GROUP_ID].value, "group_id");
-
-    assert_string_equal(data->lf->group_name, "group_name");
     assert_string_equal(data->lf->fields[FIM_GROUP_NAME].value, "group_name");
-
-    assert_string_equal(data->lf->process_name, "process_name");
     assert_string_equal(data->lf->fields[FIM_PROC_NAME].value, "process_name");
-
-    assert_string_equal(data->lf->audit_uid, "audit_uid");
     assert_string_equal(data->lf->fields[FIM_AUDIT_ID].value, "audit_uid");
-
-    assert_string_equal(data->lf->audit_name, "audit_name");
     assert_string_equal(data->lf->fields[FIM_AUDIT_NAME].value, "audit_name");
-
-    assert_string_equal(data->lf->effective_uid, "effective_uid");
     assert_string_equal(data->lf->fields[FIM_EFFECTIVE_UID].value, "effective_uid");
-
-    assert_string_equal(data->lf->effective_name, "effective_name");
     assert_string_equal(data->lf->fields[FIM_EFFECTIVE_NAME].value, "effective_name");
-
-    assert_string_equal(data->lf->ppid, "ppid");
     assert_string_equal(data->lf->fields[FIM_PPID].value, "ppid");
-
-    assert_string_equal(data->lf->process_id, "process_id");
     assert_string_equal(data->lf->fields[FIM_PROC_ID].value, "process_id");
 
-    assert_string_equal(data->lf->sk_tag, "tag");
     assert_string_equal(data->lf->fields[FIM_TAG].value, "tag");
 
-    assert_string_equal(data->lf->sym_path, "symbolic_path");
     assert_string_equal(data->lf->fields[FIM_SYM_PATH].value, "symbolic_path");
 }
 
@@ -1597,7 +1561,6 @@ static void test_sk_fill_event_empty_event(void **state) {
 
     sk_fill_event(data->lf, data->f_name, data->sum);
 
-    assert_string_equal(data->lf->filename, "f_name");
     assert_string_equal(data->lf->fields[FIM_FILE].value, "f_name");
     assert_null(data->lf->fields[FIM_SIZE].value);
     assert_null(data->lf->fields[FIM_PERM].value);
@@ -1607,50 +1570,24 @@ static void test_sk_fill_event_empty_event(void **state) {
     assert_null(data->lf->fields[FIM_SHA1].value);
     assert_null(data->lf->fields[FIM_UNAME].value);
     assert_null(data->lf->fields[FIM_GNAME].value);
-    assert_int_equal(data->lf->mtime_after, data->sum->mtime);
     assert_null(data->lf->fields[FIM_MTIME].value);
-    assert_int_equal(data->lf->inode_after, data->sum->inode);
     assert_null(data->lf->fields[FIM_INODE].value);
     assert_null(data->lf->fields[FIM_SHA256].value);
     assert_null(data->lf->fields[FIM_ATTRS].value);
-
-    assert_null(data->lf->user_id);
     assert_null(data->lf->fields[FIM_USER_ID].value);
-
-    assert_null(data->lf->user_name);
     assert_null(data->lf->fields[FIM_USER_NAME].value);
-
-    assert_null(data->lf->group_id);
     assert_null(data->lf->fields[FIM_GROUP_ID].value);
-
-    assert_null(data->lf->group_name);
     assert_null(data->lf->fields[FIM_GROUP_NAME].value);
-
-    assert_null(data->lf->process_name);
     assert_null(data->lf->fields[FIM_PROC_NAME].value);
-
-    assert_null(data->lf->audit_uid);
     assert_null(data->lf->fields[FIM_AUDIT_ID].value);
-
-    assert_null(data->lf->audit_name);
     assert_null(data->lf->fields[FIM_AUDIT_NAME].value);
-
-    assert_null(data->lf->effective_uid);
     assert_null(data->lf->fields[FIM_EFFECTIVE_UID].value);
-
-    assert_null(data->lf->effective_name);
     assert_null(data->lf->fields[FIM_EFFECTIVE_NAME].value);
-
-    assert_null(data->lf->ppid);
     assert_null(data->lf->fields[FIM_PPID].value);
-
-    assert_null(data->lf->process_id);
     assert_null(data->lf->fields[FIM_PROC_ID].value);
 
-    assert_null(data->lf->sk_tag);
     assert_null(data->lf->fields[FIM_TAG].value);
 
-    assert_null(data->lf->sym_path);
     assert_null(data->lf->fields[FIM_SYM_PATH].value);
 }
 
@@ -1663,7 +1600,6 @@ static void test_sk_fill_event_win_perm(void **state) {
 
     sk_fill_event(data->lf, data->f_name, data->sum);
 
-    assert_string_equal(data->lf->filename, "f_name");
     assert_string_equal(data->lf->fields[FIM_FILE].value, "f_name");
     assert_null(data->lf->fields[FIM_SIZE].value);
     assert_string_equal(data->lf->fields[FIM_PERM].value, "win_perm");
@@ -1673,50 +1609,24 @@ static void test_sk_fill_event_win_perm(void **state) {
     assert_null(data->lf->fields[FIM_SHA1].value);
     assert_null(data->lf->fields[FIM_UNAME].value);
     assert_null(data->lf->fields[FIM_GNAME].value);
-    assert_int_equal(data->lf->mtime_after, data->sum->mtime);
     assert_null(data->lf->fields[FIM_MTIME].value);
-    assert_int_equal(data->lf->inode_after, data->sum->inode);
     assert_null(data->lf->fields[FIM_INODE].value);
     assert_null(data->lf->fields[FIM_SHA256].value);
     assert_null(data->lf->fields[FIM_ATTRS].value);
-
-    assert_null(data->lf->user_id);
     assert_null(data->lf->fields[FIM_USER_ID].value);
-
-    assert_null(data->lf->user_name);
     assert_null(data->lf->fields[FIM_USER_NAME].value);
-
-    assert_null(data->lf->group_id);
     assert_null(data->lf->fields[FIM_GROUP_ID].value);
-
-    assert_null(data->lf->group_name);
     assert_null(data->lf->fields[FIM_GROUP_NAME].value);
-
-    assert_null(data->lf->process_name);
     assert_null(data->lf->fields[FIM_PROC_NAME].value);
-
-    assert_null(data->lf->audit_uid);
     assert_null(data->lf->fields[FIM_AUDIT_ID].value);
-
-    assert_null(data->lf->audit_name);
     assert_null(data->lf->fields[FIM_AUDIT_NAME].value);
-
-    assert_null(data->lf->effective_uid);
     assert_null(data->lf->fields[FIM_EFFECTIVE_UID].value);
-
-    assert_null(data->lf->effective_name);
     assert_null(data->lf->fields[FIM_EFFECTIVE_NAME].value);
-
-    assert_null(data->lf->ppid);
     assert_null(data->lf->fields[FIM_PPID].value);
-
-    assert_null(data->lf->process_id);
     assert_null(data->lf->fields[FIM_PROC_ID].value);
 
-    assert_null(data->lf->sk_tag);
     assert_null(data->lf->fields[FIM_TAG].value);
 
-    assert_null(data->lf->sym_path);
     assert_null(data->lf->fields[FIM_SYM_PATH].value);
 }
 
@@ -2057,23 +1967,39 @@ struct group {
 #ifndef TEST_WINAGENT
 static void test_get_group_success(void **state) {
     struct group group = { .gr_name = "group" };
-    const char *output;
+    char *output;
 
-    will_return(__wrap_getgrgid, &group);
+    will_return(__wrap_sysconf, -1);
 
-    output = get_group(0);
+    expect_value(__wrap_w_getgrgid, gid, 1000);
+    will_return(__wrap_w_getgrgid, &group);
+    will_return(__wrap_w_getgrgid, NULL); // We don't care about member buffers
+    will_return(__wrap_w_getgrgid, 1); // Success
 
-    assert_ptr_equal(output, group.gr_name);
+    output = get_group(1000);
+
+    assert_string_equal(output, group.gr_name);
+
+    free(output);
 }
 
-static void test_get_group_failure(void **state) {
+static void test_get_group_no_group(void **state) {
     const char *output;
 
-    will_return(__wrap_getgrgid, NULL);
+    errno = 0;
 
-    output = get_group(0);
+    will_return(__wrap_sysconf, 8);
 
-    assert_string_equal(output, "");
+    expect_value(__wrap_w_getgrgid, gid, 1000);
+    will_return(__wrap_w_getgrgid, NULL);
+    will_return(__wrap_w_getgrgid, NULL); // We don't care about member buffers
+    will_return(__wrap_w_getgrgid, 0); // Fail
+
+    expect_string(__wrap__mdebug2, formatted_msg, "Group with gid '1000' not found.\n");
+
+    output = get_group(1000);
+
+    assert_null(output);
 }
 #else
 static void test_get_group(void **state) {
@@ -2088,7 +2014,7 @@ static void test_get_group(void **state) {
 static void test_ag_send_syscheck_success(void **state) {
     char *input = "This is a mock message, it wont be sent anywhere";
 
-    expect_string(__wrap_OS_ConnectUnixDomain, path, DEFAULTDIR SYS_LOCAL_SOCK);
+    expect_string(__wrap_OS_ConnectUnixDomain, path, SYS_LOCAL_SOCK);
     expect_value(__wrap_OS_ConnectUnixDomain, type, SOCK_STREAM);
     expect_value(__wrap_OS_ConnectUnixDomain, max_msg_size, OS_MAXSTR);
 
@@ -2106,7 +2032,7 @@ static void test_ag_send_syscheck_success(void **state) {
 static void test_ag_send_syscheck_unable_to_connect(void **state) {
     char *input = "This is a mock message, it wont be sent anywhere";
 
-    expect_string(__wrap_OS_ConnectUnixDomain, path, DEFAULTDIR SYS_LOCAL_SOCK);
+    expect_string(__wrap_OS_ConnectUnixDomain, path, SYS_LOCAL_SOCK);
     expect_value(__wrap_OS_ConnectUnixDomain, type, SOCK_STREAM);
     expect_value(__wrap_OS_ConnectUnixDomain, max_msg_size, OS_MAXSTR);
 
@@ -2123,7 +2049,7 @@ static void test_ag_send_syscheck_unable_to_connect(void **state) {
 static void test_ag_send_syscheck_error_sending_message(void **state) {
     char *input = "This is a mock message, it wont be sent anywhere";
 
-    expect_string(__wrap_OS_ConnectUnixDomain, path, DEFAULTDIR SYS_LOCAL_SOCK);
+    expect_string(__wrap_OS_ConnectUnixDomain, path, SYS_LOCAL_SOCK);
     expect_value(__wrap_OS_ConnectUnixDomain, type, SOCK_STREAM);
     expect_value(__wrap_OS_ConnectUnixDomain, max_msg_size, OS_MAXSTR);
 
@@ -2220,85 +2146,62 @@ static void test_decode_win_attributes_some_attributes(void **state) {
 
 /* decode_win_permissions tests */
 static void test_decode_win_permissions_success_all_permissions(void **state) {
-    char *raw_perm = calloc(OS_MAXSTR, sizeof(char));
+    char raw_perm[OS_SIZE_1024] = { '\0' };
     char *output;
 
-    snprintf(raw_perm, OS_MAXSTR,  "|account,0,%ld",
-        (long int)(GENERIC_READ |
-        GENERIC_WRITE |
-        GENERIC_EXECUTE |
-        GENERIC_ALL |
-        DELETE |
-        READ_CONTROL |
-        WRITE_DAC |
-        WRITE_OWNER |
-        SYNCHRONIZE |
-        FILE_READ_DATA |
-        FILE_WRITE_DATA |
-        FILE_APPEND_DATA |
-        FILE_READ_EA |
-        FILE_WRITE_EA |
-        FILE_EXECUTE |
-        FILE_READ_ATTRIBUTES |
-        FILE_WRITE_ATTRIBUTES));
+    snprintf(raw_perm, OS_MAXSTR, "|account,0,%ld",
+             (long int)(GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE | GENERIC_ALL | DELETE | READ_CONTROL |
+                             WRITE_DAC | WRITE_OWNER | SYNCHRONIZE | FILE_READ_DATA | FILE_WRITE_DATA |
+                             FILE_APPEND_DATA | FILE_READ_EA | FILE_WRITE_EA | FILE_EXECUTE | FILE_READ_ATTRIBUTES |
+                             FILE_WRITE_ATTRIBUTES));
 
     output = decode_win_permissions(raw_perm);
 
-    free(raw_perm);
     *state = output;
 
-    assert_string_equal(output, "account (allowed): generic_read|generic_write|generic_execute|"
-        "generic_all|delete|read_control|write_dac|write_owner|synchronize|read_data|write_data|"
-        "append_data|read_ea|write_ea|execute|read_attributes|write_attributes");
+    assert_string_equal(output,
+                        "account (allowed): generic_read|generic_write|generic_execute|"
+                        "generic_all|delete|read_control|write_dac|write_owner|synchronize|read_data|write_data|"
+                        "append_data|read_ea|write_ea|execute|read_attributes|write_attributes");
 }
 
 static void test_decode_win_permissions_success_no_permissions(void **state) {
-    char *raw_perm = calloc(OS_MAXSTR, sizeof(char));
+    char raw_perm[OS_SIZE_1024] = { '\0' };
     char *output;
 
     snprintf(raw_perm, OS_MAXSTR,  "|account,0,%ld", (long int)0);
 
     output = decode_win_permissions(raw_perm);
 
-    free(raw_perm);
     *state = output;
 
     assert_string_equal(output, "account (allowed):");
 }
 
 static void test_decode_win_permissions_success_some_permissions(void **state) {
-    char *raw_perm = calloc(OS_MAXSTR, sizeof(char));
+    char raw_perm[OS_SIZE_1024] = { '\0' };
     char *output;
 
-    snprintf(raw_perm, OS_MAXSTR,  "|account,0,%ld",
-        (long int)(GENERIC_READ |
-        GENERIC_EXECUTE |
-        DELETE |
-        WRITE_DAC |
-        SYNCHRONIZE |
-        FILE_WRITE_DATA |
-        FILE_READ_EA |
-        FILE_EXECUTE |
-        FILE_WRITE_ATTRIBUTES));
+    snprintf(raw_perm, OS_MAXSTR, "|account,0,%ld",
+             (long int)(GENERIC_READ | GENERIC_EXECUTE | DELETE | WRITE_DAC | SYNCHRONIZE | FILE_WRITE_DATA |
+                        FILE_READ_EA | FILE_EXECUTE | FILE_WRITE_ATTRIBUTES));
 
     output = decode_win_permissions(raw_perm);
 
-    free(raw_perm);
     *state = output;
 
     assert_string_equal(output, "account (allowed): generic_read|generic_execute|"
-        "delete|write_dac|synchronize|write_data|read_ea|execute|write_attributes");
+                                "delete|write_dac|synchronize|write_data|read_ea|execute|write_attributes");
 }
 
 static void test_decode_win_permissions_success_multiple_accounts(void **state) {
-    char *raw_perm = calloc(OS_MAXSTR, sizeof(char));
+    char raw_perm[OS_SIZE_1024] = { '\0' };
     char *output;
 
-    snprintf(raw_perm, OS_MAXSTR,  "|first,0,%ld|second,1,%ld", (long int)GENERIC_READ, (long int)GENERIC_EXECUTE);
+    snprintf(raw_perm, OS_MAXSTR, "|first,0,%ld|second,1,%ld", (long int)(GENERIC_READ), (long int)(GENERIC_EXECUTE));
 
     output = decode_win_permissions(raw_perm);
 
-    free(raw_perm);
     *state = output;
 
     assert_string_equal(output, "first (allowed): generic_read, second (denied): generic_execute");
@@ -2318,29 +2221,43 @@ static void test_decode_win_permissions_fail_no_account_name(void **state) {
 }
 
 static void test_decode_win_permissions_fail_no_access_type(void **state) {
-    char *raw_perm = strdup("|account,this wont pass");
+    char raw_perm[OS_SIZE_1024] = { "|account,this wont pass" };
     char *output;
 
     expect_string(__wrap__mdebug1, formatted_msg, "The file permissions could not be decoded: '|account,this wont pass'.");
 
     output = decode_win_permissions(raw_perm);
 
-    free(raw_perm);
     *state = output;
 
     assert_null(output);
 }
 
 static void test_decode_win_permissions_fail_wrong_format(void **state) {
-    char *raw_perm = strdup("this is not the proper format");
+    char raw_perm[OS_SIZE_1024] = { "this is not the proper format" };
     char *output;
 
     output = decode_win_permissions(raw_perm);
 
-    free(raw_perm);
     *state = output;
 
     assert_string_equal("", output);
+}
+
+static void test_decode_win_permissions_overrun_inner_buffer(void **state) {
+    char raw_perm[OS_MAXSTR] = { '\0' };
+    int size = 0;
+    char *output;
+
+    while (size < MAX_WIN_PERM_SIZE) {
+        size += snprintf(raw_perm + size, OS_MAXSTR,  "|account%d,0,%ld", size, (long int)(GENERIC_READ));
+    }
+
+    output = decode_win_permissions(raw_perm);
+
+    *state = output;
+
+    assert_true(strlen(output) < MAX_WIN_PERM_SIZE);
 }
 
 /* attrs_to_json tests */
@@ -2517,16 +2434,40 @@ static void test_win_perm_to_json_no_permissions(void **state) {
     char *input = "account (allowed)";
     cJSON *output;
 
-    will_return(__wrap_cJSON_CreateArray, __real_cJSON_CreateArray());
+    will_return(__wrap_cJSON_CreateObject, __real_cJSON_CreateObject());
 
-    expect_string(__wrap__mdebug1, formatted_msg,
-        "Uncontrolled condition when parsing a Windows permission from 'account (allowed)'.");
+    will_return(__wrap_cJSON_CreateArray, __real_cJSON_CreateArray());
+    will_return(__wrap_cJSON_CreateArray, __real_cJSON_CreateArray());
 
     output = win_perm_to_json(input);
 
     *state = output;
 
-    assert_null(output);
+    assert_non_null(output);
+
+    const cJSON *ace = cJSON_GetArrayItem(output, 0);
+    assert_string_equal(cJSON_GetStringValue(cJSON_GetObjectItem(ace, "name")), "account");
+    assert_int_equal(cJSON_GetArraySize(cJSON_GetObjectItem(ace, "allowed")), 0);
+}
+
+static void test_win_perm_to_json_empty_permissions(void **state) {
+    char *input = "account (allowed):,";
+    cJSON *output;
+
+    will_return(__wrap_cJSON_CreateObject, __real_cJSON_CreateObject());
+
+    will_return(__wrap_cJSON_CreateArray, __real_cJSON_CreateArray());
+    will_return(__wrap_cJSON_CreateArray, __real_cJSON_CreateArray());
+
+    output = win_perm_to_json(input);
+
+    *state = output;
+
+    assert_non_null(output);
+
+    const cJSON *ace = cJSON_GetArrayItem(output, 0);
+    assert_string_equal(cJSON_GetStringValue(cJSON_GetObjectItem(ace, "name")), "account");
+    assert_int_equal(cJSON_GetArraySize(cJSON_GetObjectItem(ace, "allowed")), 0);
 }
 
 static void test_win_perm_to_json_allowed_denied_permissions(void **state) {
@@ -2828,157 +2769,153 @@ static void test_win_perm_to_json_error_splitting_permissions(void **state) {
 }
 
 #ifdef TEST_WINAGENT
-static void test_get_user_CreateFile_error_access_denied(void **state) {
+
+static void test_get_file_user_CreateFile_error_access_denied(void **state) {
     char **array = *state;
 
-    expect_string(wrap_CreateFile, lpFileName, "C:\\a\\path");
-    will_return(wrap_CreateFile, INVALID_HANDLE_VALUE);
+    expect_CreateFile_call("C:\\a\\path", INVALID_HANDLE_VALUE);
 
-    will_return(wrap_GetLastError, ERROR_ACCESS_DENIED);
+    expect_GetLastError_call(ERROR_ACCESS_DENIED);
 
-    will_return(wrap_FormatMessage, "An error message");
+    expect_FormatMessage_call("An error message");
 
     expect_string(__wrap__mdebug1, formatted_msg, "At get_user(C:\\a\\path): CreateFile(): An error message (5)");
 
-    array[0] = get_user("C:\\a\\path", &array[1]);
+    expect_CloseHandle_call(INVALID_HANDLE_VALUE, 1);
+
+    array[0] = get_file_user("C:\\a\\path", &array[1]);
 
     assert_string_equal(array[0], "");
 }
 
-static void test_get_user_CreateFile_error_sharing_violation(void **state) {
+static void test_get_file_user_CreateFile_error_sharing_violation(void **state) {
     char **array = *state;
 
-    expect_string(wrap_CreateFile, lpFileName, "C:\\a\\path");
-    will_return(wrap_CreateFile, INVALID_HANDLE_VALUE);
+    expect_CreateFile_call("C:\\a\\path", INVALID_HANDLE_VALUE);
 
-    will_return(wrap_GetLastError, ERROR_SHARING_VIOLATION);
+    expect_GetLastError_call(ERROR_SHARING_VIOLATION);
 
-    will_return(wrap_FormatMessage, "An error message");
+    expect_FormatMessage_call("An error message");
 
     expect_string(__wrap__mdebug1, formatted_msg, "At get_user(C:\\a\\path): CreateFile(): An error message (32)");
 
-    array[0] = get_user("C:\\a\\path", &array[1]);
+    expect_CloseHandle_call(INVALID_HANDLE_VALUE, 1);
+
+    array[0] = get_file_user("C:\\a\\path", &array[1]);
 
     assert_string_equal(array[0], "");
 }
 
-static void test_get_user_CreateFile_error_generic(void **state) {
+static void test_get_file_user_CreateFile_error_generic(void **state) {
     char **array = *state;
 
-    expect_string(wrap_CreateFile, lpFileName, "C:\\a\\path");
-    will_return(wrap_CreateFile, INVALID_HANDLE_VALUE);
+    expect_CreateFile_call("C:\\a\\path", INVALID_HANDLE_VALUE);
 
-    will_return(wrap_GetLastError, 127);
+    expect_GetLastError_call(127);
 
-    will_return(wrap_FormatMessage, "An error message");
+    expect_FormatMessage_call("An error message");
 
     expect_string(__wrap__mwarn, formatted_msg, "At get_user(C:\\a\\path): CreateFile(): An error message (127)");
 
-    array[0] = get_user("C:\\a\\path", &array[1]);
+    expect_CloseHandle_call(INVALID_HANDLE_VALUE, 1);
+
+    array[0] = get_file_user("C:\\a\\path", &array[1]);
 
     assert_string_equal(array[0], "");
 }
 
-static void test_get_user_GetSecurityInfo_error(void **state) {
+static void test_get_file_user_GetSecurityInfo_error(void **state) {
     char **array = *state;
+    char error_msg[OS_SIZE_1024];
 
-    expect_string(wrap_CreateFile, lpFileName, "C:\\a\\path");
-    will_return(wrap_CreateFile, (HANDLE)123456);
+    expect_CreateFile_call("C:\\a\\path", (HANDLE)1234);
 
-    will_return(wrap_GetSecurityInfo, ERROR_PATH_NOT_FOUND);
+    expect_CloseHandle_call((HANDLE)1234, 1);
 
-    expect_value(wrap_CloseHandle, hObject, (HANDLE)123456);
-    will_return(wrap_CloseHandle, 0);
+    expect_GetSecurityInfo_call(NULL, (PSID)"", ERROR_ACCESS_DENIED);
 
-    will_return(wrap_ConvertSidToStringSid, NULL);
-    will_return(wrap_ConvertSidToStringSid, 0);
+    expect_GetLastError_call(ERROR_ACCESS_DENIED);
+
+    expect_ConvertSidToStringSid_call("dummy", FALSE);
 
     expect_string(__wrap__mdebug1, formatted_msg, "The user's SID could not be extracted.");
 
-    will_return(wrap_GetLastError, ERROR_INVALID_SID);
+    snprintf(error_msg,
+             OS_SIZE_1024,
+             "GetSecurityInfo error = %lu",
+             ERROR_ACCESS_DENIED);
 
-    expect_string(__wrap__merror, formatted_msg, "GetSecurityInfo error = 1337");
+    expect_string(__wrap__merror, formatted_msg, error_msg);
 
-    array[0] = get_user("C:\\a\\path", &array[1]);
+    array[0] = get_file_user("C:\\a\\path", &array[1]);
 
     assert_string_equal(array[0], "");
 }
 
-static void test_get_user_LookupAccountSid_error(void **state) {
+static void test_get_file_user_LookupAccountSid_error(void **state) {
     char **array = *state;
 
-    expect_string(wrap_CreateFile, lpFileName, "C:\\a\\path");
-    will_return(wrap_CreateFile, (HANDLE)123456);
+    expect_CreateFile_call("C:\\a\\path", (HANDLE)1234);
 
-    will_return(wrap_GetSecurityInfo, ERROR_SUCCESS);
+    expect_CloseHandle_call((HANDLE)1234, 1);
 
-    expect_value(wrap_CloseHandle, hObject, (HANDLE)123456);
-    will_return(wrap_CloseHandle, 0);
+    expect_GetSecurityInfo_call(NULL, (PSID)"", ERROR_SUCCESS);
 
-    will_return(wrap_ConvertSidToStringSid, "sid");
-    will_return(wrap_ConvertSidToStringSid, 1);
+    expect_ConvertSidToStringSid_call("sid", TRUE);
 
-    will_return(wrap_LookupAccountSid, "accountName");
-    will_return(wrap_LookupAccountSid, "domainName");
-    will_return(wrap_LookupAccountSid, 0);
-
-    will_return(wrap_GetLastError, ERROR_INVALID_SID);
+    expect_LookupAccountSid_call("", "domainname", FALSE);
+    expect_GetLastError_call(ERROR_ACCESS_DENIED);
 
     expect_string(__wrap__merror, formatted_msg, "Error in LookupAccountSid.");
 
-    array[0] = get_user("C:\\a\\path", &array[1]);
+    array[0] = get_file_user("C:\\a\\path", &array[1]);
 
     assert_string_equal(array[0], "");
     assert_string_equal(array[1], "sid");
 }
 
-static void test_get_user_LookupAccountSid_error_none_mapped(void **state) {
+static void test_get_file_user_LookupAccountSid_error_none_mapped(void **state) {
     char **array = *state;
+    char error_msg[OS_SIZE_1024];
 
-    expect_string(wrap_CreateFile, lpFileName, "C:\\a\\path");
-    will_return(wrap_CreateFile, (HANDLE)123456);
+    expect_CreateFile_call("C:\\a\\path", (HANDLE)1234);
 
-    will_return(wrap_GetSecurityInfo, ERROR_SUCCESS);
+    expect_CloseHandle_call((HANDLE)1234, 1);
 
-    expect_value(wrap_CloseHandle, hObject, (HANDLE)123456);
-    will_return(wrap_CloseHandle, 0);
+    expect_GetSecurityInfo_call(NULL, (PSID)"", ERROR_SUCCESS);
 
-    will_return(wrap_ConvertSidToStringSid, "sid");
-    will_return(wrap_ConvertSidToStringSid, 1);
+    expect_ConvertSidToStringSid_call("sid", TRUE);
 
-    will_return(wrap_LookupAccountSid, "accountName");
-    will_return(wrap_LookupAccountSid, "domainName");
-    will_return(wrap_LookupAccountSid, 0);
+    expect_LookupAccountSid_call("", "domainname", FALSE);
+    expect_GetLastError_call(ERROR_NONE_MAPPED);
 
-    will_return(wrap_GetLastError, ERROR_NONE_MAPPED);
+    snprintf(error_msg,
+             OS_SIZE_1024,
+             "Account owner not found for '%s'",
+             "C:\\a\\path");
 
-    expect_string(__wrap__mdebug1, formatted_msg, "Account owner not found for file 'C:\\a\\path'");
+    expect_string(__wrap__mdebug1, formatted_msg, error_msg);
 
-    array[0] = get_user("C:\\a\\path", &array[1]);
+    array[0] = get_file_user("C:\\a\\path", &array[1]);
 
     assert_string_equal(array[0], "");
     assert_string_equal(array[1], "sid");
 }
 
-static void test_get_user_success(void **state) {
+static void test_get_file_user_success(void **state) {
     char **array = *state;
 
-    expect_string(wrap_CreateFile, lpFileName, "C:\\a\\path");
-    will_return(wrap_CreateFile, (HANDLE)123456);
+    expect_CreateFile_call("C:\\a\\path", (HANDLE)1234);
 
-    will_return(wrap_GetSecurityInfo, ERROR_SUCCESS);
+    expect_CloseHandle_call((HANDLE)1234, 1);
 
-    expect_value(wrap_CloseHandle, hObject, (HANDLE)123456);
-    will_return(wrap_CloseHandle, 0);
+    expect_GetSecurityInfo_call(NULL, (PSID)"", ERROR_SUCCESS);
 
-    will_return(wrap_ConvertSidToStringSid, "sid");
-    will_return(wrap_ConvertSidToStringSid, 1);
+    expect_ConvertSidToStringSid_call("sid", TRUE);
 
-    will_return(wrap_LookupAccountSid, "accountName");
-    will_return(wrap_LookupAccountSid, "domainName");
-    will_return(wrap_LookupAccountSid, 1);
+    expect_LookupAccountSid_call("accountName", "domainname", TRUE);
 
-    array[0] = get_user("C:\\a\\path", &array[1]);
+    array[0] = get_file_user("C:\\a\\path", &array[1]);
 
     assert_string_equal(array[0], "accountName");
     assert_string_equal(array[1], "sid");
@@ -3045,7 +2982,7 @@ void test_w_get_account_info_success(void **state) {
 
 void test_copy_ace_info_invalid_ace(void **state) {
     int ret;
-    char perm[OS_SIZE_1024];
+    char perm[OS_SIZE_1024] = { '\0' };
     ACCESS_ALLOWED_ACE ace = {
         .Header.AceType = SYSTEM_AUDIT_ACE_TYPE,
     };
@@ -3059,7 +2996,7 @@ void test_copy_ace_info_invalid_ace(void **state) {
 
 void test_copy_ace_info_invalid_sid(void **state) {
     int ret;
-    char perm[OS_SIZE_1024];
+    char perm[OS_SIZE_1024] = { '\0' };
     ACCESS_ALLOWED_ACE ace = {
         .Header.AceType = ACCESS_DENIED_ACE_TYPE,
     };
@@ -3075,7 +3012,7 @@ void test_copy_ace_info_invalid_sid(void **state) {
 
 void test_copy_ace_info_no_information_from_account_or_sid(void **state) {
     int ret;
-    char perm[OS_SIZE_1024];
+    char perm[OS_SIZE_1024] = { '\0' };
     ACCESS_ALLOWED_ACE ace = {
         .Header.AceType = ACCESS_ALLOWED_ACE_TYPE,
     };
@@ -3104,7 +3041,7 @@ void test_copy_ace_info_no_information_from_account_or_sid(void **state) {
 
 void test_copy_ace_info_success(void **state) {
     int ret;
-    char perm[OS_SIZE_1024];
+    char perm[OS_SIZE_1024] = { '\0' };
     ACCESS_ALLOWED_ACE ace = {
         .Header.AceType = ACCESS_ALLOWED_ACE_TYPE,
         .Mask = 123456,
@@ -3125,6 +3062,31 @@ void test_copy_ace_info_success(void **state) {
 
     assert_int_equal(ret, 21);
     assert_string_equal(perm, "|accountName,0,123456");
+}
+
+void test_copy_ace_info_insufficient_size(void **state) {
+    int ret;
+    char perm[OS_SIZE_1024] = { '\0' };
+    ACCESS_ALLOWED_ACE ace = {
+        .Header.AceType = ACCESS_ALLOWED_ACE_TYPE,
+        .Mask = 123456,
+    };
+
+    will_return(wrap_IsValidSid, 1);
+
+    // Inside w_get_account_info
+    will_return(wrap_LookupAccountSid, OS_SIZE_1024);   // Name size
+    will_return(wrap_LookupAccountSid, OS_SIZE_1024);   // Domain size
+    will_return(wrap_LookupAccountSid, 1);
+
+    will_return(wrap_LookupAccountSid, "accountName");
+    will_return(wrap_LookupAccountSid, "domainName");
+    will_return(wrap_LookupAccountSid, 1);
+
+    ret = copy_ace_info(&ace, perm, 10);
+
+    assert_int_equal(ret, 0);
+    assert_string_equal(perm, "");
 }
 
 void test_w_get_file_permissions_GetFileSecurity_error_on_size(void **state) {
@@ -3441,18 +3403,301 @@ void test_w_directory_exists_path_is_dir(void **state) {
 
     assert_non_null(ret);
 }
+
+void test_get_registry_group_GetSecurityInfo_fails(void **state) {
+    HKEY hndl = (HKEY)123456;
+    registry_group_information_t *group_information = *state;
+    char *group = group_information->name;
+    char *group_id = group_information->id;
+    char error_msg[OS_SIZE_1024];
+
+    expect_GetSecurityInfo_call(NULL, (PSID)"", ERROR_ACCESS_DENIED);
+    expect_GetLastError_call(ERROR_ACCESS_DENIED);
+
+    snprintf(error_msg,
+             OS_SIZE_1024,
+             "GetSecurityInfo error = %lu",
+             ERROR_ACCESS_DENIED);
+
+    expect_string(__wrap__merror, formatted_msg, error_msg);
+
+    group = get_registry_group(&group_id, hndl);
+
+    assert_string_equal(group, "");
+    assert_string_equal(group_id, "");
+}
+
+void test_get_registry_group_ConvertSidToStringSid_fails(void **state) {
+    HKEY hndl = (HKEY)123456;
+    registry_group_information_t *group_information = *state;
+    char *group = group_information->name;
+    char *group_id = group_information->id;
+
+    expect_GetSecurityInfo_call(NULL, (PSID)"groupid", ERROR_SUCCESS);
+
+    expect_ConvertSidToStringSid_call("dummy", FALSE);
+
+    expect_string(__wrap__mdebug1, formatted_msg, "The user's SID could not be extracted.");
+
+    expect_LookupAccountSid_call("groupname", "domainname", TRUE);
+
+    group = get_registry_group(&group_id, hndl);
+
+    assert_string_equal(group, "groupname");
+    assert_string_equal(group_id, "");
+}
+
+void test_get_registry_group_LookupAccountSid_fails(void **state) {
+    HKEY hndl = (HKEY)123456;
+    registry_group_information_t *group_information = *state;
+    char *group = group_information->name;
+    char *group_id = group_information->id;
+
+    expect_GetSecurityInfo_call(NULL, (PSID)"groupid", ERROR_SUCCESS);
+
+    expect_ConvertSidToStringSid_call("groupid", TRUE);
+
+    expect_LookupAccountSid_call("", "domainname", FALSE);
+    expect_GetLastError_call(ERROR_ACCESS_DENIED);
+
+    expect_string(__wrap__merror, formatted_msg, "Error in LookupAccountSid.");
+
+    group = get_registry_group(&group_id, hndl);
+
+    assert_string_equal(group, "");
+    assert_string_equal(group_id, "groupid");
+}
+
+void test_get_registry_group_LookupAccountSid_not_found(void **state) {
+    HKEY hndl = (HKEY)123456;
+    registry_group_information_t *group_information = *state;
+    char *group = group_information->name;
+    char *group_id = group_information->id;
+
+    expect_GetSecurityInfo_call(NULL, (PSID)"groupid", ERROR_SUCCESS);
+
+    expect_ConvertSidToStringSid_call("groupid", TRUE);
+
+    expect_LookupAccountSid_call("", "domainname", FALSE);
+    expect_GetLastError_call(ERROR_NONE_MAPPED);
+
+    expect_string(__wrap__mdebug1, formatted_msg, "Group not found for registry key");
+
+    group = get_registry_group(&group_id, hndl);
+
+    assert_string_equal(group, "");
+    assert_string_equal(group_id, "groupid");
+}
+
+void test_get_registry_group_success(void **state) {
+    HKEY hndl = (HKEY)123456;
+    registry_group_information_t *group_information = *state;
+    char *group = group_information->name;
+    char *group_id = group_information->id;
+
+    expect_GetSecurityInfo_call(NULL, (PSID)"groupid", ERROR_SUCCESS);
+
+    expect_ConvertSidToStringSid_call("groupid", TRUE);
+
+    expect_LookupAccountSid_call("groupname", "domainname", TRUE);
+
+    group = get_registry_group(&group_id, hndl);
+
+    assert_string_equal(group, "groupname");
+    assert_string_equal(group_id, "groupid");
+}
+
+void test_get_registry_permissions_RegGetKeySecurity_insufficient_buffer(void **state) {
+    HKEY hndl = (HKEY)123456;
+    unsigned int retval = 0;
+    char permissions[OS_SIZE_6144 + 1];
+
+    expect_RegGetKeySecurity_call((LPDWORD)120, ERROR_ACCESS_DENIED);
+    expect_GetLastError_call(ERROR_ACCESS_DENIED);
+
+    retval = get_registry_permissions(hndl, permissions);
+
+    assert_int_equal(retval, ERROR_ACCESS_DENIED);
+    assert_string_equal(permissions, "");
+}
+
+void test_get_registry_permissions_RegGetKeySecurity_fails(void **state) {
+    HKEY hndl = (HKEY)123456;
+    unsigned int retval = 0;
+    char permissions[OS_SIZE_6144 + 1];
+
+    expect_RegGetKeySecurity_call((LPDWORD)120, ERROR_INSUFFICIENT_BUFFER);
+
+    expect_RegGetKeySecurity_call((LPDWORD)120, ERROR_ACCESS_DENIED);
+
+    retval = get_registry_permissions(hndl, permissions);
+
+    assert_int_equal(retval, ERROR_ACCESS_DENIED);
+    assert_string_equal(permissions, "");
+}
+
+void test_get_registry_permissions_GetSecurityDescriptorDacl_fails(void **state) {
+    HKEY hndl = (HKEY)123456;
+    unsigned int retval = 0;
+    char permissions[OS_SIZE_6144 + 1];
+
+    expect_RegGetKeySecurity_call((LPDWORD)120, ERROR_INSUFFICIENT_BUFFER);
+
+    expect_RegGetKeySecurity_call((LPDWORD)120, ERROR_SUCCESS);
+
+    expect_GetSecurityDescriptorDacl_call(TRUE, (PACL*)0, FALSE);
+
+    expect_GetLastError_call(ERROR_SUCCESS);
+    expect_string(__wrap__mdebug2, formatted_msg, "GetSecurityDescriptorDacl failed. GetLastError returned: 0");
+
+    retval = get_registry_permissions(hndl, permissions);
+
+    assert_int_equal(retval, ERROR_SUCCESS);
+    assert_string_equal(permissions, "");
+}
+
+void test_get_registry_permissions_GetSecurityDescriptorDacl_no_DACL(void **state) {
+    HKEY hndl = (HKEY)123456;
+    unsigned int retval = 0;
+    char permissions[OS_SIZE_6144 + 1];
+    char error_msg[OS_SIZE_1024];
+
+    expect_RegGetKeySecurity_call((LPDWORD)120, ERROR_INSUFFICIENT_BUFFER);
+
+    expect_RegGetKeySecurity_call((LPDWORD)120, ERROR_SUCCESS);
+
+    expect_GetSecurityDescriptorDacl_call(TRUE, (PACL*)0, TRUE);
+
+    snprintf(error_msg,
+             OS_SIZE_1024,
+             "%s",
+             "No DACL was found (all access is denied), or a NULL DACL (unrestricted access) was found.");
+
+    expect_string(__wrap__mdebug2, formatted_msg, error_msg);
+
+    retval = get_registry_permissions(hndl, permissions);
+
+    assert_int_not_equal(retval, ERROR_SUCCESS);
+    assert_string_equal(permissions, "");
+}
+
+void test_get_registry_permissions_GetAclInformation_fails(void **state) {
+    HKEY hndl = (HKEY)123456;
+    unsigned int retval = 0;
+    char permissions[OS_SIZE_6144 + 1];
+
+    expect_RegGetKeySecurity_call((LPDWORD)120, ERROR_INSUFFICIENT_BUFFER);
+
+    expect_RegGetKeySecurity_call((LPDWORD)120, ERROR_SUCCESS);
+
+    expect_GetSecurityDescriptorDacl_call(TRUE, (PACL*)4321, TRUE);
+
+    expect_GetAclInformation_call(NULL, FALSE);
+
+    expect_GetLastError_call(ERROR_SUCCESS);
+    expect_string(__wrap__mdebug2, formatted_msg, "GetAclInformation failed. GetLastError returned: 0");
+
+    retval = get_registry_permissions(hndl, permissions);
+
+    assert_int_equal(retval, ERROR_SUCCESS);
+    assert_string_equal(permissions, "");
+}
+
+void test_get_registry_permissions_GetAce_fails(void **state) {
+    HKEY hndl = (HKEY)123456;
+    unsigned int retval = 0;
+    char permissions[OS_SIZE_6144 + 1];
+    ACL_SIZE_INFORMATION acl_size = { .AceCount = 1 };
+
+    expect_RegGetKeySecurity_call((LPDWORD)120, ERROR_INSUFFICIENT_BUFFER);
+
+    expect_RegGetKeySecurity_call((LPDWORD)120, ERROR_SUCCESS);
+
+    expect_GetSecurityDescriptorDacl_call(TRUE, (PACL*)4321, TRUE);
+
+    expect_GetAclInformation_call(&acl_size, TRUE);
+
+    expect_GetAce_call(NULL, FALSE);
+
+    expect_GetLastError_call(ERROR_SUCCESS);
+    expect_string(__wrap__mdebug2, formatted_msg, "GetAce failed. GetLastError returned: 0");
+
+    retval = get_registry_permissions(hndl, permissions);
+
+    assert_int_equal(retval, ERROR_SUCCESS);
+    assert_string_equal(permissions, "");
+}
+
+void test_get_registry_permissions_success(void **state) {
+    HKEY hndl = (HKEY)123456;
+    unsigned int retval = 0;
+    char permissions[OS_SIZE_6144 + 1];
+    ACL_SIZE_INFORMATION acl_size = { .AceCount = 1 };
+    ACCESS_ALLOWED_ACE ace = {
+        .Header.AceType = ACCESS_ALLOWED_ACE_TYPE,
+    };
+
+    expect_RegGetKeySecurity_call((LPDWORD)120, ERROR_INSUFFICIENT_BUFFER);
+
+    expect_RegGetKeySecurity_call((LPDWORD)120, ERROR_SUCCESS);
+
+    expect_GetSecurityDescriptorDacl_call(TRUE, (PACL*)4321, TRUE);
+
+    expect_GetAclInformation_call(&acl_size, TRUE);
+
+    expect_GetAce_call((LPVOID*)&ace, TRUE);
+
+    // Inside copy_ace_info
+    {
+        will_return(wrap_IsValidSid, 1);
+
+        // Inside w_get_account_info
+        will_return(wrap_LookupAccountSid, OS_SIZE_1024);   // Name size
+        will_return(wrap_LookupAccountSid, OS_SIZE_1024);   // Domain size
+        will_return(wrap_LookupAccountSid, 1);
+
+        will_return(wrap_LookupAccountSid, "accountName");
+        will_return(wrap_LookupAccountSid, "domainName");
+        will_return(wrap_LookupAccountSid, 1);
+    }
+
+    retval = get_registry_permissions(hndl, permissions);
+
+    assert_int_equal(retval, ERROR_SUCCESS);
+    assert_string_equal(permissions, "|accountName,0,0");
+}
+
+void test_get_registry_mtime_RegQueryInfoKeyA_fails(void **state) {
+    FILETIME last_write_time;
+    unsigned int retval = 0;
+    HKEY hndl = (HKEY)123456;
+
+    expect_RegQueryInfoKeyA_call(&last_write_time, ERROR_MORE_DATA);
+
+    expect_string(__wrap__mwarn, formatted_msg, "Couldn't get modification time for registry key.");
+
+    retval = get_registry_mtime(hndl);
+
+    assert_int_equal(retval, 0);
+}
+
+void test_get_registry_mtime_success(void **state) {
+    FILETIME last_write_time;
+    unsigned int retval = 0;
+    HKEY hndl = (HKEY)123456;
+
+    expect_RegQueryInfoKeyA_call(&last_write_time, ERROR_SUCCESS);
+
+    retval = get_registry_mtime(hndl);
+
+    assert_int_not_equal(retval, 0);
+}
+
 #endif
 
 
 int main(int argc, char *argv[]) {
     const struct CMUnitTest tests[] = {
-        /* delete_target_file tests */
-        cmocka_unit_test(test_delete_target_file_success),
-        cmocka_unit_test(test_delete_target_file_rmdir_ex_error),
-#ifdef TEST_WINAGENT
-        cmocka_unit_test(test_delete_target_file_invalid_path),
-#endif
-
         /* escape_syscheck_field tests */
         cmocka_unit_test_teardown(test_escape_syscheck_field_escape_all, teardown_string),
         cmocka_unit_test_teardown(test_escape_syscheck_field_null_input, teardown_string),
@@ -3557,7 +3802,7 @@ int main(int argc, char *argv[]) {
 
         /* get_group tests */
         cmocka_unit_test(test_get_group_success),
-        cmocka_unit_test(test_get_group_failure),
+        cmocka_unit_test(test_get_group_no_group),
 
         /* ag_send_syscheck tests */
         cmocka_unit_test(test_ag_send_syscheck_success),
@@ -3581,6 +3826,7 @@ int main(int argc, char *argv[]) {
         cmocka_unit_test_teardown(test_decode_win_permissions_fail_no_account_name, teardown_string),
         cmocka_unit_test_teardown(test_decode_win_permissions_fail_no_access_type, teardown_string),
         cmocka_unit_test_teardown(test_decode_win_permissions_fail_wrong_format, teardown_string),
+        cmocka_unit_test_teardown(test_decode_win_permissions_overrun_inner_buffer, teardown_string),
 
         /* attrs_to_json tests */
         cmocka_unit_test_teardown(test_attrs_to_json_single_attribute, teardown_cjson),
@@ -3592,6 +3838,7 @@ int main(int argc, char *argv[]) {
         cmocka_unit_test_teardown(test_win_perm_to_json_all_permissions, teardown_cjson),
         cmocka_unit_test_teardown(test_win_perm_to_json_some_permissions, teardown_cjson),
         cmocka_unit_test_teardown(test_win_perm_to_json_no_permissions, teardown_cjson),
+        cmocka_unit_test_teardown(test_win_perm_to_json_empty_permissions, teardown_cjson),
         cmocka_unit_test_teardown(test_win_perm_to_json_allowed_denied_permissions, teardown_cjson),
         cmocka_unit_test_teardown(test_win_perm_to_json_multiple_accounts, teardown_cjson),
         cmocka_unit_test_teardown(test_win_perm_to_json_fragmented_acl, teardown_cjson),
@@ -3604,23 +3851,28 @@ int main(int argc, char *argv[]) {
         cmocka_unit_test_teardown(test_win_perm_to_json_error_splitting_permissions, teardown_cjson),
 
 #ifdef TEST_WINAGENT
-        cmocka_unit_test_setup_teardown(test_get_user_CreateFile_error_access_denied, setup_string_array, teardown_string_array),
-        cmocka_unit_test_setup_teardown(test_get_user_CreateFile_error_sharing_violation, setup_string_array, teardown_string_array),
-        cmocka_unit_test_setup_teardown(test_get_user_CreateFile_error_generic, setup_string_array, teardown_string_array),
-        cmocka_unit_test_setup_teardown(test_get_user_GetSecurityInfo_error, setup_string_array, teardown_string_array),
-        cmocka_unit_test_setup_teardown(test_get_user_LookupAccountSid_error, setup_string_array, teardown_string_array),
-        cmocka_unit_test_setup_teardown(test_get_user_LookupAccountSid_error_none_mapped, setup_string_array, teardown_string_array),
-        cmocka_unit_test_setup_teardown(test_get_user_success, setup_string_array, teardown_string_array),
+        /* get_file_user tests */
+        cmocka_unit_test_setup_teardown(test_get_file_user_CreateFile_error_access_denied, setup_string_array, teardown_string_array),
+        cmocka_unit_test_setup_teardown(test_get_file_user_CreateFile_error_sharing_violation, setup_string_array, teardown_string_array),
+        cmocka_unit_test_setup_teardown(test_get_file_user_CreateFile_error_generic, setup_string_array, teardown_string_array),
+        cmocka_unit_test_setup_teardown(test_get_file_user_GetSecurityInfo_error, setup_string_array, teardown_string_array),
+        cmocka_unit_test_setup_teardown(test_get_file_user_LookupAccountSid_error, setup_string_array, teardown_string_array),
+        cmocka_unit_test_setup_teardown(test_get_file_user_LookupAccountSid_error_none_mapped, setup_string_array, teardown_string_array),
+        cmocka_unit_test_setup_teardown(test_get_file_user_success, setup_string_array, teardown_string_array),
 
+        /* w_get_account_info tests */
         cmocka_unit_test_setup_teardown(test_w_get_account_info_LookupAccountSid_error_insufficient_buffer, setup_string_array, teardown_string_array),
         cmocka_unit_test_setup_teardown(test_w_get_account_info_LookupAccountSid_error_second_call, setup_string_array, teardown_string_array),
         cmocka_unit_test_setup_teardown(test_w_get_account_info_success, setup_string_array, teardown_string_array),
 
+        /* copy_ace_info tests */
         cmocka_unit_test(test_copy_ace_info_invalid_ace),
         cmocka_unit_test(test_copy_ace_info_invalid_sid),
         cmocka_unit_test(test_copy_ace_info_no_information_from_account_or_sid),
         cmocka_unit_test(test_copy_ace_info_success),
+        cmocka_unit_test(test_copy_ace_info_insufficient_size),
 
+        /* w_get_file_permissions tests */
         cmocka_unit_test(test_w_get_file_permissions_GetFileSecurity_error_on_size),
         cmocka_unit_test(test_w_get_file_permissions_GetFileSecurity_error),
         cmocka_unit_test(test_w_get_file_permissions_GetSecurityDescriptorDacl_error),
@@ -3630,13 +3882,36 @@ int main(int argc, char *argv[]) {
         cmocka_unit_test(test_w_get_file_permissions_success),
         cmocka_unit_test(test_w_get_file_permissions_copy_ace_info_error),
 
+        /* w_get_file_attrs tests */
         cmocka_unit_test(test_w_get_file_attrs_error),
         cmocka_unit_test(test_w_get_file_attrs_success),
 
+        /* w_directory_exists tests */
         cmocka_unit_test(test_w_directory_exists_null_path),
         cmocka_unit_test(test_w_directory_exists_error_getting_attrs),
         cmocka_unit_test(test_w_directory_exists_path_is_not_dir),
         cmocka_unit_test(test_w_directory_exists_path_is_dir),
+
+        /* get_registry_group tests */
+        cmocka_unit_test_setup_teardown(test_get_registry_group_GetSecurityInfo_fails, setup_get_registry_group, teardown_get_registry_group),
+        cmocka_unit_test_setup_teardown(test_get_registry_group_ConvertSidToStringSid_fails, setup_get_registry_group, teardown_get_registry_group),
+        cmocka_unit_test_setup_teardown(test_get_registry_group_LookupAccountSid_fails, setup_get_registry_group, teardown_get_registry_group),
+        cmocka_unit_test_setup_teardown(test_get_registry_group_LookupAccountSid_not_found, setup_get_registry_group, teardown_get_registry_group),
+        cmocka_unit_test_setup_teardown(test_get_registry_group_success, setup_get_registry_group, teardown_get_registry_group),
+
+
+        /* get_registry_permissions tests */
+        cmocka_unit_test(test_get_registry_permissions_RegGetKeySecurity_insufficient_buffer),
+        cmocka_unit_test(test_get_registry_permissions_RegGetKeySecurity_fails),
+        cmocka_unit_test(test_get_registry_permissions_GetSecurityDescriptorDacl_fails),
+        cmocka_unit_test(test_get_registry_permissions_GetSecurityDescriptorDacl_no_DACL),
+        cmocka_unit_test(test_get_registry_permissions_GetAclInformation_fails),
+        cmocka_unit_test(test_get_registry_permissions_GetAce_fails),
+        cmocka_unit_test(test_get_registry_permissions_success),
+
+        /* get_registry_mtime tests */
+        cmocka_unit_test(test_get_registry_mtime_RegQueryInfoKeyA_fails),
+        cmocka_unit_test(test_get_registry_mtime_success),
 #endif
     };
     return cmocka_run_group_tests(tests, NULL, NULL);

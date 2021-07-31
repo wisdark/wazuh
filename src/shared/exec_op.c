@@ -1,6 +1,6 @@
 /*
  * Subprocess execution library
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * May 1, 2018
  *
  * This program is free software; you can redistribute it
@@ -10,7 +10,6 @@
  */
 
 #include <shared.h>
-#include <wazuh_modules/wmodules.h>
 
 // Open a stream from a process without shell (execvp form)
 wfd_t * wpopenv(const char * path, char * const * argv, int flags) {
@@ -55,6 +54,34 @@ wfd_t * wpopenv(const char * path, char * const * argv, int flags) {
 
         sinfo.hStdOutput = flags & W_BIND_STDOUT ? hPipe[1] : NULL;
         sinfo.hStdError = flags & W_BIND_STDERR ? hPipe[1] : NULL;
+    } else if (flags & W_BIND_STDIN) {
+        if (!CreatePipe(&hPipe[0], &hPipe[1], NULL, 0)) {
+            merror("CreatePipe(): %ld", GetLastError());
+            return NULL;
+        }
+
+        if (!SetHandleInformation(hPipe[0], HANDLE_FLAG_INHERIT, 1)) {
+            merror("SetHandleInformation(): %ld", GetLastError());
+            CloseHandle(hPipe[0]);
+            CloseHandle(hPipe[1]);
+            return NULL;
+        }
+
+        if (fd = _open_osfhandle((int)hPipe[1], 0), fd < 0) {
+            merror("_open_osfhandle(): %ld", GetLastError());
+            CloseHandle(hPipe[0]);
+            CloseHandle(hPipe[1]);
+            return NULL;
+        }
+
+        if (fp = _fdopen(fd, "w"), !fp) {
+            merror("_fdopen(): %ld", GetLastError());
+            _close(fd);
+            CloseHandle(hPipe[0]);
+            return NULL;
+        }
+
+        sinfo.hStdInput = hPipe[0];
     }
 
     // Format command string
@@ -81,7 +108,11 @@ wfd_t * wpopenv(const char * path, char * const * argv, int flags) {
 
         if (fp) {
             fclose(fp);
-            CloseHandle(hPipe[1]);
+            if (flags & W_BIND_STDIN) {
+                CloseHandle(hPipe[0]);
+            } else {
+                CloseHandle(hPipe[1]);
+            }
         }
 
         if(lpCommandLine) {
@@ -95,13 +126,12 @@ wfd_t * wpopenv(const char * path, char * const * argv, int flags) {
     os_calloc(1, sizeof(wfd_t), wfd);
 
     if (fp) {
-        CloseHandle(hPipe[1]);
+        if (flags & W_BIND_STDIN) {
+            CloseHandle(hPipe[0]);
+        } else {
+            CloseHandle(hPipe[1]);
+        }
         wfd->file = fp;
-    }
-
-    if (flags & W_APPEND_POOL) {
-        wm_append_handle(pinfo.hProcess);
-        wfd->append_pool = 1;
     }
 
     wfd->pinfo = pinfo;
@@ -110,7 +140,7 @@ wfd_t * wpopenv(const char * path, char * const * argv, int flags) {
 #else
 
     pid_t pid;
-    int pipe_fd[2];
+    int pipe_fd[2] = { 0, 0 };
 
     if (flags & (W_BIND_STDOUT | W_BIND_STDERR)) {
         if (pipe(pipe_fd) < 0) {
@@ -118,6 +148,16 @@ wfd_t * wpopenv(const char * path, char * const * argv, int flags) {
         }
 
         if (fp = fdopen(pipe_fd[0], "r"), !fp) {
+            close(pipe_fd[0]);
+            close(pipe_fd[1]);
+            return NULL;
+        }
+    } else if (flags & W_BIND_STDIN) {
+        if (pipe(pipe_fd) < 0) {
+            return NULL;
+        }
+
+        if (fp = fdopen(pipe_fd[1], "w"), !fp) {
             close(pipe_fd[0]);
             close(pipe_fd[1]);
             return NULL;
@@ -146,9 +186,7 @@ wfd_t * wpopenv(const char * path, char * const * argv, int flags) {
             merror_exit(FOPEN_ERROR, "/dev/null", errno, strerror(errno));
         }
 
-        dup2(fd, STDIN_FILENO);
-
-        if (flags & (W_BIND_STDOUT | W_BIND_STDERR)) {
+        if (flags & (W_BIND_STDOUT | W_BIND_STDERR | W_BIND_STDIN)) {
             if (flags & W_BIND_STDOUT) {
                 dup2(pipe_fd[1], STDOUT_FILENO);
             } else {
@@ -161,11 +199,18 @@ wfd_t * wpopenv(const char * path, char * const * argv, int flags) {
                 dup2(fd, STDERR_FILENO);
             }
 
+            if (flags & W_BIND_STDIN) {
+                dup2(pipe_fd[0], STDIN_FILENO);
+            } else {
+                dup2(fd, STDIN_FILENO);
+            }
+
             close(pipe_fd[0]);
             close(pipe_fd[1]);
         } else {
             dup2(fd, STDOUT_FILENO);
             dup2(fd, STDERR_FILENO);
+            dup2(fd, STDIN_FILENO);
         }
 
         close(fd);
@@ -180,9 +225,8 @@ wfd_t * wpopenv(const char * path, char * const * argv, int flags) {
             close(pipe_fd[1]);
         }
 
-        if (flags & W_APPEND_POOL) {
-            wm_append_sid(pid);
-            wfd->append_pool = 1;
+        if (flags & W_BIND_STDIN) {
+            close(pipe_fd[0]);
         }
 
         wfd->pid = pid;
@@ -191,7 +235,7 @@ wfd_t * wpopenv(const char * path, char * const * argv, int flags) {
 
     // Error
 
-    if (flags & (W_BIND_STDOUT | W_BIND_STDERR)) {
+    if (flags & (W_BIND_STDOUT | W_BIND_STDERR | W_BIND_STDIN)) {
         fclose(wfd->file);
         close(pipe_fd[0]);
         close(pipe_fd[1]);
@@ -241,10 +285,6 @@ int wpclose(wfd_t * wfd) {
 #ifdef WIN32
     DWORD exitcode;
 
-    if (wfd->append_pool) {
-        wm_remove_handle(wfd->pinfo.hProcess);
-    }
-
     switch (WaitForSingleObject(wfd->pinfo.hProcess, INFINITE)) {
     case WAIT_OBJECT_0:
         GetExitCodeProcess(wfd->pinfo.hProcess, &exitcode);
@@ -261,10 +301,6 @@ int wpclose(wfd_t * wfd) {
     return wstatus;
 #else
     pid_t pid;
-
-    if (wfd->append_pool) {
-        wm_remove_sid(wfd->pid);
-    }
 
     while (pid = waitpid(wfd->pid, &wstatus, 0), pid == -1 && errno == EINTR);
     free(wfd);

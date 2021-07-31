@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -171,6 +171,16 @@ char * w_validate_time(const char * time_str);
  * @return Returns 0 if the interval is multiple, -1 otherwise.
  */
 int w_validate_interval(int interval, int force);
+
+
+/**
+ * @brief Convert to bytes
+ *
+ * @param content string to validate
+ * @return number of bytes on success, otherwise -1
+ */
+long long w_validate_bytes(const char *content);
+
 
 /* Macros */
 

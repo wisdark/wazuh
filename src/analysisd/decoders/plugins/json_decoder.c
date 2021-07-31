@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2015-2020, Wazuh Inc.
+* Copyright (C) 2015-2021, Wazuh Inc.
 * April 18, 2017.
 *
 * This program is free software; you can redistribute it
@@ -33,8 +33,9 @@ void fillData(Eventinfo *lf, const char *key, const char *value)
     if (!lf->srcgeoip) {
         lf->srcgeoip = GetGeoInfobyIP(lf->srcip);
 #ifdef TESTRULE
-        if (lf->srcgeoip && !alert_only)
+        if (lf->srcgeoip && !alert_only) {
             print_out("       srcgeoip: '%s'", lf->srcgeoip);
+        }
 #endif
     }
 #endif
@@ -141,16 +142,6 @@ void fillData(Eventinfo *lf, const char *key, const char *value)
         return;
     }
 
-    if (strcmp(key, "command") == 0){
-        os_strdup(value, lf->command);
-#ifdef TESTRULE
-        if (!alert_only) {
-            print_out("       command: '%s'", lf->command);
-        }
-#endif
-        return;
-    }
-
     if (strcmp(key, "url") == 0){
         os_strdup(value, lf->url);
 #ifdef TESTRULE
@@ -201,6 +192,7 @@ void fillData(Eventinfo *lf, const char *key, const char *value)
         print_out("       %s: '%s'", key, value);
     }
 #endif
+
     os_strdup(key, lf->fields[lf->nfields].key);
     os_strdup(value, lf->fields[lf->nfields].value);
     lf->nfields++;
@@ -213,7 +205,6 @@ static void readJSON (cJSON *logJSON, char *parent, Eventinfo *lf)
     static const char * VALUE_TRUE = "true";
     static const char * VALUE_FALSE = "false";
     static const char * VALUE_COMMA = ",";
-    static const char * VALUE_EMPTY = "";
 
     cJSON *next, *array;
     char *key = NULL;
@@ -255,7 +246,7 @@ static void readJSON (cJSON *logJSON, char *parent, Eventinfo *lf)
                 break;
 
             case cJSON_Array:
-                if (lf->decoder_info->flags & CSV_STRING) {
+                if (lf->decoder_info->flags & JSON_TREAT_ARRAY_AS_CSV_STRING) {
                     os_malloc(OS_MAXSTR, value);
                     *value = '\0';
                     size_t n = 0;
@@ -321,15 +312,15 @@ static void readJSON (cJSON *logJSON, char *parent, Eventinfo *lf)
 
                         z = strlen(VALUE_COMMA);
 
-                        if (n + z < OS_MAXSTR) {
-                            strcpy(value + n, VALUE_COMMA);
-                            n += z;
-                        } else {
+                        if (n + z >= OS_MAXSTR) {
                             *value = '\0';
                             break;
+                        } else if (array->next != NULL) {
+                            strcpy(value + n, VALUE_COMMA);
+                            n += z;
                         }
                     }
-                } else if (lf->decoder_info->flags & JSON_ARRAY) {
+                } else if (lf->decoder_info->flags & JSON_TREAT_ARRAY_AS_ARRAY) {
                     value = cJSON_Print(logJSON);
                 }
 
@@ -341,9 +332,7 @@ static void readJSON (cJSON *logJSON, char *parent, Eventinfo *lf)
                 break;
 
             case cJSON_NULL:
-                if (lf->decoder_info->flags & EMPTY) {
-                    fillData(lf, key, VALUE_EMPTY);
-                } else if (lf->decoder_info->flags & SHOW_STRING) {
+                if (lf->decoder_info->flags & JSON_TREAT_NULL_AS_STRING) {
                     fillData(lf, key, VALUE_NULL);
                 }
                 break;

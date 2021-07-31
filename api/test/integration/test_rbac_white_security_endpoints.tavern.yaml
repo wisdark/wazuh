@@ -44,7 +44,7 @@ stages:
           total_affected_items: 4
           total_failed_items: 0
           failed_items: []
-        
+
   - name: Get a specified user by its id (Allow)
     request:
       verify: False
@@ -70,7 +70,7 @@ stages:
           failed_items: []
           total_affected_items: 1
           total_failed_items: 0
-        
+
   - name: Get a specified user by its id (Deny)
     request:
       verify: False
@@ -115,7 +115,7 @@ stages:
           failed_items: []
           total_affected_items: 3
           total_failed_items: 0
-        
+
   - name: Get a list of users by its id (Deny)
     request:
       verify: False
@@ -172,7 +172,7 @@ stages:
               id:
                 - 1
                 - 102
-        
+
 ---
 test_name: GET ROLES RBAC
 
@@ -314,7 +314,6 @@ stages:
           affected_items:
             - id: 1
             - id: 2
-            - id: 99
             - id: 100
             - id: 101
             - id: 102
@@ -322,7 +321,7 @@ stages:
             - id: 104
             - id: 105
           failed_items: []
-          total_affected_items: 9
+          total_affected_items: 8
           total_failed_items: 0
 
 ---
@@ -424,6 +423,31 @@ stages:
         password: stringA1!
     response:
       <<: *permission_denied
+
+---
+test_name: UPDATE USER'S ALLOW_RUN_AS FLAG
+
+stages:
+
+  - name: Update one specified user's allow_run_as flag (Allowed)
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/security/users/103/run_as"
+      headers:
+        Authorization: "Bearer {test_login_token}"
+      method: PUT
+      params:
+        allow_run_as: true
+    response:
+      status_code: 200
+      json:
+        error: !anyint
+        data:
+          affected_items:
+            - id: 103
+              username: python
+              allow_run_as: true
+          total_affected_items: 1
 
 ---
 test_name: UPDATE ROLES RBAC
@@ -957,7 +981,6 @@ stages:
       json:
         username: newUser
         password: stringA1!
-        allow_run_as: true
     response:
       <<: *permission_denied
 
@@ -1021,7 +1044,7 @@ stages:
           failed_items: []
           total_affected_items: 1
           total_failed_items: 0
-        
+
 ---
 test_name: REVOKE TOKENS RBAC
 

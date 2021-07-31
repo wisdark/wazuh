@@ -1,6 +1,6 @@
 /*
  * Wazuh Module Manager
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * April 27, 2016.
  *
  * This program is free software; you can redistribute it
@@ -62,7 +62,7 @@ int wm_config() {
 
     // Read configuration: ossec.conf
 
-    if (ReadConfig(CWMODULE, DEFAULTCPATH, &wmodules, &agent_cfg) < 0) {
+    if (ReadConfig(CWMODULE, OSSECCONF, &wmodules, &agent_cfg) < 0) {
         return -1;
     }
 
@@ -173,56 +173,6 @@ void wm_destroy() {
     wm_free(wmodules);
 }
 
-// Tokenize string separated by spaces, respecting double-quotes
-
-char** wm_strtok(char *string) {
-    char *c = string;
-    char **output = (char**)calloc(2, sizeof(char*));
-    size_t n = 1;
-
-    if (!output)
-        return NULL;
-
-    *output = string;
-
-    while ((c = strpbrk(c, " \"\\"))) {
-        switch (*c) {
-        case ' ':
-            *(c++) = '\0';
-            output[n++] = c;
-            output = (char**)realloc(output, (n + 1) * sizeof(char*));
-            if(!output){
-                merror_exit(MEM_ERROR, errno, strerror(errno));
-            }
-            output[n] = NULL;
-            break;
-
-        case '\"':
-            c++;
-
-            while ((c = strpbrk(c, "\"\\"))) {
-                if (*c == '\\')
-                    c += 2;
-                else
-                    break;
-            }
-
-            if (!c) {
-                free(output);
-                return NULL;
-            }
-
-            c++;
-            break;
-
-        case '\\':
-            c += 2;
-        }
-    }
-
-    return output;
-}
-
 // Load or save the running state
 
 int wm_state_io(const char * tag, int op, void *state, size_t size) {
@@ -264,6 +214,38 @@ long int wm_read_http_size(char *header) {
     size = strtol(header, NULL, 10);
     *found = c_aux;
     return size;
+}
+
+char* wm_read_http_header_element(char *header, char *regex) {
+    char *element = NULL;
+    OSRegex os_regex;
+
+    if (!header || !regex) {
+        merror("Missing parameters.");
+        return NULL;
+    }
+
+    if (!OSRegex_Compile(regex, &os_regex, OS_RETURN_SUBSTRING)) {
+        mwarn("Cannot compile regex.");
+        return NULL;
+    }
+
+    if (!OSRegex_Execute(header, &os_regex)) {
+        mdebug1("No match regex.");
+        OSRegex_FreePattern(&os_regex);
+        return NULL;
+    }
+
+    if (!os_regex.d_sub_strings[0]) {
+        mdebug1("No element was captured.");
+        OSRegex_FreePattern(&os_regex);
+        return NULL;
+    }
+
+    os_strdup(os_regex.d_sub_strings[0], element);
+
+    OSRegex_FreePattern(&os_regex);
+    return element;
 }
 
 void wm_free(wmodule * config) {
@@ -310,6 +292,24 @@ cJSON *getModulesConfig(void) {
     return root;
 }
 
+// sync data
+int modulesSync(char* args) {
+    int ret = -1;
+    wmodule *cur_module = NULL;
+    for (cur_module = wmodules; cur_module; cur_module = cur_module->next) {
+        if (strstr(args, cur_module->context->name)) {
+            ret = 0;
+            if (strstr(args, "dbsync") && cur_module->context->sync != NULL) {
+                ret = cur_module->context->sync(args);
+            }
+            break;
+        }
+    }
+    if (ret) {
+        merror("At modulesSync(): Unable to sync module: (%d)", ret);
+    }
+    return ret;
+}
 
 cJSON *getModulesInternalOptions(void) {
 
@@ -325,7 +325,6 @@ cJSON *getModulesInternalOptions(void) {
 
     return root;
 }
-
 
 // Send message to a queue waiting for a specific delay
 int wm_sendmsg(int usec, int queue, const char *message, const char *locmsg, char loc) {
@@ -489,16 +488,6 @@ int wm_validate_command(const char *command, const char *digest, crypto_type cty
 
     return match;
 }
-
-#ifdef __MACH__
-void freegate(gateway *gate){
-    if(!gate){
-        return;
-    }
-    os_free(gate->addr);
-    os_free(gate);
-}
-#endif
 
 static int wm_initialize_default_modules(wmodule **wmodules) {
     wmodule *cur_wmodule = *wmodules;

@@ -40,15 +40,23 @@ list(APPEND analysisd_flags "-Wl,--wrap,_merror -Wl,--wrap,OS_ConnectUnixDomain 
                          -Wl,--wrap,connect_to_remoted -Wl,--wrap,send_msg_to_agent -Wl,--wrap,wdbc_query_ex \
                          -Wl,--wrap,wdbc_parse_result")
 
+list(APPEND analysisd_names "test_exec")
+list(APPEND analysisd_flags "-Wl,--wrap,_merror -Wl,--wrap,OS_SendUnix -Wl,--wrap,wdb_get_agent_info -Wl,--wrap,Eventinfo_to_jsonstr \
+                             -Wl,--wrap,OS_ReadXML -Wl,--wrap,OS_GetOneContentforElement -Wl,--wrap,OS_ClearXML -Wl,--wrap,StartMQ \
+                             -Wl,--wrap,wdb_get_agents_by_connection_status -Wl,--wrap,labels_find -Wl,--wrap,labels_get -Wl,--wrap,labels_free")
+
+list(APPEND analysisd_names "test_log")
+list(APPEND analysisd_flags "-Wl,--wrap,fprintf,-wrap,fflush,--wrap,fclose,--wrap,fgets,--wrap,fgetpos,--wrap,fopen \
+                             -Wl,--wrap,fread,--wrap,fseek,--wrap,fwrite,--wrap,remove,--wrap,fgetc,--wrap,fputc \
+                             -Wl,--wrap,ctime_r")
+
 list(APPEND analysisd_names "test_labels")
 list(APPEND analysisd_flags "-Wl,--wrap,wdb_get_agent_labels")
 
 list(APPEND analysisd_names "test_mitre")
-list(APPEND analysisd_flags "-Wl,--wrap,wdbc_query_ex -Wl,--wrap,_merror -Wl,--wrap,wdbc_query_parse_json")
-
-list(APPEND analysisd_names "test_expression")
-list(APPEND analysisd_flags "-Wl,--wrap,OS_IsValidIP -Wl,--wrap,OSMatch_Execute -Wl,--wrap,OSRegex_Compile \
-                             -Wl,--wrap,OSRegex_Execute -Wl,--wrap,OSRegex_Execute_ex -Wl,--wrap,OSMatch_Compile")
+list(APPEND analysisd_flags "-Wl,--wrap,wdbc_query_ex -Wl,--wrap,_merror -Wl,--wrap,wdbc_query_parse_json \
+							 -Wl,--wrap,OSHash_Add -Wl,--wrap,OSHash_Create -Wl,--wrap,OSHash_Add_ex -Wl,--wrap,OSHash_Get -Wl,--wrap,OSHash_Delete_ex \
+                             -Wl,--wrap,OSHash_SetFreeDataPointer")
 
 list(APPEND analysisd_names "test_rules")
 LIST(APPEND analysisd_flags "-Wl,--wrap,_mwarn -Wl,--wrap,_merror -Wl,--wrap,_os_analysisd_add_logmsg")
@@ -90,7 +98,8 @@ LIST(APPEND analysisd_flags "-Wl,--wrap,ReadConfig -Wl,--wrap,_merror -Wl,--wrap
                              -Wl,--wrap,OSHash_SetFreeDataPointer -Wl,--wrap,OSHash_Delete \
                              -Wl,--wrap,pthread_rwlock_init -Wl,--wrap,pthread_rwlock_rdlock \
                              -Wl,--wrap,pthread_rwlock_unlock -Wl,--wrap,pthread_rwlock_wrlock \
-                             -Wl,--wrap,pthread_mutex_trylock -Wl,--wrap,OSHash_Get -Wl,--wrap,OSHash_Add")
+                             -Wl,--wrap,pthread_mutex_trylock -Wl,--wrap,OSHash_Get -Wl,--wrap,OSHash_Add \
+                             -Wl,--wrap,OSList_CleanOnlyNodes -Wl,--wrap,w_analysisd_accumulate_free")
 
 LIST(APPEND analysisd_names "test_logtest-config")
 LIST(APPEND analysisd_flags "-Wl,--wrap,_merror -Wl,--wrap,_mwarn -Wl,--wrap,_mdebug2 -Wl,--wrap,get_nproc -Wl,--wrap,cJSON_CreateObject \
@@ -117,6 +126,9 @@ LIST(APPEND analysisd_names "test_logmsg")
 LIST(APPEND analysisd_flags "-Wl,--wrap,isDebug -Wl,--wrap,OSList_AddData -Wl,--wrap,vsnprintf")
 LIST(APPEND analysisd_names "test_decoder_rootcheck")
 LIST(APPEND analysisd_flags "-Wl,--wrap,send_rootcheck_log -Wl,--wrap,_merror -Wl,--wrap,_mdebug1")
+
+LIST(APPEND analysisd_names "test_decoder_syscollector")
+LIST(APPEND analysisd_flags "-Wl,--wrap,_merror -Wl,--wrap,_mdebug1 -Wl,--wrap,wdbc_query_ex")
 
 list(LENGTH analysisd_names count)
 math(EXPR count "${count} - 1")

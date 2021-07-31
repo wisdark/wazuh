@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  *
  * This program is free software; you can redistribute it
  * and/or modify it under the terms of the GNU General Public
@@ -411,29 +411,31 @@ os_info *get_unix_version()
     if (os_release) {
         while (fgets(buff, sizeof(buff)- 1, os_release)) {
             tag = strtok_r(buff, "=", &save_ptr);
-            if (strcmp (tag,"NAME") == 0){
-                if (!name) {
-                    name = strtok_r(NULL, "\n", &save_ptr);
-                    if (name[0] == '\"' && (end = strchr(++name, '\"'), end)) {
-                        *end = '\0';
+            if (tag) {
+                if (strcmp (tag,"NAME") == 0) {
+                    if (!name) {
+                        name = strtok_r(NULL, "\n", &save_ptr);
+                        if (name[0] == '\"' && (end = strchr(++name, '\"'), end)) {
+                            *end = '\0';
+                        }
+                        info->os_name = strdup(name);
                     }
-                    info->os_name = strdup(name);
-                }
-            } else if (strcmp (tag,"VERSION") == 0) {
-                if (!version) {
-                    version = strtok_r(NULL, "\n", &save_ptr);
-                    if (version[0] == '\"' && (end = strchr(++version, '\"'), end)) {
-                        *end = '\0';
+                } else if (strcmp (tag,"VERSION") == 0) {
+                    if (!version) {
+                        version = strtok_r(NULL, "\n", &save_ptr);
+                        if (version[0] == '\"' && (end = strchr(++version, '\"'), end)) {
+                            *end = '\0';
+                        }
+                        info->os_version = strdup(version);
                     }
-                    info->os_version = strdup(version);
-                }
-            } else if (strcmp (tag,"ID") == 0){
-                if (!id) {
-                    id = strtok_r(NULL, " \n", &save_ptr);
-                    if (id[0] == '\"' && (end = strchr(++id, '\"'), end)) {
-                        *end = '\0';
+                } else if (strcmp (tag,"ID") == 0) {
+                    if (!id) {
+                        id = strtok_r(NULL, " \n", &save_ptr);
+                        if (id[0] == '\"' && (end = strchr(++id, '\"'), end)) {
+                            *end = '\0';
+                        }
+                        info->os_platform = strdup(id);
                     }
-                    info->os_platform = strdup(id);
                 }
             }
         }
@@ -538,13 +540,34 @@ os_info *get_unix_version()
             }
             regfree(&regexCompiled);
             fclose(version_release);
+        // Arch
+        } else if (version_release = fopen("/etc/arch-release","r"), version_release){
+            info->os_name = strdup("Arch Linux");
+            info->os_platform = strdup("arch");
+            static const char *pattern = "([0-9][0-9]*\\.?[0-9]*)\\.*";
+            if (regcomp(&regexCompiled, pattern, REG_EXTENDED)) {
+                merror_exit("Cannot compile regular expression.");
+            }
+            while (fgets(buff, sizeof(buff) - 1, version_release)) {
+                if(regexec(&regexCompiled, buff, 2, match, 0) == 0){
+                    match_size = match[1].rm_eo - match[1].rm_so;
+                    os_malloc(match_size + 1, info->os_version);
+                    snprintf (info->os_version, match_size +1, "%.*s", match_size, buff + match[1].rm_so);
+                    break;
+                }
+            }
+            if (info->os_version == NULL) {
+                os_strdup("rolling", info->os_build);
+            }
+            regfree(&regexCompiled);
+            fclose(version_release);
         // Ubuntu
         } else if (version_release = fopen("/etc/lsb-release","r"), version_release){
             info->os_name = strdup("Ubuntu");
             info->os_platform = strdup("ubuntu");
             while (fgets(buff, sizeof(buff) - 1, version_release)) {
                 tag = strtok_r(buff, "=", &save_ptr);
-                if (strcmp(tag,"DISTRIB_RELEASE") == 0){
+                if (tag && strcmp(tag,"DISTRIB_RELEASE") == 0){
                     info->os_version = strdup(strtok_r(NULL, "\n", &save_ptr));
                     break;
                 }
@@ -574,24 +597,6 @@ os_info *get_unix_version()
             info->os_name = strdup("SuSE Linux");
             info->os_platform = strdup("suse");
             static const char *pattern = ".*VERSION = ([0-9][0-9]*)";
-            if (regcomp(&regexCompiled, pattern, REG_EXTENDED)) {
-                merror_exit("Cannot compile regular expression.");
-            }
-            while (fgets(buff, sizeof(buff) - 1, version_release)) {
-                if(regexec(&regexCompiled, buff, 2, match, 0) == 0){
-                    match_size = match[1].rm_eo - match[1].rm_so;
-                    os_malloc(match_size + 1, info->os_version);
-                    snprintf (info->os_version, match_size +1, "%.*s", match_size, buff + match[1].rm_so);
-                    break;
-                }
-            }
-            regfree(&regexCompiled);
-            fclose(version_release);
-        // Arch
-        } else if (version_release = fopen("/etc/arch-release","r"), version_release){
-            info->os_name = strdup("Arch Linux");
-            info->os_platform = strdup("arch");
-            static const char *pattern = "([0-9][0-9]*\\.?[0-9]*)\\.*";
             if (regcomp(&regexCompiled, pattern, REG_EXTENDED)) {
                 merror_exit("Cannot compile regular expression.");
             }
@@ -648,120 +653,29 @@ os_info *get_unix_version()
             } else if(strcmp(strtok_r(buff, "\n", &save_ptr),"Darwin") == 0){
                 info->os_platform = strdup("darwin");
 
-                //plist
-                if (os_release = fopen(MAC_SYSVERSION,"r"), os_release){
-                    bool build=false, name=false, version=false;
-                    while (fgets(buff, sizeof(buff) - 1, os_release)) {
-                        if(build){
-                            strtok_r(buff, ">", &save_ptr);
-                            id=strtok_r(NULL, "<", &save_ptr);
-                            w_strdup(id, info->os_build);
-                            if(info->os_build == NULL){
-                                mdebug1("Cannot read OS build from file %s.", MAC_SYSVERSION);
-                            }
-                            build=false;
-                        }
-                        if(name){
-                            strtok_r(buff, ">", &save_ptr);
-                            id=strtok_r(NULL, "<", &save_ptr);
-                            w_strdup(id, info->os_name);
-                            if(info->os_name == NULL){
-                                mdebug1("Cannot read OS name from file %s.", MAC_SYSVERSION);
-                            }
-                            name=false;
-                        }
-                        if(version){
-                            strtok_r(buff, ">", &save_ptr);
-                            id=strtok_r(NULL, "<", &save_ptr);
-                            w_strdup(id, info->os_version);
-                            if(info->os_version == NULL){
-                                mdebug1("Cannot read OS version from file %s.", MAC_SYSVERSION);
-                            }
-                            version=false;
-                        }
-                        if (strstr(buff,"ProductBuildVersion")){
-                            build=true;
-                        }
-                        if (strstr(buff,"ProductName")){
-                            name=true;
-                        }
-                        if (strstr(buff,"ProductVersion")){
-                            version=true;
-                        }
+                if (cmd_output_ver = popen("sw_vers -productName", "r"), cmd_output_ver) {
+                    if(fgets(buff, sizeof(buff) - 1, cmd_output_ver) == NULL){
+                        mdebug1("Cannot read from command output (sw_vers -productName).");
+                    } else {
+                        w_strdup(strtok_r(buff, "\n", &save_ptr), info->os_name);
                     }
-
-                    fclose(os_release);
+                    pclose(cmd_output_ver);
                 }
-                //plist server
-                else if(os_release = fopen(MAC_SERVERVERSION,"r"), os_release) {
-                    bool build=false, name=false, version=false;
-                    while (fgets(buff, sizeof(buff) - 1, os_release)) {
-                        if(build){
-                            strtok_r(buff, ">", &save_ptr);
-                            id=strtok_r(NULL, "<", &save_ptr);
-                            w_strdup(id, info->os_build);
-                            if(info->os_build == NULL){
-                                mdebug1("Cannot read OS build from file %s.", MAC_SERVERVERSION);
-                            }
-                            build=false;
-                        }
-                        if(name){
-                            strtok_r(buff, ">", &save_ptr);
-                            id=strtok_r(NULL, "<", &save_ptr);
-                            w_strdup(id, info->os_name);
-                            if(info->os_name == NULL){
-                                mdebug1("Cannot read OS name from file %s.", MAC_SERVERVERSION);
-                            }
-                            name=false;
-                        }
-                        if(version){
-                            strtok_r(buff, ">", &save_ptr);
-                            id=strtok_r(NULL, "<", &save_ptr);
-                            w_strdup(id, info->os_version);
-                            if(info->os_version == NULL){
-                                mdebug1("Cannot read OS version from file %s.", MAC_SERVERVERSION);
-                            }
-                            version=false;
-                        }
-                        if (strstr(buff,"ProductBuildVersion")){
-                            build=true;
-                        }
-                        if (strstr(buff,"ProductName")){
-                            name=true;
-                        }
-                        if (strstr(buff,"ProductVersion")){
-                            version=true;
-                        }
+                if (cmd_output_ver = popen("sw_vers -productVersion", "r"), cmd_output_ver) {
+                    if(fgets(buff, sizeof(buff) - 1, cmd_output_ver) == NULL){
+                        mdebug1("Cannot read from command output (sw_vers -productVersion).");
+                    } else {
+                        w_strdup(strtok_r(buff, "\n", &save_ptr), info->os_version);
                     }
-
-                    fclose(os_release);
+                    pclose(cmd_output_ver);
                 }
-                //cmd
-                else{
-                    if (cmd_output_ver = popen("sw_vers -productName", "r"), cmd_output_ver) {
-                        if(fgets(buff, sizeof(buff) - 1, cmd_output_ver) == NULL){
-                            mdebug1("Cannot read from command output (sw_vers -productName).");
-                        } else {
-                            w_strdup(strtok_r(buff, "\n", &save_ptr), info->os_name);
-                        }
-                        pclose(cmd_output_ver);
+                if (cmd_output_ver = popen("sw_vers -buildVersion", "r"), cmd_output_ver) {
+                    if(fgets(buff, sizeof(buff) - 1, cmd_output_ver) == NULL){
+                        mdebug1("Cannot read from command output (sw_vers -buildVersion).");
+                    } else {
+                        w_strdup(strtok_r(buff, "\n", &save_ptr), info->os_build);
                     }
-                    if (cmd_output_ver = popen("sw_vers -productVersion", "r"), cmd_output_ver) {
-                        if(fgets(buff, sizeof(buff) - 1, cmd_output_ver) == NULL){
-                            mdebug1("Cannot read from command output (sw_vers -productVersion).");
-                        } else {
-                            w_strdup(strtok_r(buff, "\n", &save_ptr), info->os_version);
-                        }
-                        pclose(cmd_output_ver);
-                    }
-                    if (cmd_output_ver = popen("sw_vers -buildVersion", "r"), cmd_output_ver) {
-                        if(fgets(buff, sizeof(buff) - 1, cmd_output_ver) == NULL){
-                            mdebug1("Cannot read from command output (sw_vers -buildVersion).");
-                        } else {
-                            w_strdup(strtok_r(buff, "\n", &save_ptr), info->os_build);
-                        }
-                        pclose(cmd_output_ver);
-                    }
+                    pclose(cmd_output_ver);
                 }
                 if (cmd_output_ver = popen("uname -r", "r"), cmd_output_ver) {
                     if(fgets(buff, sizeof(buff) - 1, cmd_output_ver) == NULL){
@@ -835,7 +749,23 @@ os_info *get_unix_version()
                     }
                     pclose(cmd_output_ver);
                 }
-            } else if (strcmp(strtok_r(buff, "\n", &save_ptr),"Linux") == 0){ // Linux undefined
+            } else if (strcmp(strtok_r(buff, "\n", &save_ptr), "AIX") == 0) { // AIX
+                os_strdup("AIX", info->os_name);
+                os_strdup("aix", info->os_platform);
+
+                if (cmd_output_ver = popen("oslevel", "r"), cmd_output_ver) {
+                    if (fgets(buff, sizeof(buff) - 1, cmd_output_ver)) {
+                        int buff_len = strlen(buff);
+                        if (buff_len > 0) {
+                            buff[buff_len - 1] = '\0';
+                            os_strdup(buff, info->os_version);
+                        }
+                    } else {
+                        mdebug1("Cannot read from command output (oslevel).");
+                    }
+                    pclose(cmd_output_ver);
+                }
+            } else if (strcmp(strtok_r(buff, "\n", &save_ptr), "Linux") == 0) { // Linux undefined
                 info->os_name = strdup("Linux");
                 info->os_platform = strdup("linux");
             }

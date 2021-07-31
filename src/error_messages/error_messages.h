@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
@@ -21,9 +21,9 @@
 #define NULL_ERROR    "(1105): Attempted to use null string."
 #define FORMAT_ERROR  "(1106): String not correctly formatted."
 #define MKDIR_ERROR   "(1107): Could not create directory '%s' due to [(%d)-(%s)]."
-//#define PERM_ERROR    "%s(1108): ERROR: Permission error. Operation not completed."
+#define HOME_ERROR    "(1108): Unable to find Wazuh install directory. Export it to WAZUH_HOME environment variable."
 #define THREAD_ERROR  "(1109): Unable to create new pthread."
-//#define READ_ERROR    "%s(1110): ERROR: Unable to read from socket."
+#define FWRITE_ERROR  "(1110): Could not write file '%s' due to [(%d)-(%s)]."
 #define WAITPID_ERROR "(1111): Error during waitpid()-call due to [(%d)-(%s)]."
 #define SETSID_ERROR  "(1112): Error during setsid()-call due to [(%d)-(%s)]."
 #define MUTEX_ERROR   "(1113): Unable to set pthread mutex."
@@ -31,7 +31,7 @@
 #define FREAD_ERROR   "(1115): Could not read from file '%s' due to [(%d)-(%s)]."
 #define FSEEK_ERROR   "(1116): Could not set position in file '%s' due to [(%d)-(%s)]."
 #define FILE_ERROR    "(1117): Error handling file '%s' (date)."
-#define FSTAT_ERROR   "(1117): Could not retrieve information of file '%s' due to [(%d)-(%s)]."
+#define FSTAT_ERROR   "(1118): Could not retrieve information of file '%s' due to [(%d)-(%s)]."
 #define FGETS_ERROR   "(1119): Invalid line on file '%s': %s."
 //#define PIPE_ERROR    "%s(1120): ERROR: Pipe error."
 #define GLOB_ERROR    "(1121): Glob error. Invalid pattern: '%s'."
@@ -57,6 +57,8 @@
 #define GLOB_ERROR_WIN "(1141): Glob error. Invalid pattern: '%s' or no files found."
 #define NICE_ERROR      "(1142): Cannot set process priority: %s (%d)."
 #define RMDIR_ERROR     "(1143): Unable to delete folder '%s' due to [(%d)-(%s)]."
+#define ATEXIT_ERROR    "(1144): Unable to set exit function"
+
 
 /* COMMON ERRORS */
 #define CONN_ERROR      "(1201): No remote connection configured."
@@ -141,6 +143,8 @@
 #define NO_REM_CONN     "(1750): No remote connection configured. Exiting."
 #define NO_CLIENT_KEYS  "(1751): File client.keys not found or empty."
 
+#define REMOTED_NET_PROTOCOL_NOT_SET  "(1752): Network protocol is not set."
+
 /* 1760 - 1769 -- reserved for maild */
 
 /* Active Response */
@@ -160,8 +164,13 @@
 #define EXEC_INV_CONF   "(1313): Invalid active response config: '%s'."
 #define EXEC_DISABLED   "(1350): Active response disabled."
 #define EXEC_SHUTDOWN   "(1314): Shutdown received. Deleting responses."
+#define EXEC_INV_JSON   "(1315): Invalid JSON message: '%s'"
+#define EXEC_INV_CMD    "(1316): Invalid AR command: '%s'"
+#define EXEC_CMD_FAIL   "(1317): Could not launch command %s (%d)"
 
-#define AR_NOAGENT_ERROR    "(1320): Agent '%s' not found."
+#define AR_NOAGENT_ERROR                "(1320): Agent '%s' not found."
+#define EXEC_QUEUE_CONNECTION_ERROR     "(1321): Error communicating with queue '%s'."
+#define EXEC_QUEUE_BUSY                 "(1322): Socket busy."
 
 /* List operations */
 #define LIST_ERROR      "(1290): Unable to create a new list (calloc)."
@@ -171,6 +180,10 @@
 
 /* Hash operation */
 #define HASH_ERROR      "(1295): Unable to create a new hash (calloc)."
+#define HCREATE_ERROR   "(1296): Unable to create a '%s' hash table"
+#define HSETSIZE_ERROR  "(1297): Unable to set size of '%s' hash table"
+#define HADD_ERROR      "(1298): Failure to add '%s' to '%s' hash table"
+#define HUPDATE_ERROR   "(1299): Failure to update '%s' to '%s' hash table"
 
 /* Log collector messages */
 #define MISS_LOG_FORMAT "(1901): Missing 'log_format' element."
@@ -201,6 +214,9 @@
 #define NON_TEXT_FILE   "(1964): File '%s' is not ASCII or UTF-8 encoded."
 #define EXCLUDE_FILE    "(1965): File excluded: '%s'."
 #define DUP_FILE_INODE  "(1966): Inode for file '%s' already found. Skipping it."
+#define LOCALFILE_REGEX "(1967): Syntax error on multiline_regex: '%s'"
+#define MISS_MULT_REGEX "(1968): Missing 'multiline_regex' element."
+#define FAIL_SHA1_GEN   "(1969): Failure to generate the SHA1 hash from file '%s'"
 
 /* Encryption/auth errors */
 #define INVALID_KEY     "(1401): Error reading authentication key: '%s'."
@@ -273,10 +289,11 @@
 #define RL_REGEX_SYNTAX "(5107): Syntax error on tag '%s' in rule %d"
 
 /* Syslog output */
-#define XML_INV_CSYSLOG "(5301): Invalid client-syslog configuration."
+#define XML_INV_CSYSLOG    "(5301): Invalid client-syslog configuration."
+#define ERROR_SENDING_MSG  "(5302): Error sending message to '%s'."
 
 /* Integrator daemon */
-#define XML_INV_INTEGRATOR "(5302): Invalid integratord configuration."
+#define XML_INV_INTEGRATOR "(5310): Invalid integratord configuration."
 
 /* Agentless */
 #define XML_INV_AGENTLESS   "(7101): Invalid agentless configuration."
@@ -291,7 +308,7 @@
 #define DB_MISS_CONFIG        "(5205): Missing database configuration. "\
                               "It requires host, user, pass and database."
 #define DB_CONFIGERR          "(5206): Database configuration error."
-#define DB_COMPILED           "(5207): OSSEC not compiled with support for '%s'."
+#define DB_COMPILED           "(5207): Wazuh not compiled with support for '%s'."
 #define DB_MAINERROR          "(5208): Multiple database errors. Exiting."
 #define DB_CLOSING            "(5209): Closing connection to database."
 #define DB_ATTEMPT            "(5210): Attempting to reconnect to database."
@@ -390,6 +407,8 @@
 #define VU_OFFLINE_CONFLICT         "(5587): Feed conflict. Only '%s' will be updated offline."
 #define VU_VER_INVALID_FORMAT       "(5588): Invalid format of Wazuh version for agent '%.3d'"
 #define VU_VER_READING_ERROR        "(5589): Couldn't read Wazuh version for agent '%.3d'"
+#define VU_OVAL_VULN_NOT_FOUND      "(5590): No vulnerabilities could be found in the OVAL for agent '%.3d'"
+#define VU_PKG_INVALID_VER          "(5591): Invalid version for package '%s' of the inventory: '%s'"
 
 /* File integrity monitoring error messages*/
 #define FIM_ERROR_ADD_FILE                          "(6600): Unable to add file to db: '%s'"
@@ -407,8 +426,8 @@
 #define FIM_ERROR_REALTIME_WINDOWS_CALLBACK         "(6613): Real time Windows callback process: '%s' (%lx)."
 #define FIM_ERROR_REALTIME_WINDOWS_CALLBACK_EMPTY   "(6614): Real time call back called, but hash is empty."
 #define FIM_ERROR_UPDATE_ENTRY                      "(6615): Can't update entry invalid file '%s'."
-#define FIM_ERROR_REALTIME_MAXNUM_WATCHES           "(6616): Unable to add directory to real time monitoring: '%s' - Maximum size permitted."
 
+#define FIM_ERROR_AUDIT_MODE                        "(6617): Unable to get audit mode: %s (%d)."
 #define FIM_ERROR_REALTIME_INITIALIZE               "(6618): Unable to initialize real time file monitoring."
 #define FIM_ERROR_WHODATA_ADD_DIRECTORY             "(6619): Unable to add directory to whodata real time monitoring: '%s'. It will be monitored in Realtime"
 #define FIM_ERROR_WHODATA_AUDIT_SUPPORT             "(6620): Audit support not built. Whodata is not available."
@@ -498,13 +517,27 @@
 #define FIM_DB_ERROR_COUNT_RANGE                    "(6703): Couldn't get range size between '%s' and '%s'"
 #define FIM_DB_ERROR_GET_PATH                       "(6704): Couldn't get path of '%s'"
 #define FIM_DB_ERROR_SYNC_DB                        "(6705): Failed to synchronize database."
-#define FIM_DB_ERROR_GET_ROW_PATH                   "(6706): Couldn't get %s row's path."
+#define FIM_DB_ERROR_GET_ROW_PATH                   "(6706): Couldn't get %s %s row's path."
 #define FIM_DB_ERROR_CALC_CHECKSUM                  "(6707): Failed to calculate database checksum."
-#define FIM_DB_ERROR_RM_RANGE                       "(6708): Failed to delete a range of paths between '%s' and '%s'"
+#define FIM_DB_ERROR_RM_PATTERN                     "(6708): Failed to delete a range of paths using pattern '%s'."
 #define FIM_DB_ERROR_RM_NOT_SCANNED                 "(6709): Failed to delete from db all unscanned files."
 #define FIM_ERROR_WHODATA_INIT                      "(6710): Failed to start the Whodata engine. Directories/files will be monitored in Realtime mode"
-#define FIM_WARN_OPEN_HANDLE_FILE                   "(6711): Could not open handle for '%s'. Error code: %lu"
-#define FIM_WARN_GET_FILETIME                       "(6712): Could not get the filetime of the file '%s'. Error code: %lu."
+#define FIM_ERROR_GET_ABSOLUTE_PATH                 "(6711): Cannot get absolute path of '%s': %s (%d)"
+#define FIM_ERROR_REMOVE_COLON                      "(6712): Cannot remove heading colon from full path '%s'"
+#define FIM_DIFF_DELETE_DIFF_FOLDER_ERROR           "(6713): Cannot remove diff folder for file: '%s'"
+#ifdef WIN32
+#define FIM_DIFF_COMMAND_OUTPUT_ERROR               "(6714): Command fc output an error"
+#else
+#define FIM_DIFF_COMMAND_OUTPUT_ERROR               "(6714): Command diff output an error"
+#endif
+#define FIM_DIFF_FILE_PATH_TOO_LONG                 "(6715): The path of the file monitored '%s' is too long to compute differences."
+#define FIM_WARN_OPEN_HANDLE_FILE                   "(6716): Could not open handle for '%s'. Error code: %lu"
+#define FIM_WARN_GET_FILETIME                       "(6717): Could not get the filetime of the file '%s'. Error code: %lu."
+#ifndef WIN32
+#define FIM_ERROR_EXPAND_ENV_VAR                    "(6718): Could not expand the environment variable %s."
+#else
+#define FIM_ERROR_EXPAND_ENV_VAR                    "(6718): Could not expand the environment variable %s (%ld)."
+#endif
 
 /* Wazuh Logtest error messsages */
 #define LOGTEST_ERROR_BIND_SOCK                     "(7300): Unable to bind to socket '%s'. Errno: (%d) %s"
@@ -592,9 +625,9 @@
                         " access list (allowed-ips). Syslog server disabled."
 #define CONN_TO     "Connected to '%s' (%s queue)"
 #define MAIL_DIS    "E-Mail notification disabled. Clean Exit."
+#define WAZUH_HOMEDIR "Wazuh home directory: %s"
 
 /* Debug Messages */
-#define STARTED_MSG "Starting ..."
 #define FOUND_USER  "Found user/group ..."
 #define ASINIT      "Active response initialized ..."
 #define READ_CONFIG "Read configuration ..."
@@ -617,6 +650,7 @@
 /* OSSEC alert messages */
 #define OS_AD_STARTED   "ossec: Ossec started."
 #define OS_AG_STARTED   "ossec: Agent started: '%s->%s'."
+#define OS_AG_STOPPED   "ossec: Agent stopped: '%s->%s'."
 #define OS_AG_DISCON    "ossec: Agent disconnected: '%s'."
 #define OS_AG_REMOVED   "ossec: Agent removed: '%s'."
 

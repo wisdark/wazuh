@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -12,6 +12,7 @@
 
 #include "shared.h"
 #include "logcollector.h"
+#include "os_crypto/sha1/sha1_op.h"
 
 
 /* To translate between month (int) to month (char) */
@@ -91,8 +92,17 @@ void *read_djbmultilog(logreader *lf, int *rc, int drop_it) {
         return (NULL);
     }
 
+    /* Obtain context to calculate hash */
+    SHA_CTX context;
+    int64_t current_position = w_ftell(lf->fp);
+    bool is_valid_context_file = w_get_hash_context(lf, &context, current_position);
+
     /* Get new entry */
     while (can_read() && fgets(str, OS_MAXSTR - OS_LOG_HEADER, lf->fp) != NULL && (!maximum_lines || lines < maximum_lines)) {
+
+        if (is_valid_context_file) {
+            OS_SHA1_Stream(&context, NULL, str);
+        }
 
         lines++;
         /* Get buffer size */
@@ -168,8 +178,12 @@ void *read_djbmultilog(logreader *lf, int *rc, int drop_it) {
         if (drop_it == 0) {
             w_msg_hash_queues_push(buffer, lf->file, strlen(buffer) + 1, lf->log_target, MYSQL_MQ);
         }
+    }
 
-        continue;
+    current_position = w_ftell(lf->fp);
+
+    if (is_valid_context_file) {
+        w_update_file_status(lf->file, current_position, &context);
     }
 
     mdebug2("Read %d lines from %s", lines, lf->file);

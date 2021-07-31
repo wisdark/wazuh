@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
@@ -95,7 +95,7 @@ void w_get_initial_queues_size();
 void w_init_queues();
 
 
-#define OSSEC_SERVER    "ossec-server"
+#define WAZUH_SERVER    "wazuh-server"
 #define MAX_DECODER_ORDER_SIZE  1024
 
 extern OSHash *fim_agentinfo;

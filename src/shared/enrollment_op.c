@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it
@@ -73,7 +73,7 @@ w_enrollment_cert *w_enrollment_cert_init(){
     w_enrollment_cert *cert_cfg;
     os_malloc(sizeof(w_enrollment_cert), cert_cfg);
     cert_cfg->ciphers = strdup(DEFAULT_CIPHERS);
-    cert_cfg->authpass_file = strdup(AUTHDPASS_PATH);
+    cert_cfg->authpass_file = strdup(AUTHD_PASS);
     cert_cfg->authpass = NULL;
     cert_cfg->agent_cert = NULL;
     cert_cfg->agent_key = NULL;
@@ -228,10 +228,11 @@ static int w_enrollment_connect(w_enrollment_ctx *cfg, const char * server_addre
     ERR_clear_error();
     int ret = SSL_connect(cfg->ssl);
     if (ret <= 0) {
-        merror("SSL error (%d). Connection refused by the manager. Maybe the port specified is incorrect. Exiting.", SSL_get_error(cfg->ssl, ret));
+        merror("SSL error (%d). Connection refused by the manager. Maybe the port specified is incorrect.", SSL_get_error(cfg->ssl, ret));
         ERR_print_errors_fp(stderr);  // This function empties the error queue
         os_free(ip_address);
         SSL_CTX_free(ctx);
+        OS_CloseSocket(sock);
         return ENROLLMENT_CONNECTION_FAILURE;
     }
 
@@ -373,10 +374,10 @@ static int w_enrollment_store_key_entry(const char* keys) {
 
 #ifdef WIN32
     FILE *fp;
-    fp = fopen(KEYSFILE_PATH, "w");
+    fp = fopen(KEYS_FILE, "w");
 
     if (!fp) {
-        merror(FOPEN_ERROR, KEYSFILE_PATH, errno, strerror(errno));
+        merror(FOPEN_ERROR, KEYS_FILE, errno, strerror(errno));
         return -1;
     }
     fprintf(fp, "%s\n", keys);
@@ -385,8 +386,8 @@ static int w_enrollment_store_key_entry(const char* keys) {
 #else /* !WIN32 */
     File file;
 
-    if (TempFile(&file, isChroot() ? AUTH_FILE : KEYSFILE_PATH, 0) < 0) {
-        merror(FOPEN_ERROR, isChroot() ? AUTH_FILE : KEYSFILE_PATH, errno, strerror(errno));
+    if (TempFile(&file, KEYS_FILE, 0) < 0) {
+        merror(FOPEN_ERROR, KEYS_FILE, errno, strerror(errno));
         return -1;
     }
 
@@ -400,7 +401,7 @@ static int w_enrollment_store_key_entry(const char* keys) {
     fprintf(file.fp, "%s\n", keys);
     fclose(file.fp);
 
-    if (OS_MoveFile(file.name, isChroot() ? AUTH_FILE : KEYSFILE_PATH) < 0) {
+    if (OS_MoveFile(file.name, KEYS_FILE) < 0) {
         free(file.name);
         return -1;
     }

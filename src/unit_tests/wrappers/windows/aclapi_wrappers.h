@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it
@@ -28,6 +28,8 @@ DWORD wrap_GetSecurityInfo(HANDLE handle,
                            PACL *ppDacl,
                            PACL *ppSacl,
                            PSECURITY_DESCRIPTOR *ppSecurityDescriptor);
+
+void expect_GetSecurityInfo_call(PSID ppsidOwner, PSID pSidGroup, DWORD ret_value);
 
 DWORD wrap_GetNamedSecurityInfo(LPCSTR pObjectName,
                                 SE_OBJECT_TYPE ObjectType,

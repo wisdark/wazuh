@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2020, Wazuh Inc.
+# Copyright (C) 2015-2021, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is a free software; you can redistribute it and/or modify it under the terms of GPLv2
 import fcntl
@@ -18,13 +18,15 @@ from wazuh.core import common
 from wazuh.core.configuration import get_ossec_conf
 from wazuh.core.exception import WazuhException, WazuhError, WazuhInternalError
 from wazuh.core.results import WazuhResult
+from wazuh.core.utils import temporary_cache
+from wazuh.core.wazuh_socket import create_wazuh_socket_message
 from wazuh.core.wlogging import WazuhLogger
 
 logger = logging.getLogger('wazuh')
-execq_lockfile = join(common.ossec_path, "var/run/.api_execq_lock")
+execq_lockfile = join(common.wazuh_path, "var/run/.api_execq_lock")
 
 
-def read_cluster_config(config_file=common.ossec_conf) -> typing.Dict:
+def read_cluster_config(config_file=common.ossec_conf, from_import=False) -> typing.Dict:
     """Read cluster configuration from ossec.conf.
 
     If some fields are missing in the ossec.conf cluster configuration, they are replaced
@@ -35,6 +37,8 @@ def read_cluster_config(config_file=common.ossec_conf) -> typing.Dict:
     ----------
     config_file : str
         Path to configuration file.
+    from_import : bool
+        This flag indicates whether this function has been called from a module load (True) or from a function (False).
 
     Returns
     -------
@@ -54,7 +58,7 @@ def read_cluster_config(config_file=common.ossec_conf) -> typing.Dict:
     }
 
     try:
-        config_cluster = get_ossec_conf(section='cluster', conf_file=config_file)['cluster']
+        config_cluster = get_ossec_conf(section='cluster', conf_file=config_file, from_import=from_import)['cluster']
     except WazuhException as e:
         if e.code == 1106:
             # If no cluster configuration is present in ossec.conf, return default configuration but disabling it.
@@ -89,7 +93,8 @@ def read_cluster_config(config_file=common.ossec_conf) -> typing.Dict:
     return config_cluster
 
 
-def get_manager_status() -> typing.Dict:
+@temporary_cache()
+def get_manager_status(cache=False) -> typing.Dict:
     """Get the current status of each process of the manager.
 
     Returns
@@ -97,11 +102,11 @@ def get_manager_status() -> typing.Dict:
     data : dict
         Dict whose keys are daemons and the values are the status.
     """
-    processes = ['ossec-agentlessd', 'ossec-analysisd', 'ossec-authd', 'ossec-csyslogd', 'ossec-dbd', 'ossec-monitord',
-                 'ossec-execd', 'ossec-integratord', 'ossec-logcollector', 'ossec-maild', 'ossec-remoted',
-                 'ossec-reportd', 'ossec-syscheckd', 'wazuh-clusterd', 'wazuh-modulesd', 'wazuh-db', 'wazuh-apid']
+    processes = ['wazuh-agentlessd', 'wazuh-analysisd', 'wazuh-authd', 'wazuh-csyslogd', 'wazuh-dbd', 'wazuh-monitord',
+                 'wazuh-execd', 'wazuh-integratord', 'wazuh-logcollector', 'wazuh-maild', 'wazuh-remoted',
+                 'wazuh-reportd', 'wazuh-syscheckd', 'wazuh-clusterd', 'wazuh-modulesd', 'wazuh-db', 'wazuh-apid']
 
-    data, pidfile_regex, run_dir = {}, re.compile(r'.+\-(\d+)\.pid$'), join(common.ossec_path, 'var/run')
+    data, pidfile_regex, run_dir = {}, re.compile(r'.+\-(\d+)\.pid$'), join(common.wazuh_path, 'var/run')
     for process in processes:
         pidfile = glob(join(run_dir, f"{process}-*.pid"))
         if exists(join(run_dir, f'{process}.failed')):
@@ -138,10 +143,19 @@ def get_cluster_status() -> typing.Dict:
             "running": "yes" if get_manager_status()['wazuh-clusterd'] == 'running' else "no"}
 
 
-def manager_restart():
+def manager_restart() -> WazuhResult:
     """Restart Wazuh manager.
 
-    Send 'restart-wazuh' command to common.EXECQ socket.
+    Send JSON message with the 'restart-wazuh' command to common.EXECQ socket.
+
+    Raises
+    ------
+    WazuhInternalError(1901)
+        If the socket path doesn't exist.
+    WazuhInternalError(1902)
+        If there is a socket connection error.
+    WazuhInternalError(1014)
+        If there is a socket communication error.
 
     Returns
     -------
@@ -153,8 +167,10 @@ def manager_restart():
     try:
         # execq socket path
         socket_path = common.EXECQ
-        # msg for restarting Wazuh manager
-        msg = 'restart-wazuh '
+        # json msg for restarting Wazuh manager
+        msg = json.dumps(create_wazuh_socket_message(origin={'module': common.origin_module.get()},
+                                                     command=common.RESTART_WAZUH_COMMAND,
+                                                     parameters={'extra_args': [], 'alert': {}}))
         # initialize socket
         if exists(socket_path):
             try:
@@ -189,7 +205,7 @@ def get_cluster_items():
     """
     try:
         here = os.path.abspath(os.path.dirname(__file__))
-        with open(os.path.join(common.ossec_path, here, 'cluster.json')) as f:
+        with open(os.path.join(common.wazuh_path, here, 'cluster.json')) as f:
             cluster_items = json.load(f)
         # Rebase permissions.
         list(map(lambda x: setitem(x, 'permissions', int(x['permissions'], base=0)),
@@ -218,7 +234,6 @@ def read_config(config_file=common.ossec_conf):
 
 # Context vars
 context_tag: ContextVar[str] = ContextVar('tag', default='')
-context_subtag: ContextVar[str] = ContextVar('subtag', default='')
 
 
 class ClusterFilter(logging.Filter):
@@ -245,7 +260,7 @@ class ClusterFilter(logging.Filter):
 
     def filter(self, record):
         record.tag = context_tag.get() if context_tag.get() != '' else self.tag
-        record.subtag = context_subtag.get() if context_subtag.get() != '' else self.subtag
+        record.subtag = self.subtag
         return True
 
     def update_tag(self, new_tag: str):

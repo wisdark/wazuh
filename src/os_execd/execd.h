@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -12,7 +12,7 @@
 #define EXECD_H
 
 #ifndef ARGV0
-#define ARGV0 "ossec-execd"
+#define ARGV0 "wazuh-execd"
 #endif
 
 /* Add/delete arguments for the commands */
@@ -39,7 +39,6 @@ extern int max_restart_lock;
 void WinExecdRun(char *exec_msg);
 int ReadExecConfig(void);
 cJSON *getARConfig(void);
-cJSON *getARInternalOptions(void);
 cJSON *getExecdInternalOptions(void);
 cJSON *getClusterConfig(void);
 char *GetCommandbyName(const char *name, int *timeout) __attribute__((nonnull));
@@ -55,6 +54,7 @@ size_t wcom_restart(char **output);
 size_t wcom_dispatch(char *command, char **output);
 size_t lock_restart(int timeout);
 size_t wcom_getconfig(const char * section, char ** output);
+size_t wcom_check_manager_config(char **output);
 
 #ifndef WIN32
 // Com request thread dispatcher
@@ -66,6 +66,7 @@ typedef struct _timeout_data {
     time_t time_of_addition;
     int time_to_block;
     char **command;
+    char *parameters;
 } timeout_data;
 
 void FreeTimeoutEntry(timeout_data *timeout_entry);

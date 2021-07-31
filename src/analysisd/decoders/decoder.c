@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -43,7 +43,7 @@ void DecodeEvent(struct _Eventinfo *lf, OSHash *rules_hash, regex_matching *deco
 
         /* First check program name */
         if (lf->program_name) {
-            if (!w_expression_match(nnode->program_name, lf->program_name, NULL, NULL)) {
+            if (!w_expression_match(nnode->program_name, lf->program_name, NULL, decoder_match)) {
                 continue;
             }
             pmatch = lf->log;
@@ -225,6 +225,7 @@ void DecodeEvent(struct _Eventinfo *lf, OSHash *rules_hash, regex_matching *deco
         print_out("       No decoder matched.");
     }
 #endif
+
 }
 
 /* Find index of a dynamic field. Returns NULL if not found. */
@@ -243,6 +244,7 @@ const char* FindField(const Eventinfo *lf, const char *key) {
 
 void *DstUser_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       dstuser: '%s'", field);
@@ -255,6 +257,7 @@ void *DstUser_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char 
 
 void *SrcUser_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       srcuser: '%s'", field);
@@ -267,6 +270,7 @@ void *SrcUser_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char 
 
 void *SrcIP_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       srcip: '%s'", field);
@@ -276,14 +280,12 @@ void *SrcIP_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *o
     lf->srcip = field;
 
 #ifdef LIBGEOIP_ENABLED
-
     if(!lf->srcgeoip) {
         lf->srcgeoip = GetGeoInfobyIP(lf->srcip);
 #ifdef TESTRULE
         if (lf->srcgeoip && !alert_only)
             print_out("       srcgeoip: '%s'", lf->srcgeoip);
 #endif
-
     }
 #endif
     return (NULL);
@@ -291,6 +293,7 @@ void *SrcIP_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *o
 
 void *DstIP_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       dstip: '%s'", field);
@@ -303,7 +306,7 @@ void *DstIP_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *o
 
     if(!lf->dstgeoip) {
         lf->dstgeoip = GetGeoInfobyIP(lf->dstip);
-        #ifdef TESTRULE
+#ifdef TESTRULE
             if (lf->dstgeoip && !alert_only)
                 print_out("       dstgeoip: '%s'", lf->dstgeoip);
         #endif
@@ -315,6 +318,7 @@ void *DstIP_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *o
 
 void *SrcPort_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       srcport: '%s'", field);
@@ -327,6 +331,7 @@ void *SrcPort_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char 
 
 void *DstPort_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       dstport: '%s'", field);
@@ -339,6 +344,7 @@ void *DstPort_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char 
 
 void *Protocol_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       protocol: '%s'", field);
@@ -351,6 +357,7 @@ void *Protocol_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char
 
 void *Action_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       action: '%s'", field);
@@ -363,6 +370,7 @@ void *Action_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *
 
 void *ID_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       id: '%s'", field);
@@ -375,6 +383,7 @@ void *ID_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *orde
 
 void *Url_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       url: '%s'", field);
@@ -387,6 +396,7 @@ void *Url_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *ord
 
 void *Data_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       data: '%s'", field);
@@ -399,6 +409,7 @@ void *Data_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *or
 
 void *Extra_Data_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       extra_data: '%s'", field);
@@ -411,6 +422,7 @@ void *Extra_Data_FP(Eventinfo *lf, char *field, __attribute__((unused)) const ch
 
 void *Status_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       status: '%s'", field);
@@ -423,6 +435,7 @@ void *Status_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *
 
 void *SystemName_FP(Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       system_name: '%s'", field);
@@ -435,6 +448,7 @@ void *SystemName_FP(Eventinfo *lf, char *field, __attribute__((unused)) const ch
 
 void *DynamicField_FP(Eventinfo *lf, char *field, const char *order)
 {
+
 #ifdef TESTRULE
     if (!alert_only) {
         print_out("       %s: '%s'", order, field);
@@ -443,11 +457,5 @@ void *DynamicField_FP(Eventinfo *lf, char *field, const char *order)
 
     os_strdup(order, lf->fields[lf->nfields].key);
     lf->fields[lf->nfields++].value = field;
-    return (NULL);
-}
-
-void *None_FP(__attribute__((unused)) Eventinfo *lf, char *field, __attribute__((unused)) const char *order)
-{
-    free(field);
     return (NULL);
 }

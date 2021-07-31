@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it
@@ -17,5 +17,7 @@
 #define ConvertSidToStringSid wrap_ConvertSidToStringSid
 
 WINBOOL wrap_ConvertSidToStringSid(PSID Sid, LPSTR *StringSid);
+
+void expect_ConvertSidToStringSid_call(LPSTR StringSid, int ret_value);
 
 #endif

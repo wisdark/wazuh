@@ -1,6 +1,6 @@
 /*
  * Shared functions for Syscheck events decoding
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  *
  * This program is free software; you can redistribute it
  * and/or modify it under the terms of the GNU General Public
@@ -9,6 +9,13 @@
  */
 
 #include "syscheck_op.h"
+
+const char *SYSCHECK_EVENT_STRINGS[] = {
+    [FIM_ADDED] = "added",
+    [FIM_MODIFIED] = "modified",
+    [FIM_READDED] = "readded",
+    [FIM_DELETED] = "deleted"
+};
 
 #ifdef WAZUH_UNIT_TESTING
 /* Replace assert with mock_assert */
@@ -26,38 +33,10 @@ extern void mock_assert(const int result, const char* const expression,
 #include "unit_tests/wrappers/windows/sddl_wrappers.h"
 #include "unit_tests/wrappers/windows/securitybaseapi_wrappers.h"
 #include "unit_tests/wrappers/windows/winbase_wrappers.h"
+#include "unit_tests/wrappers/windows/winreg_wrappers.h"
 
 #endif
 #endif
-
-int delete_target_file(const char *path) {
-    char full_path[PATH_MAX] = "\0";
-    snprintf(full_path, PATH_MAX, "%s%clocal", DIFF_DIR_PATH, PATH_SEP);
-
-#ifdef WIN32
-    char drive[3];
-    drive[0] = PATH_SEP;
-    drive[1] = path[0];
-
-    char *windows_path = strchr(path, ':');
-
-    if (windows_path == NULL) {
-        mdebug1("Incorrect path. This does not contain ':' ");
-        return 0;
-    }
-
-    strncat(full_path, drive, 2);
-    strncat(full_path, (windows_path + 1), PATH_MAX - strlen(full_path) - 1);
-#else
-    strncat(full_path, path, PATH_MAX - strlen(full_path) - 1);
-#endif
-
-    if(rmdir_ex(full_path) == 0){
-        return(remove_empty_folders(full_path));
-    }
-
-    return 1;
-}
 
 char *escape_syscheck_field(char *field) {
     char *esc_it;
@@ -91,9 +70,7 @@ void normalize_path(char * path) {
 int remove_empty_folders(const char *path) {
     assert(path != NULL);
 
-    const char LOCALDIR[] = { PATH_SEP, 'l', 'o', 'c', 'a', 'l', '\0' };
-    char DIFF_PATH[MAXPATHLEN] = DIFF_DIR_PATH;
-    strcat(DIFF_PATH, LOCALDIR);
+    char DIFF_PATH[PATH_MAX] = DIFF_DIR;
     const char *c;
     char parent[PATH_MAX] = "\0";
     char ** subdir;
@@ -104,16 +81,15 @@ int remove_empty_folders(const char *path) {
     if (c) {
         memcpy(parent, path, c - path);
         parent[c - path] = '\0';
-        // Don't delete above /local
+        // Don't delete above /diff
         if (strcmp(DIFF_PATH, parent) != 0) {
             subdir = wreaddir(parent);
             if (!(subdir && *subdir)) {
                 // Remove empty folder
                 mdebug1("Removing empty directory '%s'.", parent);
                 if (rmdir_ex(parent) != 0) {
-                    mwarn("Empty directory '%s' couldn't be deleted. ('%s')",
-                        parent, strerror(errno));
-                    retval = 1;
+                    mwarn("Empty directory '%s' couldn't be deleted. ('%s')", parent, strerror(errno));
+                    retval = -1;
                 } else {
                     // Get parent and remove it if it's empty
                     retval = remove_empty_folders(parent);
@@ -367,7 +343,6 @@ void sk_fill_event(Eventinfo *lf, const char *f_name, const sk_sum_t *sum) {
     assert(f_name != NULL);
     assert(sum != NULL);
 
-    os_strdup(f_name, lf->filename);
     os_strdup(f_name, lf->fields[FIM_FILE].value);
 
     if (sum->size) {
@@ -406,15 +381,11 @@ void sk_fill_event(Eventinfo *lf, const char *f_name, const sk_sum_t *sum) {
     }
 
     if (sum->mtime) {
-        lf->mtime_after = sum->mtime;
-        os_calloc(20, sizeof(char), lf->fields[FIM_MTIME].value);
-        snprintf(lf->fields[FIM_MTIME].value, 20, "%ld", sum->mtime);
+        lf->fields[FIM_MTIME].value = w_long_str(sum->mtime);
     }
 
     if (sum->inode) {
-        lf->inode_after = sum->inode;
-        os_calloc(20, sizeof(char), lf->fields[FIM_INODE].value);
-        snprintf(lf->fields[FIM_INODE].value, 20, "%ld", sum->inode);
+        lf->fields[FIM_INODE].value = w_long_str(sum->inode);
     }
 
     if(sum->sha256) {
@@ -426,82 +397,66 @@ void sk_fill_event(Eventinfo *lf, const char *f_name, const sk_sum_t *sum) {
     }
 
     if(sum->wdata.user_id) {
-        os_strdup(sum->wdata.user_id, lf->user_id);
         os_strdup(sum->wdata.user_id, lf->fields[FIM_USER_ID].value);
     }
 
     if(sum->wdata.user_name) {
-        os_strdup(sum->wdata.user_name, lf->user_name);
         os_strdup(sum->wdata.user_name, lf->fields[FIM_USER_NAME].value);
     }
 
     if(sum->wdata.group_id) {
-        os_strdup(sum->wdata.group_id, lf->group_id);
         os_strdup(sum->wdata.group_id, lf->fields[FIM_GROUP_ID].value);
     }
 
     if(sum->wdata.group_name) {
-        os_strdup(sum->wdata.group_name, lf->group_name);
         os_strdup(sum->wdata.group_name, lf->fields[FIM_GROUP_NAME].value);
     }
 
     if(sum->wdata.process_name) {
-        os_strdup(sum->wdata.process_name, lf->process_name);
         os_strdup(sum->wdata.process_name, lf->fields[FIM_PROC_NAME].value);
     }
 
     if(sum->wdata.parent_name) {
-        os_strdup(sum->wdata.parent_name, lf->parent_name);
         os_strdup(sum->wdata.parent_name, lf->fields[FIM_PROC_PNAME].value);
     }
 
     if(sum->wdata.cwd) {
-        os_strdup(sum->wdata.cwd, lf->cwd);
         os_strdup(sum->wdata.cwd, lf->fields[FIM_AUDIT_CWD].value);
     }
 
     if(sum->wdata.parent_cwd) {
-        os_strdup(sum->wdata.parent_cwd, lf->parent_cwd);
         os_strdup(sum->wdata.parent_cwd, lf->fields[FIM_AUDIT_PCWD].value);
     }
 
     if(sum->wdata.audit_uid) {
-        os_strdup(sum->wdata.audit_uid, lf->audit_uid);
         os_strdup(sum->wdata.audit_uid, lf->fields[FIM_AUDIT_ID].value);
     }
 
     if(sum->wdata.audit_name) {
-        os_strdup(sum->wdata.audit_name, lf->audit_name);
         os_strdup(sum->wdata.audit_name, lf->fields[FIM_AUDIT_NAME].value);
     }
 
     if(sum->wdata.effective_uid) {
-        os_strdup(sum->wdata.effective_uid, lf->effective_uid);
         os_strdup(sum->wdata.effective_uid, lf->fields[FIM_EFFECTIVE_UID].value);
     }
 
     if(sum->wdata.effective_name) {
-        os_strdup(sum->wdata.effective_name, lf->effective_name);
         os_strdup(sum->wdata.effective_name, lf->fields[FIM_EFFECTIVE_NAME].value);
     }
 
     if(sum->wdata.ppid) {
-        os_strdup(sum->wdata.ppid, lf->ppid);
         os_strdup(sum->wdata.ppid, lf->fields[FIM_PPID].value);
     }
 
     if(sum->wdata.process_id) {
-        os_strdup(sum->wdata.process_id, lf->process_id);
         os_strdup(sum->wdata.process_id, lf->fields[FIM_PROC_ID].value);
     }
 
     if(sum->tag) {
-        os_strdup(sum->tag, lf->sk_tag);
         os_strdup(sum->tag, lf->fields[FIM_TAG].value);
     }
 
     if(sum->symbolic_path) {
-        os_strdup(sum->symbolic_path, lf->sym_path);
         os_strdup(sum->symbolic_path, lf->fields[FIM_SYM_PATH].value);
     }
 }
@@ -603,7 +558,9 @@ char *get_user(int uid) {
 
     os_calloc(bufsize, sizeof(char), buf);
 
-#ifdef SOLARIS
+#if defined(SUN_MAJOR_VERSION) && defined(SUN_MINOR_VERSION)  && \
+    (SUN_MAJOR_VERSION < 11) || \
+    ((SUN_MAJOR_VERSION == 11) && (SUN_MINOR_VERSION < 4))
     result = getpwuid_r(uid, &pwd, buf, bufsize);
 #else
     errno = getpwuid_r(uid, &pwd, buf, bufsize, &result);
@@ -624,14 +581,40 @@ char *get_user(int uid) {
     return user_name;
 }
 
-const char *get_group(int gid) {
-    struct group *group = getgrgid(gid);
-    return group ? group->gr_name : "";
+char *get_group(int gid) {
+    struct group grp;
+    struct group *result;
+    char *group_name = NULL;
+    char *buf;
+    int bufsize;
+
+    bufsize = sysconf(_SC_GETGR_R_SIZE_MAX);
+    if (bufsize == -1) {
+        bufsize = 16384;
+    }
+
+    os_calloc(bufsize, sizeof(char), buf);
+
+    result = w_getgrgid(gid, &grp, buf, bufsize);
+
+    if (result == NULL) {
+        if (errno == 0) {
+            mdebug2("Group with gid '%d' not found.\n", gid);
+        } else {
+            mdebug2("Failed getting group_name (%d): '%s'\n", errno, strerror(errno));
+        }
+    } else {
+        os_strdup(grp.gr_name, group_name);
+    }
+
+    os_free(buf);
+
+    return group_name;
 }
 
 /* Send a one-way message to Syscheck */
 void ag_send_syscheck(char * message) {
-    int sock = OS_ConnectUnixDomain(DEFAULTDIR SYS_LOCAL_SOCK, SOCK_STREAM, OS_MAXSTR);
+    int sock = OS_ConnectUnixDomain(SYS_LOCAL_SOCK, SOCK_STREAM, OS_MAXSTR);
 
     if (sock < 0) {
         mwarn("dbsync: cannot connect to syscheck: %s (%d)", strerror(errno), errno);
@@ -647,23 +630,18 @@ void ag_send_syscheck(char * message) {
 
 #else /* #ifndef WIN32 */
 
-char *get_user(const char *path, char **sid) {
-    DWORD dwRtnCode = 0;
-    DWORD dwSecurityInfoErrorCode = 0;
-    PSID pSidOwner = NULL;
-    BOOL bRtnBool = TRUE;
-    char AcctName[BUFFER_LEN];
-    char DomainName[BUFFER_LEN];
-    DWORD dwAcctName = BUFFER_LEN;
-    DWORD dwDomainName = BUFFER_LEN;
-    SID_NAME_USE eUse = SidTypeUnknown;
+// LCOV_EXCL_START
+char *get_registry_user(const char *path, char **sid, HANDLE hndl) {
+    return get_user(path, sid, hndl, SE_REGISTRY_KEY);
+}
+// LCOV_EXCL_STOP
+
+char *get_file_user(const char *path, char **sid) {
     HANDLE hFile;
-    PSECURITY_DESCRIPTOR pSD = NULL;
     char *result;
 
     // Get the handle of the file object.
-    hFile = CreateFile(
-                       TEXT(path),
+    hFile = CreateFile(TEXT(path),
                        GENERIC_READ,
                        FILE_SHARE_READ | FILE_SHARE_WRITE,
                        NULL,
@@ -677,7 +655,8 @@ char *get_user(const char *path, char **sid) {
         LPSTR messageBuffer = NULL;
         LPSTR end;
 
-        FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, dwErrorCode, 0, (LPTSTR) &messageBuffer, 0, NULL);
+        FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                      NULL, dwErrorCode, 0, (LPTSTR) &messageBuffer, 0, NULL);
 
         if (end = strchr(messageBuffer, '\r'), end) {
             *end = '\0';
@@ -693,34 +672,55 @@ char *get_user(const char *path, char **sid) {
         }
 
         LocalFree(messageBuffer);
+    }
+
+    result = get_user(path, sid, hFile, SE_FILE_OBJECT);
+
+    CloseHandle(hFile);
+
+    return result;
+}
+
+char *get_user(const char *path, char **sid, HANDLE hndl, SE_OBJECT_TYPE object_type) {
+    DWORD dwRtnCode = 0;
+    DWORD dwSecurityInfoErrorCode = 0;
+    PSID pSidOwner = NULL;
+    BOOL bRtnBool = TRUE;
+    char AcctName[BUFFER_LEN];
+    char DomainName[BUFFER_LEN];
+    DWORD dwAcctName = BUFFER_LEN;
+    DWORD dwDomainName = BUFFER_LEN;
+    SID_NAME_USE eUse = SidTypeUnknown;
+    PSECURITY_DESCRIPTOR pSD = NULL;
+    LPSTR local_sid;
+    char *result;
+
+    if (hndl == INVALID_HANDLE_VALUE) {
+        os_strdup("", *sid);
         *AcctName = '\0';
         goto end;
     }
 
-    // Get the owner SID of the file.
-    dwRtnCode = GetSecurityInfo(
-                                hFile,
-                                SE_FILE_OBJECT,
-                                OWNER_SECURITY_INFORMATION,
-                                &pSidOwner,
-                                NULL,
-                                NULL,
-                                NULL,
-                                &pSD);
+    // Get the owner SID of the file or registry
+    dwRtnCode = GetSecurityInfo(hndl,                       // Object handle
+                                object_type,                // Object type (file or registry)
+                                OWNER_SECURITY_INFORMATION, // Security information bit flags
+                                &pSidOwner,                 // Owner SID
+                                NULL,                       // Group SID
+                                NULL,                       // DACL
+                                NULL,                       // SACL
+                                &pSD);                      // Security descriptor
 
     if (dwRtnCode != ERROR_SUCCESS) {
         dwSecurityInfoErrorCode = GetLastError();
     }
 
-    CloseHandle(hFile);
-
-    char *aux;
-    if (!ConvertSidToStringSid(pSidOwner, &aux)) {
-        *sid = NULL;
+    if (!ConvertSidToStringSid(pSidOwner, &local_sid)) {
+        os_strdup("", *sid);
         mdebug1("The user's SID could not be extracted.");
     } else {
-        os_strdup(aux, *sid);
-        LocalFree(aux);
+        os_strdup(local_sid, *sid);
+        LocalFree(local_sid);
     }
 
     // Check GetLastError for GetSecurityInfo error condition.
@@ -731,13 +731,12 @@ char *get_user(const char *path, char **sid) {
     }
 
     // Second call to LookupAccountSid to get the account name.
-    bRtnBool = LookupAccountSid(
-                                NULL,                   // name of local or remote computer
-                                pSidOwner,              // security identifier
-                                AcctName,               // account name buffer
-                                (LPDWORD)&dwAcctName,   // size of account name buffer
-                                DomainName,             // domain name
-                                (LPDWORD)&dwDomainName, // size of domain name buffer
+    bRtnBool = LookupAccountSid(NULL,                   // Name of local or remote computer
+                                pSidOwner,              // Security identifier
+                                AcctName,               // Account name buffer
+                                (LPDWORD)&dwAcctName,   // Size of account name buffer
+                                DomainName,             // Domain name
+                                (LPDWORD)&dwDomainName, // Size of domain name buffer
                                 &eUse);                 // SID type
 
     // Check GetLastError for LookupAccountSid error condition.
@@ -746,10 +745,12 @@ char *get_user(const char *path, char **sid) {
 
         dwErrorCode = GetLastError();
 
-        if (dwErrorCode == ERROR_NONE_MAPPED)
-            mdebug1("Account owner not found for file '%s'", path);
-        else
+        if (dwErrorCode == ERROR_NONE_MAPPED) {
+            mdebug1("Account owner not found for '%s'", path);
+        }
+        else {
             merror("Error in LookupAccountSid.");
+        }
 
         *AcctName = '\0';
     }
@@ -759,7 +760,7 @@ end:
         LocalFree(pSD);
     }
 
-    result = wstr_replace((const char*)&AcctName, " ", "\\ ");
+    result = wstr_replace(AcctName, " ", "\\ ");
 
     return result;
 }
@@ -876,8 +877,12 @@ int copy_ace_info(void *ace, char *perm, int perm_size) {
         }
     }
 
-    if (written + 1 < perm_size) {
+    written = snprintf(NULL, 0, "|%s,%d,%d", sid_str ? sid_str : account_name, ace_type, mask);
+
+    if (written > 0 && written + 1 < perm_size) {
         written = snprintf(perm, perm_size, "|%s,%d,%d", sid_str ? sid_str : account_name, ace_type, mask);
+    } else {
+        written = 0;
     }
 
 end:
@@ -934,8 +939,198 @@ unsigned int w_get_file_attrs(const char *file_path) {
     return attrs;
 }
 
-const char *get_group(__attribute__((unused)) int gid) {
-    return "";
+char *get_group(__attribute__((unused)) int gid) {
+    char *result;
+
+    os_strdup("", result);
+    return result;
+}
+
+char *get_registry_group(char **sid, HANDLE hndl) {
+    DWORD dwRtnCode = 0;
+    DWORD dwSecurityInfoErrorCode = 0;
+    PSID pSidGroup = NULL;
+    BOOL bRtnBool = TRUE;
+    char GrpName[BUFFER_LEN];
+    char DomainName[BUFFER_LEN];
+    DWORD dwGrpName = BUFFER_LEN;
+    DWORD dwDomainName = BUFFER_LEN;
+    SID_NAME_USE eUse = SidTypeUnknown;
+    PSECURITY_DESCRIPTOR pSD = NULL;
+    char *result;
+    LPSTR local_sid;
+
+    // Get the group SID of the file or registry
+    dwRtnCode = GetSecurityInfo(hndl,                       // Object handle
+                                SE_REGISTRY_KEY,            // Object type (file or registry)
+                                GROUP_SECURITY_INFORMATION, // Security information bit flags
+                                NULL,                       // Owner SID
+                                &pSidGroup,                 // Group SID
+                                NULL,                       // DACL
+                                NULL,                       // SACL
+                                &pSD);                      // Security descriptor
+
+    if (dwRtnCode != ERROR_SUCCESS) {
+        dwSecurityInfoErrorCode = GetLastError();
+        merror("GetSecurityInfo error = %lu", dwSecurityInfoErrorCode);
+        *GrpName = '\0';
+        os_strdup("", *sid);
+        goto end;
+    }
+
+    if (!ConvertSidToStringSid(pSidGroup, &local_sid)) {
+        os_strdup("", *sid);
+        mdebug1("The user's SID could not be extracted.");
+    } else {
+        os_strdup(local_sid, *sid);
+        LocalFree(local_sid);
+    }
+
+    // Second call to LookupAccountSid to get the account name.
+    bRtnBool = LookupAccountSid(NULL,                   // Name of local or remote computer
+                                pSidGroup,              // Security identifier
+                                GrpName,                // Group name buffer
+                                (LPDWORD)&dwGrpName,    // Size of group name buffer
+                                DomainName,             // Domain name
+                                (LPDWORD)&dwDomainName, // Size of domain name buffer
+                                &eUse);                 // SID type
+
+    if (strncmp(GrpName, "None", 4) == 0) {
+        *GrpName = '\0';
+    }
+
+    // Check GetLastError for LookupAccountSid error condition.
+    if (bRtnBool == FALSE) {
+        DWORD dwErrorCode = 0;
+
+        dwErrorCode = GetLastError();
+
+        if (dwErrorCode == ERROR_NONE_MAPPED) {
+            mdebug1("Group not found for registry key");
+        }
+        else {
+            merror("Error in LookupAccountSid.");
+        }
+
+        *GrpName = '\0';
+    }
+
+end:
+    if (pSD) {
+        LocalFree(pSD);
+    }
+
+    result = wstr_replace(GrpName, " ", "\\ ");
+
+    return result;
+}
+
+DWORD get_registry_permissions(HKEY hndl, char *perm_key) {
+    PSECURITY_DESCRIPTOR pSecurityDescriptor;
+    ACL_SIZE_INFORMATION aclsizeinfo;
+    ACCESS_ALLOWED_ACE *pAce = NULL;
+    PACL pDacl = NULL;
+    DWORD cAce;
+    DWORD dwRtnCode = 0;
+    DWORD dwErrorCode = 0;
+    DWORD lpcbSecurityDescriptor = 0;
+    BOOL bRtnBool = TRUE;
+    BOOL fDaclPresent = FALSE;
+    BOOL fDaclDefaulted = TRUE;
+    int written;
+    int perm_size = OS_SIZE_6144;
+    char *permissions = perm_key;
+
+    if (RegGetKeySecurity(hndl, DACL_SECURITY_INFORMATION, NULL, &lpcbSecurityDescriptor) !=
+        ERROR_INSUFFICIENT_BUFFER) {
+
+        dwErrorCode = GetLastError();
+        return dwErrorCode;
+    }
+
+    os_calloc(lpcbSecurityDescriptor, 1, pSecurityDescriptor);
+
+    // Get the security information.
+    dwRtnCode = RegGetKeySecurity(hndl,                         // Handle to an open key
+                                  DACL_SECURITY_INFORMATION,    // Requeste DACL security information
+                                  pSecurityDescriptor,          // Pointer that receives the DACL information
+                                  &lpcbSecurityDescriptor);     // Pointer that specifies the size, in bytes
+
+    if (dwRtnCode != ERROR_SUCCESS) {
+        os_free(pSecurityDescriptor);
+        return dwRtnCode;
+    }
+
+    // Retrieve a pointer to the DACL in the security descriptor.
+    bRtnBool = GetSecurityDescriptorDacl(pSecurityDescriptor,   // Structure that contains the DACL
+                                         &fDaclPresent,         // Indicates the presence of a DACL
+                                         &pDacl,                // Pointer to ACL
+                                         &fDaclDefaulted);      // Flag set to the value of the SE_DACL_DEFAULTED flag
+
+    if (bRtnBool == FALSE) {
+        dwErrorCode = GetLastError();
+        mdebug2("GetSecurityDescriptorDacl failed. GetLastError returned: %ld", dwErrorCode);
+        os_free(pSecurityDescriptor);
+        return dwErrorCode;
+    }
+
+    // Check whether no DACL or a NULL DACL was retrieved from the security descriptor buffer.
+    if (fDaclPresent == FALSE || pDacl == NULL) {
+        mdebug2("No DACL was found (all access is denied), or a NULL DACL (unrestricted access) was found.");
+        os_free(pSecurityDescriptor);
+        return -1;
+    }
+
+    // Retrieve the ACL_SIZE_INFORMATION structure to find the number of ACEs in the DACL.
+    bRtnBool = GetAclInformation(pDacl,                 // Pointer to an ACL
+                                 &aclsizeinfo,          // Pointer to a buffer to receive the requested information
+                                 sizeof(aclsizeinfo),   // The size, in bytes, of the buffer
+                                 AclSizeInformation);   // Fill the buffer with an ACL_SIZE_INFORMATION structure
+
+    if (bRtnBool == FALSE) {
+        dwErrorCode = GetLastError();
+        mdebug2("GetAclInformation failed. GetLastError returned: %ld", dwErrorCode);
+        os_free(pSecurityDescriptor);
+        return dwErrorCode;
+    }
+
+    // Loop through the ACEs to get the information.
+    for (cAce = 0; cAce < aclsizeinfo.AceCount; cAce++) {
+        // Get ACE info
+        if (GetAce(pDacl, cAce, (LPVOID*)&pAce) == FALSE) {
+            mdebug2("GetAce failed. GetLastError returned: %ld", GetLastError());
+            continue;
+        }
+
+        written = copy_ace_info(pAce, permissions, perm_size);
+
+        if (written > 0) {
+            permissions += written;
+            perm_size -= written;
+
+            if (perm_size > 0) {
+                continue;
+            }
+        }
+    }
+
+    os_free(pSecurityDescriptor);
+
+    return ERROR_SUCCESS;
+}
+
+unsigned int get_registry_mtime(HKEY hndl) {
+    FILETIME lpftLastWriteTime;
+    DWORD dwRtnCode = 0;
+
+    dwRtnCode = RegQueryInfoKeyA(hndl, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &lpftLastWriteTime);
+
+    if (dwRtnCode != ERROR_SUCCESS) {
+        mwarn("Couldn't get modification time for registry key.");
+        return 0;
+    }
+
+    return get_windows_file_time_epoch(lpftLastWriteTime);
 }
 
 /* Send a one-way message to Syscheck */
@@ -1012,9 +1207,7 @@ char *decode_win_permissions(char *raw_perm) {
         if (perm_it = strchr(perm_it, ','), !perm_it) {
             goto error;
         }
-        *perm_it = '\0';
         a_type = *base_it;
-        *perm_it = ',';
 
         // Get the access mask
         base_it = ++perm_it;
@@ -1025,6 +1218,27 @@ char *decode_win_permissions(char *raw_perm) {
         } else {
             // End of the msg
             mask = strtol(base_it, NULL, 10);
+        }
+
+        size = snprintf(NULL, 0, "%s (%s): %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", account_name,
+                        a_type == '0' ? "allowed" : "denied", mask & GENERIC_READ ? "generic_read|" : "",
+                        mask & GENERIC_WRITE ? "generic_write|" : "", mask & GENERIC_EXECUTE ? "generic_execute|" : "",
+                        mask & GENERIC_ALL ? "generic_all|" : "", mask & DELETE ? "delete|" : "",
+                        mask & READ_CONTROL ? "read_control|" : "", mask & WRITE_DAC ? "write_dac|" : "",
+                        mask & WRITE_OWNER ? "write_owner|" : "", mask & SYNCHRONIZE ? "synchronize|" : "",
+                        mask & FILE_READ_DATA ? "read_data|" : "", mask & FILE_WRITE_DATA ? "write_data|" : "",
+                        mask & FILE_APPEND_DATA ? "append_data|" : "", mask & FILE_READ_EA ? "read_ea|" : "",
+                        mask & FILE_WRITE_EA ? "write_ea|" : "", mask & FILE_EXECUTE ? "execute|" : "",
+                        mask & FILE_READ_ATTRIBUTES ? "read_attributes|" : "",
+                        mask & FILE_WRITE_ATTRIBUTES ? "write_attributes|" : "");
+
+        if (size > perm_size) {
+            os_free(account_name);
+
+            if (perm_it != NULL) {
+                continue;
+            }
+            break;
         }
 
         size = snprintf(decoded_it, perm_size, "%s (%s): %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
@@ -1148,10 +1362,11 @@ cJSON *win_perm_to_json(char *perms) {
         }
         *(perm_node++) = '\0';
 
-        perm_node = strchr(perm_node, ' ');
-        if (!perm_node) {
-            goto error;
+        // Remove the colon separator
+        if (*perm_node == ':') {
+            perm_node++;
         }
+
         while (*perm_node == ' ') perm_node++;
 
         // Get the permissions
@@ -1180,7 +1395,7 @@ cJSON *win_perm_to_json(char *perms) {
             }
         }
         if (next_it) {
-            break;
+            continue;
         }
 
         if (!user_obj) {
@@ -1194,6 +1409,12 @@ cJSON *win_perm_to_json(char *perms) {
         cJSON *specific_perms;
         if (specific_perms = cJSON_CreateArray(), !specific_perms) {
             goto error;
+        }
+
+        if (*permissions == '\0') {
+            // Empty ACE
+            cJSON_AddItemToObject(user_obj, perm_type, specific_perms);
+            continue;
         }
 
         char **perms_array = NULL;

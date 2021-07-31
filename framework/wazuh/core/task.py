@@ -1,14 +1,15 @@
-# Copyright (C) 2015-2020, Wazuh Inc.
+# Copyright (C) 2015-2021, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is free software; you can redistribute it and/or modify it under the terms of GP
 
+from datetime import datetime
 from json import dumps, loads
 
 from wazuh.core import common
 from wazuh.core.exception import WazuhInternalError
 from wazuh.core.utils import WazuhDBQuery, \
     WazuhDBBackend
-from wazuh.core.wazuh_socket import OssecSocket
+from wazuh.core.wazuh_socket import WazuhSocket
 
 tasks_fields = {'task_id': 'task_id', 'agent_id': 'agent_id', 'node': 'node', 'module': 'module',
                 'command': 'command', 'create_time': 'create_time', 'last_update_time': 'last_update_time',
@@ -25,13 +26,14 @@ class WazuhDBQueryTask(WazuhDBQuery):
         if filters is None:
             filters = {}
         if min_select_fields is None:
-            min_select_fields = {'task_id', 'agent_id', 'status', 'command', 'create_time'}
+            min_select_fields = {'task_id'}
         if fields is None:
             fields = tasks_fields
 
         WazuhDBQuery.__init__(self, offset=offset, limit=limit, table=table, sort=sort, search=search, select=select,
                               fields=fields, default_sort_field=default_sort_field, default_sort_order='ASC',
                               filters=filters, query=query, count=count, get_data=get_data,
+                              date_fields={'create_time', 'last_update_time'},
                               min_select_fields=min_select_fields, backend=WazuhDBBackend(query_format='task'))
 
     def _final_query(self):
@@ -50,6 +52,13 @@ class WazuhDBQueryTask(WazuhDBQuery):
         else:
             super()._process_filter(field_name, field_filter, q_filter)
 
+    def _format_data_into_dictionary(self):
+        """Standardization of dates to the ISO 8601 format."""
+        [t.update((k, datetime.utcfromtimestamp(v).strftime(common.date_format))
+                  for k, v in t.items() if k in self.date_fields) for t in self._data]
+
+        return {'items': self._data, 'totalItems': self.total_items}
+
 
 def send_to_tasks_socket(command):
     """Send command to task module
@@ -64,7 +73,7 @@ def send_to_tasks_socket(command):
     Message received from the socket
     """
     try:
-        s = OssecSocket(common.TASKS_SOCKET)
+        s = WazuhSocket(common.TASKS_SOCKET)
     except Exception:
         raise WazuhInternalError(1121)
     s.send(dumps(command).encode())

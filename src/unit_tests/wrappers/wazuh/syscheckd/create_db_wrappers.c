@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it
@@ -13,24 +13,19 @@
 #include <setjmp.h>
 #include <cmocka.h>
 
-void __wrap_fim_checker(char *path,
-                        __attribute__((unused)) fim_element *item,
-                        whodata_evt *w_evt,
-                        int report) {
+void __wrap_fim_checker(const char *path, event_data_t *evt_data, const directory_t *configuration) {
     check_expected(path);
-    check_expected(w_evt);
-    check_expected(report);
+    check_expected(evt_data);
+    check_expected(configuration);
 }
 
-int __wrap_fim_configuration_directory(const char *path,
-                                       const char *entry) {
+directory_t *__wrap_fim_configuration_directory(const char *path) {
     check_expected(path);
-    check_expected(entry);
-    return mock();
+    return mock_type(directory_t *);
 }
 
 cJSON *__wrap_fim_entry_json(const char * path,
-                             __attribute__((unused)) fim_entry_data * data) {
+                             __attribute__((unused)) fim_file_data * data) {
     check_expected(path);
     return mock_type(cJSON*);
 }
@@ -44,7 +39,7 @@ void __wrap_fim_realtime_event(char *file) {
 }
 
 int __wrap_fim_registry_event(__attribute__((unused)) char *key,
-                              __attribute__((unused)) fim_entry_data *data,
+                              __attribute__((unused)) fim_file_data *data,
                               __attribute__((unused)) int pos) {
     return mock();
 }
@@ -63,4 +58,19 @@ int __wrap_fim_whodata_event(whodata_evt * w_evt)
     if (w_evt->ppid) check_expected(w_evt->ppid);
 #endif
     return 1;
+}
+
+void expect_fim_checker_call(const char *path, const directory_t *configuration) {
+    expect_string(__wrap_fim_checker, path, path);
+    expect_any(__wrap_fim_checker, evt_data);
+    expect_value(__wrap_fim_checker, configuration, configuration);
+}
+
+void expect_fim_configuration_directory_call(const char *path, directory_t *ret) {
+    expect_string(__wrap_fim_configuration_directory, path, path);
+    will_return(__wrap_fim_configuration_directory, ret);
+}
+
+void __wrap_free_entry(__attribute__((unused)) fim_entry *entry) {
+    return;
 }

@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -185,11 +185,6 @@ extern const char *__local_name;
 
 #define os_strdup(x,y) ((y = strdup(x)))?(void)1:merror_exit(MEM_ERROR, errno, strerror(errno))
 
-/* Windows doesn't support strndup function */
-#ifndef WIN32
-#define os_strndup(x,y,z) ((z = strndup(x,y)))?(void)1:merror_exit(MEM_ERROR, errno, strerror(errno))
-#endif
-
 #define os_malloc(x,y) ((y = (__typeof__(y)) malloc(x)))?(void)1:merror_exit(MEM_ERROR, errno, strerror(errno))
 
 #define os_free(x) if(x){free(x);x=NULL;}
@@ -206,7 +201,7 @@ extern const char *__local_name;
 
 #define w_strlen(x) ({ size_t ret = 0; if (x) ret = strlen(x); ret;})
 
-// Calculate the number of elements within an array. 
+// Calculate the number of elements within an array.
 // Only static arrays allowed.
 #define array_size(array) (sizeof(array)/sizeof(array[0]))
 
@@ -235,7 +230,6 @@ extern const char *__local_name;
 #include "regex_op.h"
 #include "sig_op.h"
 #include "list_op.h"
-#include "dirtree_op.h"
 #include "hash_op.h"
 #include "rbtree_op.h"
 #include "queue_op.h"
@@ -277,6 +271,7 @@ extern const char *__local_name;
 #include "schedule_scan.h"
 #include "bzip2_op.h"
 #include "enrollment_op.h"
-
+#include "buffer_op.h"
+#include "atomic.h"
 
 #endif /* SHARED_H */

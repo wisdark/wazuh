@@ -1,18 +1,22 @@
 #!/usr/bin/env python
 
-# Copyright (C) 2015-2020, Wazuh Inc.
+# Copyright (C) 2015-2021, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is free software; you can redistribute it and/or modify it under the terms of GPLv2
 
-import os
-import sys
-import socket
-import logging
-import json
 import argparse
 import atexit
+import json
+import logging
+import os
+import socket
 import struct
+import subprocess
+import sys
 import textwrap
+
+from wazuh.core import common
+from wazuh.core.common import LOGTEST_SOCKET
 
 
 def init_argparse():
@@ -35,10 +39,15 @@ def init_argparse():
         dest='debug'
     )
     parser.add_argument(
-        "-U", help='Unit test. Refer to contrib/ossec-testing/runtests.py',
-        nargs=1,
+        "-U", help='Unit test. Refer to ruleset/testing/runtests.py',
         metavar='rule:alert:decoder',
         dest='ut'
+    )
+    parser.add_argument(
+        "-l", help='Use custom location. Default "stdin"',
+        default='stdin',
+        metavar='location',
+        dest='location'
     )
     parser.add_argument(
         "-q", help='Quiet execution',
@@ -64,13 +73,13 @@ def main():
 
     # Handle unit test request
     if args.ut:
-        ut = args.ut[0].split(":")
+        ut = args.ut.split(":")
         if len(ut) != 3:
-            logging.error('Unit test configuration wrong syntax: %s', args.ut[0])
+            logging.error('Unit test configuration wrong syntax: %s', args.ut)
             sys.exit(1)
 
     # Initialize wazuh-logtest component
-    w_logtest = WazuhLogtest()
+    w_logtest = WazuhLogtest(location=args.location)
     logging.info('Starting wazuh-logtest %s', Wazuh.get_version_str())
     logging.info('Type one log per line')
 
@@ -78,7 +87,7 @@ def main():
     atexit.register(w_logtest.remove_last_session)
 
     # Main processing loop
-    session_token = ''
+    session_token = str()
     while True:
         # Get user input
         try:
@@ -108,7 +117,7 @@ def main():
             logging.error('** Wazuh-logtest error ' + str(error))
             continue
         except ConnectionError:
-            logging.error('** Wazuh-logtest error when connecting with ossec-analysisd')
+            logging.error('** Wazuh-logtest error when connecting with wazuh-analysisd')
             continue
 
         # Check and alert to user if new session was created
@@ -172,9 +181,9 @@ class WazuhDeamonProtocol:
         json_msg = json.loads(msg)
         # Get only the payload
         if json_msg['error']:
-            error_msg = ['\n\t{0}'.format(i) for i in json_msg['message']]
+            error_msg = json_msg['message']
             error_n = json_msg['error']
-            raise ValueError(str(error_n) + ''.join(error_msg))
+            raise ValueError(f'{error_n}: {error_msg}')
         data = json_msg['data']
         return data
 
@@ -200,7 +209,8 @@ class WazuhSocket:
         try:
             wlogtest_conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             wlogtest_conn.connect(self.file)
-            wlogtest_conn.send(struct.pack("<I", len(msg)) + msg.encode())
+            encoded_msg = msg.encode('utf-8')
+            wlogtest_conn.send(struct.pack("<I", len(encoded_msg)) + encoded_msg)
             size = struct.unpack("<I", wlogtest_conn.recv(4, socket.MSG_WAITALL))[0]
             recv_msg = wlogtest_conn.recv(size, socket.MSG_WAITALL)
             wlogtest_conn.close()
@@ -211,14 +221,14 @@ class WazuhSocket:
 
 class WazuhLogtest:
     def __init__(self, location="stdin", log_format="syslog"):
-        """Top level class to interact with wazuh-logtest feature, part of ossec-analysisd
+        """Top level class to interact with wazuh-logtest feature, part of wazuh-analysisd
 
         Args:
             location (str, optional): log origin. Defaults to "master->/var/log/syslog".
             log_format (str, optional): type of log. Defaults to "syslog".
         """
         self.protocol = WazuhDeamonProtocol()
-        self.socket = WazuhSocket('/var/ossec/queue/ossec/logtest')
+        self.socket = WazuhSocket(LOGTEST_SOCKET)
         self.fixed_fields = dict()
         self.fixed_fields['location'] = location
         self.fixed_fields['log_format'] = log_format
@@ -250,13 +260,13 @@ class WazuhLogtest:
         recv_packet = self.socket.send(request)
 
         # Get logtest reply
+        logging.debug(f'Reply: %s\n', str(recv_packet,'utf-8'))
         reply = self.protocol.unwrap(recv_packet)
-        logging.debug('Reply: %s\n', reply)
 
         if reply['codemsg'] < 0:
             error_msg = ['\n\t{0}'.format(i) for i in reply['messages']]
             error_n = reply['codemsg']
-            raise ValueError(str(error_n) + ''.join(error_msg))
+            raise ValueError(f'{error_n}: {"".join(error_msg)}')
 
         # Save the token
         self.last_token = reply['token']
@@ -354,12 +364,13 @@ class WazuhLogtest:
         if output['alert']:
             logging.info('**Alert to be generated.')
 
-    def show_phase_info(phase_data, show_first=[]):
+    def show_phase_info(phase_data, show_first=[], prefix=""):
         """Show wazuh-logtest processing phase information
 
         Args:
             phase_data (dict): phase info to display
-            show_first (list, optional): fields to be shown first. Defaults to [].
+            show_first (list, optional): fields to be shown first. Defaults to []
+            prefix (str, optional): add prefix to the name of the field to print. Default empty string
         """
         # Ordered fields first
         for field in show_first:
@@ -367,7 +378,10 @@ class WazuhLogtest:
                 logging.info("\t%s: '%s'", field, phase_data.pop(field))
         # Remaining fields then
         for field in sorted(phase_data.keys()):
-                logging.info("\t%s: '%s'", field, phase_data.pop(field))
+            if isinstance(phase_data.get(field), dict):
+                WazuhLogtest.show_phase_info(phase_data.pop(field), [], prefix + field + '.')
+            else:
+                logging.info("\t%s: '%s'", prefix + field, phase_data.pop(field))
 
     def show_last_ut_result(self, ut):
         """Display unit test result
@@ -384,22 +398,38 @@ class WazuhLogtest:
 
 
 class Wazuh:
-    def get_initconfig(field, path="/etc/ossec-init.conf"):
-        """Get Wazuh information from installation file
+    def get_install_path():
+        """Get Wazuh installation path, obtained relative to the path of this file
+
+        Returns:
+            str: install_path
+        """
+        return common.find_wazuh_path()
+
+    def get_info(field):
+        """Get Wazuh information from wazuh-control
 
         Args:
             field (str): field to get
-            path (str, optional): information file. Defaults to "/etc/ossec-init.conf".
 
         Returns:
             str: field value
         """
-        initconf = dict()
-        with open(path) as f:
-            for line in f.readlines():
-                key, value = line.rstrip("\n").split("=")
-                initconf[key] = value.replace("\"", "")
-        return initconf[field]
+        wazuh_control = os.path.join(Wazuh.get_install_path(), "bin", "wazuh-control")
+        wazuh_env_vars = dict()
+        try:
+            proc = subprocess.Popen([wazuh_control, "info"], stdout=subprocess.PIPE)
+            (stdout, stderr) = proc.communicate()
+        except:
+            return "ERROR"
+
+        env_variables = stdout.decode().rsplit("\n")
+        env_variables.remove("")
+        for env_variable in env_variables:
+            key, value = env_variable.split("=")
+            wazuh_env_vars[key] = value.replace("\"", "")
+
+        return wazuh_env_vars[field]
 
     def get_version_str():
         """Get Wazuh version string
@@ -407,7 +437,7 @@ class Wazuh:
         Returns:
             str: version
         """
-        return Wazuh.get_initconfig('VERSION')
+        return Wazuh.get_info('WAZUH_VERSION')
 
     def get_description():
         """Get Wazuh description, contact info and version

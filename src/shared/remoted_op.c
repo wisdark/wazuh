@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * July 23, 2020.
  *
  * This program is free software; you can redistribute it
@@ -47,7 +47,7 @@ void parse_uname_string (char *uname,
                          os_data *osd)
 {
     char *str_tmp = NULL;
-    regmatch_t match[2] = { 0 };
+    regmatch_t match[2] = {{.rm_so = 0}};
     int match_size = 0;
 
     if (!osd)

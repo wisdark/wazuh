@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2014 Daniel B. Cid
  * All rights reserved.
  *
@@ -56,7 +56,7 @@ void OS_IntegratorD(IntegratorConfig **integrator_config)
     {
         integrator_config[s]->enabled = 1;
 
-        snprintf(integration_path, 2048 -1, "%s/%s", INTEGRATORDIRPATH, integrator_config[s]->name);
+        snprintf(integration_path, 2048 -1, "%s/%s", INTEGRATORDIR, integrator_config[s]->name);
         if(File_DateofChange(integration_path) > 0)
         {
             os_strdup(integration_path, integrator_config[s]->path);
@@ -64,7 +64,7 @@ void OS_IntegratorD(IntegratorConfig **integrator_config)
         else
         {
             integrator_config[s]->enabled = 0;
-            merror("Unable to enable integration for: '%s'. File not found inside '%s'.", integrator_config[s]->name, INTEGRATORDIRPATH);
+            merror("Unable to enable integration for: '%s'. File not found inside '%s'.", integrator_config[s]->name, INTEGRATORDIR);
             s++;
             continue;
         }
@@ -125,16 +125,19 @@ void OS_IntegratorD(IntegratorConfig **integrator_config)
         /* Get JSON message if available (timeout of 5 seconds) */
         mdebug2("jqueue_next()");
         al_json = jqueue_next(&jfileq);
-        if(!al_json)
+        if(!al_json) {
+            sleep(1);
             continue;
+        }
 
         mdebug1("sending new alert.");
         temp_file_created = 0;
 
-        /* If JSON does not contain rule block, continue*/
+        /* If JSON does not contain rule block, continue */
         if (rule = cJSON_GetObjectItem(al_json, "rule"), !rule){
                 s++;
-                mdebug2("skipping: Alert does not contain a rule block");
+                mdebug2("skipping: Alert does not contain a rule block.");
+                cJSON_Delete(al_json);
                 continue;
         }
 
@@ -206,7 +209,7 @@ void OS_IntegratorD(IntegratorConfig **integrator_config)
                 }
 
                 if (!found) {
-                    mdebug2("skipping: group doesn't match");
+                    mdebug2("skipping: group doesn't match.");
                     s++; continue;
                 }
             }
@@ -238,7 +241,7 @@ void OS_IntegratorD(IntegratorConfig **integrator_config)
                 /* skip integration if none are matched */
                 if(rule_match == -1)
                 {
-                    mdebug2("skipping: rule doesn't match");
+                    mdebug2("skipping: rule doesn't match.");
                     s++; continue;
                 }
             }
@@ -385,7 +388,7 @@ void OS_IntegratorD(IntegratorConfig **integrator_config)
             if(temp_file_created == 1)
             {
                 int dbg_lvl = isDebug();
-                snprintf(exec_full_cmd, 4095, "%s %s %s %s %s", integrator_config[s]->path, exec_tmp_file, integrator_config[s]->apikey == NULL ? "" : integrator_config[s]->apikey, integrator_config[s]->hookurl == NULL ? "" : integrator_config[s]->hookurl, dbg_lvl <= 0 ? "" : "debug");
+                os_snprintf(exec_full_cmd, 4095, "%s %s %s %s %s", INTEGRATORDIR, exec_tmp_file, integrator_config[s]->apikey == NULL ? "" : integrator_config[s]->apikey, integrator_config[s]->hookurl == NULL ? "" : integrator_config[s]->hookurl, dbg_lvl <= 0 ? "" : "debug");
                 if (dbg_lvl <= 0) strcat(exec_full_cmd, " > /dev/null 2>&1");
 
                 mdebug1("Running: %s", exec_full_cmd);
@@ -406,16 +409,16 @@ void OS_IntegratorD(IntegratorConfig **integrator_config)
                                 // 127 means error in exec
                                 merror("Couldn't execute command (%s). Check file and permissions.", exec_full_cmd);
                             } else if(wstatus != 0){
-                                merror("Unable to run integration for %s -> %s",  integrator_config[s]->name, integrator_config[s]->path);
-                                merror("While running %s -> %s. Output: %s ",  integrator_config[s]->name, integrator_config[s]->path, buffer);
+                                merror("Unable to run integration for %s -> %s",  integrator_config[s]->name, INTEGRATORDIR);
+                                merror("While running %s -> %s. Output: %s ",  integrator_config[s]->name, INTEGRATORDIR, buffer);
                                 merror("Exit status was: %d", wstatus);
                             } else {
-                                mdebug1("Command ran successfully");
+                                mdebug1("Command ran successfully.");
                             }
                         } else {
                             merror("Command (%s) execution exited abnormally.", exec_full_cmd);
                         }
-                        
+
                     } else {
                         merror("Could not launch command %s (%d)", strerror(errno), errno);
                     }

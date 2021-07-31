@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -387,6 +387,10 @@
 #define mkdir(x, y) mkdir(x)
 #endif /* WIN32 */
 
+#ifdef WIN32
+int isVista;
+#endif
+
 const char *__local_name = "unset";
 
 /* Set the name of the starting program */
@@ -529,19 +533,12 @@ float DirSize(const char *path) {
     return folder_size;
 }
 
-#endif
-
 int CreatePID(const char *name, int pid)
 {
     char file[256];
     FILE *fp;
 
-    if (isChroot()) {
-        snprintf(file, 255, "%s/%s-%d.pid", OS_PIDFILE, name, pid);
-    } else {
-        snprintf(file, 255, "%s%s/%s-%d.pid", DEFAULTDIR,
-                 OS_PIDFILE, name, pid);
-    }
+    snprintf(file, 255, "%s/%s-%d.pid", OS_PIDFILE, name, pid);
 
     fp = fopen(file, "a");
     if (!fp) {
@@ -588,17 +585,11 @@ char *GetRandomNoise()
     }
 }
 
-
 int DeletePID(const char *name)
 {
-    char file[256];
+    char file[256] = {'\0'};
 
-    if (isChroot()) {
-        snprintf(file, 255, "%s/%s-%d.pid", OS_PIDFILE, name, (int)getpid());
-    } else {
-        snprintf(file, 255, "%s%s/%s-%d.pid", DEFAULTDIR,
-                 OS_PIDFILE, name, (int)getpid());
-    }
+    snprintf(file, 255, "%s/%s-%d.pid", OS_PIDFILE, name, (int)getpid());
 
     if (File_DateofChange(file) < 0) {
         return (-1);
@@ -611,7 +602,7 @@ int DeletePID(const char *name)
 
     return (0);
 }
-
+#endif
 
 void DeleteState() {
     char path[PATH_MAX + 1];
@@ -620,7 +611,7 @@ void DeleteState() {
 #ifdef WIN32
         snprintf(path, sizeof(path), "%s.state", __local_name);
 #else
-        snprintf(path, sizeof(path), "%s" OS_PIDFILE "/%s.state", isChroot() ? "" : DEFAULTDIR, __local_name);
+        snprintf(path, sizeof(path), OS_PIDFILE "/%s.state", __local_name);
 #endif
         unlink(path);
     } else {
@@ -1170,11 +1161,6 @@ void goDaemonLight()
 
     dup2(1, 2);
 
-    /* Go to / */
-    if (chdir("/") == -1) {
-        merror(CHDIR_ERROR, "/", errno, strerror(errno));
-    }
-
     nowDaemon();
 }
 
@@ -1214,11 +1200,6 @@ void goDaemon()
         dup2(fd, 2);
 
         close(fd);
-    }
-
-    /* Go to / */
-    if (chdir("/") == -1) {
-        merror(CHDIR_ERROR, "/", errno, strerror(errno));
     }
 
     nowDaemon();
@@ -1274,7 +1255,7 @@ end:
 time_t get_UTC_modification_time(const char *file){
     HANDLE hdle;
     FILETIME modification_date;
-    if (hdle = CreateFile(file, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL), \
+    if (hdle = CreateFile(file, GENERIC_READ, FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL), \
         hdle == INVALID_HANDLE_VALUE) {
         mferror(FIM_WARN_OPEN_HANDLE_FILE, file, GetLastError());
         return 0;
@@ -2028,6 +2009,144 @@ void w_ch_exec_dir() {
         print_out(CHDIR_ERROR, path, errno, strerror(errno));
         exit(EXIT_FAILURE);
     }
+}
+
+FILE * w_fopen_r(const char *file, const char * mode, BY_HANDLE_FILE_INFORMATION * lpFileInformation) {
+
+    FILE *fp = NULL;
+    int fd;
+    HANDLE h;
+
+    h = CreateFile(file, GENERIC_READ, FILE_SHARE_DELETE|FILE_SHARE_READ|FILE_SHARE_WRITE,
+                   NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) {
+        return NULL;
+    }
+
+    if (lpFileInformation != NULL) {
+        memset(lpFileInformation, 0, sizeof(BY_HANDLE_FILE_INFORMATION));
+    }
+
+    if (GetFileInformationByHandle(h, lpFileInformation) == 0) {
+        merror(FILE_ERROR, file);
+    }
+
+    if (fd = _open_osfhandle((intptr_t)h, 0), fd == -1) {
+        merror(FOPEN_ERROR, file, errno, strerror(errno));
+        CloseHandle(h);
+        return NULL;
+    }
+
+    if (fp = _fdopen(fd, mode), fp == NULL) {
+        merror(FOPEN_ERROR, file, errno, strerror(errno));
+        CloseHandle(h);
+        return NULL;
+    }
+
+    return fp;
+}
+
+char **expand_win32_wildcards(const char *path) {
+    WIN32_FIND_DATA FindFileData;
+    HANDLE hFind;
+    char **pending_expand = NULL;
+    char **expanded_paths = NULL;
+    char *pattern = NULL;
+    char *next_glob = NULL;
+    char *parent_path = NULL;
+    int pending_expand_index = 0;
+    int expanded_index = 0;
+    size_t glob_pos = 0;
+
+    os_calloc(2, sizeof(char *), pending_expand);
+    os_strdup(path, pending_expand[0]);
+    // Loop until there is not any directory to expand.
+    while(true) {
+        pattern = pending_expand[0];
+
+        if (pattern == NULL) {
+            break;
+        }
+
+        glob_pos = strcspn(pattern, "*?");
+        if (glob_pos == strlen(pattern)) {
+            // If there are no more patterns, exit
+            expanded_paths = pending_expand;
+            break;
+        }
+
+        os_calloc(2, sizeof(char *), expanded_paths);
+
+        for (pending_expand_index = 0; pattern != NULL; pattern = pending_expand[++pending_expand_index]) {
+            glob_pos = strcspn(pattern, "*?");
+            next_glob = strchr(pattern + glob_pos, PATH_SEP);
+
+            // Find the next regex to be appended in case there is an expanded folder.
+            if (next_glob != NULL) {
+                *next_glob = '\0';
+                next_glob++;
+            }
+            os_strdup(pattern, parent_path);
+            char *look_back = strrchr(parent_path, PATH_SEP);
+
+            if (look_back) {
+                *look_back = '\0';
+            }
+
+            hFind = FindFirstFile(pattern, &FindFileData);
+            if (hFind == INVALID_HANDLE_VALUE) {
+                long unsigned errcode = GetLastError();
+                if (errcode == 2) {
+                    mdebug2("No file/folder that matches %s.", pattern);
+                } else {
+                    mdebug2("FindFirstFile failed (%lu) - '%s'\n", errcode, pattern);
+                }
+
+                os_free(pattern);
+                os_free(parent_path);
+                next_glob = NULL;
+                continue;
+            }
+            do {
+                if (strcmp(FindFileData.cFileName, ".") == 0 || strcmp(FindFileData.cFileName, "..") == 0) {
+                    continue;
+                }
+
+                if ((FindFileData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+                    continue;
+                }
+
+                if ((FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 && next_glob != NULL) {
+                    continue;
+                }
+
+                os_strdup(parent_path, expanded_paths[expanded_index]);
+                wm_strcat(&expanded_paths[expanded_index], FindFileData.cFileName, PATH_SEP);
+
+                if (next_glob != NULL) {
+                    wm_strcat(&expanded_paths[expanded_index], next_glob, PATH_SEP);
+                }
+
+                os_realloc(expanded_paths, (expanded_index + 2) * sizeof(char *), expanded_paths);
+                expanded_index++;
+                expanded_paths[expanded_index] = NULL;
+
+            } while(FindNextFile(hFind, &FindFileData));
+
+            FindClose(hFind);
+            // Now, free the memory, as the path that needed to be expanded is no longer needed and it's expansion is
+            // saved in expanded_paths vector.
+            os_free(pattern);
+            os_free(parent_path);
+            next_glob = NULL;
+        }
+
+        expanded_index = 0;
+        os_free(pending_expand);
+        pending_expand = expanded_paths;
+    }
+
+    return expanded_paths;
 }
 
 #endif /* WIN32 */
@@ -3091,16 +3210,31 @@ float DirSize(const char *path) {
 #endif
 
 
-int64_t w_ftell (FILE *x) {
+int64_t w_ftell(FILE *x) {
 
 #ifndef WIN32
     int64_t z = ftell(x);
 #else
-    int64_t z = _ftelli64(x);
+    int64_t z = ftello64(x);
 #endif
 
     if (z < 0)  {
         merror("Ftell function failed due to [(%d)-(%s)]", errno, strerror(errno));
+        return -1;
+    } else {
+        return z;
+    }
+}
+
+int w_fseek(FILE *x, int64_t pos, int mode) {
+
+#ifndef WIN32
+    int64_t z = fseek(x, pos, mode);
+#else
+    int64_t z = fseeko64(x, pos, mode);
+#endif
+    if (z < 0)  {
+        mwarn("Fseek function failed due to [(%d)-(%s)]", errno, strerror(errno));
         return -1;
     } else {
         return z;
@@ -3311,5 +3445,58 @@ int w_uncompress_bz2_gz_file(const char * path, const char * dest) {
     }
 
     return result;
+}
+#endif
+
+#ifndef WIN32
+/**
+ * @brief Get the Wazuh installation directory
+ *
+ * It is obtained from the /proc directory, argv[0], or the env variable WAZUH_HOME
+ *
+ * @param arg ARGV0 - Program name
+ * @return Pointer to the Wazuh installation path on success
+ */
+char *w_homedir(char *arg) {
+    char *buff = NULL;
+    struct stat buff_stat;
+    char * delim = "/bin";
+    os_calloc(PATH_MAX, sizeof(char), buff);
+#ifdef __MACH__
+    pid_t pid = getpid();
+    if (proc_pidpath(pid, buff, PATH_MAX) > 0) {
+        buff = w_strtok_r_str_delim(delim, &buff);
+    }
+#else
+    if (realpath("/proc/self/exe", buff) != NULL) {
+        dirname(buff);
+        buff = w_strtok_r_str_delim(delim, &buff);
+    }
+    else if (realpath("/proc/curproc/file", buff) != NULL) {
+        dirname(buff);
+        buff = w_strtok_r_str_delim(delim, &buff);
+    }
+    else if (realpath("/proc/self/path/a.out", buff) != NULL) {
+        dirname(buff);
+        buff = w_strtok_r_str_delim(delim, &buff);
+    }
+#endif
+    else if (realpath(arg, buff) != NULL) {
+        dirname(buff);
+        buff = w_strtok_r_str_delim(delim, &buff);
+    } else {
+        // The path was not found so read WAZUH_HOME env var
+        char * home_env = NULL;
+        if (home_env = getenv(WAZUH_HOME_ENV), home_env) {
+            snprintf(buff, PATH_MAX, "%s", home_env);
+        }
+    }
+
+    if ((stat(buff, &buff_stat) < 0) || !S_ISDIR(buff_stat.st_mode)) {
+        os_free(buff);
+        merror_exit(HOME_ERROR);
+    }
+
+    return buff;
 }
 #endif

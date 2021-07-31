@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
@@ -210,6 +210,8 @@ typedef struct _RuleInfo {
     char ** not_same_fields;
 
     char ** mitre_id;
+    char ** mitre_tactic_id;
+    char ** mitre_technique_id;
 
     bool internal_saving;      ///< Used to free RuleInfo structure in wazuh-logtest
 } RuleInfo;
@@ -369,9 +371,15 @@ int doDiff(RuleInfo *rule, struct _Eventinfo *lf);
 #define ROOTCHECK_MOD       "rootcheck"
 #define HOSTINFO_NEW        "hostinfo_new"
 #define HOSTINFO_MOD        "hostinfo_modified"
-#define SYSCHECK_MOD        "syscheck_integrity_changed"
-#define SYSCHECK_NEW        "syscheck_new_entry"
-#define SYSCHECK_DEL        "syscheck_deleted"
+#define FIM_MOD             "syscheck_integrity_changed"
+#define FIM_NEW             "syscheck_new_entry"
+#define FIM_DEL             "syscheck_deleted"
+#define FIM_REG_KEY_MOD     "syscheck_registry_key_modified"
+#define FIM_REG_KEY_NEW     "syscheck_registry_key_added"
+#define FIM_REG_KEY_DEL     "syscheck_registry_key_deleted"
+#define FIM_REG_VAL_MOD     "syscheck_registry_value_modified"
+#define FIM_REG_VAL_NEW     "syscheck_registry_value_added"
+#define FIM_REG_VAL_DEL     "syscheck_registry_value_deleted"
 #define SYSCOLLECTOR_MOD    "syscollector"
 #define CISCAT_MOD          "ciscat"
 #define WINEVT_MOD          "windows_eventchannel"

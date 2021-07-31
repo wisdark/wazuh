@@ -1,46 +1,59 @@
 
 # Tests list and flags
 
+list(APPEND shared_tests_flags "-Wl,--wrap,pthread_mutex_unlock -Wl,--wrap,pthread_mutex_lock \
+    -Wl,--wrap,pthread_rwlock_rdlock -Wl,--wrap,pthread_rwlock_unlock -Wl,--wrap,_merror \
+    -Wl,--wrap,pthread_rwlock_wrlock")
+list(APPEND shared_tests_names "test_list_op")
+
 list(APPEND shared_tests_names "test_file_op")
 if(NOT ${TARGET} STREQUAL "winagent")
-    set(FILE_OP_BASE_FLAGS "-Wl,--wrap,isChroot,--wrap,stat,--wrap,chmod,--wrap,getpid \
+    set(FILE_OP_BASE_FLAGS "-Wl,--wrap,stat,--wrap,chmod,--wrap,getpid,--wrap,_mdebug1 \
                             -Wl,--wrap,unlink,--wrap,_merror,--wrap,_minfo,--wrap,_mwarn \
                             -Wl,--wrap,fopen,--wrap,_mferror,--wrap,fflush,--wrap,fclose \
-                            -Wl,--wrap,fread,--wrap,fseek,--wrap,fwrite,--wrap,remove \
+                            -Wl,--wrap,fread,--wrap,ftell,--wrap,fseek,--wrap,fwrite,--wrap,remove \
                             -Wl,--wrap,fprintf,--wrap,fgets,--wrap,File_DateofChange \
-                            -Wl,--wrap,bzip2_uncompress,--wrap,mdebug1,--wrap,lstat \
-                            -Wl,--wrap,gzopen,--wrap,gzread,--wrap,gzclose \
-                            -Wl,--wrap,gzeof,--wrap,gzerror,--wrap,gzwrite")
+                            -Wl,--wrap,bzip2_uncompress,--wrap,lstat,--wrap,_merror_exit \
+                            -Wl,--wrap,gzopen,--wrap,gzread,--wrap,gzclose,--wrap,fgetc \
+                            -Wl,--wrap,gzeof,--wrap,gzerror,--wrap,gzwrite,--wrap,fgetpos \
+                            -Wl,--wrap,realpath,--wrap,getenv,--wrap,atexit")
     list(APPEND shared_tests_flags "${FILE_OP_BASE_FLAGS}")
 else()
-    list(APPEND shared_tests_flags "-Wl,--wrap,get_windows_file_time_epoch,--wrap,_mferror")
+    list(APPEND shared_tests_flags "-Wl,--wrap,get_windows_file_time_epoch,--wrap,_mferror,--wrap,mdebug2")
 endif()
 
 list(APPEND shared_tests_names "test_integrity_op")
 list(APPEND shared_tests_flags " ")
 
 list(APPEND shared_tests_names "test_rbtree_op")
+list(APPEND shared_tests_flags "-Wl,--wrap,getpid")
+
+list(APPEND shared_tests_names "test_validate_op")
 list(APPEND shared_tests_flags " ")
 
 list(APPEND shared_tests_names "test_string_op")
-list(APPEND shared_tests_flags "-Wl,--wrap,_mwarn")
+list(APPEND shared_tests_flags "-Wl,--wrap,_mwarn -Wl,--wrap,getpid")
+
+list(APPEND shared_tests_names "test_expression")
+list(APPEND shared_tests_flags "-Wl,--wrap,OS_IsValidIP -Wl,--wrap,OSMatch_Execute -Wl,--wrap,OSRegex_Compile \
+                             -Wl,--wrap,OSRegex_Execute -Wl,--wrap,OSRegex_Execute_ex -Wl,--wrap,OSMatch_Compile")
 
 list(APPEND shared_tests_names "test_version_op")
 set(VERSION_OP_BASE_FLAGS "-Wl,--wrap,fopen -Wl,--wrap,fclose -Wl,--wrap,fflush -Wl,--wrap,fread \
-                           -Wl,--wrap,fseek -Wl,--wrap,fwrite -Wl,--wrap,remove -Wl,--wrap,fprintf -Wl,--wrap,fgets")
+                           -Wl,--wrap,fseek -Wl,--wrap,fwrite -Wl,--wrap,remove -Wl,--wrap,fprintf -Wl,--wrap,fgets \
+                           -Wl,--wrap,fgetpos -Wl,--wrap,fgetc -Wl,--wrap,popen -Wl,--wrap,pclose")
 list(APPEND shared_tests_flags "${VERSION_OP_BASE_FLAGS}")
 
 list(APPEND shared_tests_names "test_queue_op")
 list(APPEND shared_tests_flags "-Wl,--wrap=pthread_mutex_lock,--wrap=pthread_mutex_unlock,--wrap=pthread_cond_wait \
-                                -Wl,--wrap=pthread_cond_signal,--wrap=pthread_cond_timedwait")
+                                -Wl,--wrap=pthread_cond_signal,--wrap=pthread_cond_timedwait -Wl,--wrap,getpid")
 
 list(APPEND shared_tests_names "test_queue_linked_op")
 list(APPEND shared_tests_flags "-Wl,--wrap=pthread_mutex_lock,--wrap=pthread_mutex_unlock,--wrap=pthread_cond_wait \
                                 -Wl,--wrap=pthread_cond_signal")
 
-
 list(APPEND shared_tests_names "test_agent_op")
-list(APPEND shared_tests_flags "-Wl,--wrap,_merror")
+list(APPEND shared_tests_flags "-Wl,--wrap,_merror -Wl,--wrap,getpid")
 
 list(APPEND shared_tests_names "test_enrollment_op")
 set(ENROLLMENT_OP_BASE_FLAGS "-Wl,--wrap=OS_IsValidIP,--wrap=_merror,--wrap=_mwarn,--wrap=check_x509_cert \
@@ -48,7 +61,7 @@ set(ENROLLMENT_OP_BASE_FLAGS "-Wl,--wrap=OS_IsValidIP,--wrap=_merror,--wrap=_mwa
                                 -Wl,--wrap=SSL_new,--wrap=SSL_connect,--wrap=SSL_get_error,--wrap=SSL_set_bio \
                                 -Wl,--wrap=SSL_write,--wrap=fopen,--wrap=fclose,--wrap=SSL_read \
                                 -Wl,--wrap=BIO_new_socket,--wrap=_merror_exit,--wrap=TempFile,--wrap=OS_MoveFile \
-                                -Wl,--wrap=fgets")
+                                -Wl,--wrap=fgets -Wl,--wrap,getpid -Wl,--wrap,OS_CloseSocket")
 if(${TARGET} STREQUAL "winagent")
     list(APPEND shared_tests_flags "${ENROLLMENT_OP_BASE_FLAGS}")
 else()
@@ -57,14 +70,27 @@ else()
 endif()
 
 list(APPEND shared_tests_names "test_time_op")
+list(APPEND shared_tests_flags "-Wl,--wrap,getpid")
+
+list(APPEND shared_tests_names "test_buffer_op")
+list(APPEND shared_tests_flags " ")
+
+list(APPEND shared_tests_names "test_utf8_op")
+list(APPEND shared_tests_flags " ")
+
+list(APPEND shared_tests_names "test_log_builder")
+list(APPEND shared_tests_flags " ")
+
+list(APPEND shared_tests_names "test_custom_output_search_replace")
 list(APPEND shared_tests_flags " ")
 
 if(${TARGET} STREQUAL "server")
 list(APPEND shared_tests_names "test_bzip2_op")
 list(APPEND shared_tests_flags "-Wl,--wrap=fopen,--wrap=fread,--wrap=fclose,--wrap=fwrite,--wrap=BZ2_bzWriteOpen \
-                                -Wl,--wrap=BZ2_bzWriteClose64 -Wl,--wrap=BZ2_bzReadClose,--wrap=BZ2_bzReadOpen \
+                                -Wl,--wrap=BZ2_bzWriteClose -Wl,--wrap=BZ2_bzReadClose,--wrap=BZ2_bzReadOpen \
                                 -Wl,--wrap=BZ2_bzRead,--wrap=BZ2_bzWrite,--wrap=_mdebug2,--wrap=fflush \
-                                -Wl,--wrap=fgets,--wrap=fprintf,--wrap=fseek,--wrap=remove")
+                                -Wl,--wrap=fgets,--wrap=fprintf,--wrap=fseek,--wrap=remove -Wl,--wrap,fgetpos \
+                                -Wl,--wrap=fgetc")
 
 list(APPEND shared_tests_names "test_schedule_scan")
 list(APPEND shared_tests_flags "-Wl,--wrap=OS_StrIsNum,--wrap=_merror,--wrap=w_time_delay,--wrap=time,--wrap=_mwarn \
@@ -73,11 +99,17 @@ list(APPEND shared_tests_flags "-Wl,--wrap=OS_StrIsNum,--wrap=_merror,--wrap=w_t
 
 list(APPEND shared_tests_names "test_rootcheck_op")
 list(APPEND shared_tests_flags "-Wl,--wrap=wdbc_query_ex -Wl,--wrap=_merror,--wrap=close,--wrap=getpid")
+
+list(APPEND shared_tests_names "test_fs_op")
+list(APPEND shared_tests_flags " ")
+
+list(APPEND shared_tests_names "test_wazuhdb_op")
+list(APPEND shared_tests_flags "-Wl,--wrap,OS_ConnectUnixDomain -Wl,--wrap,OS_SendSecureTCP -Wl,--wrap,OS_RecvSecureTCP")
 endif()
 
 list(APPEND shared_tests_names "test_syscheck_op")
 set(SYSCHECK_OP_BASE_FLAGS "-Wl,--wrap,rmdir_ex -Wl,--wrap,wreaddir -Wl,--wrap,_mdebug1 -Wl,--wrap,_mdebug2 \
-                            -Wl,--wrap,_mwarn -Wl,--wrap,_merror -Wl,--wrap,getpwuid_r -Wl,--wrap,getgrgid \
+                            -Wl,--wrap,_mwarn -Wl,--wrap,_merror -Wl,--wrap,getpwuid_r -Wl,--wrap,w_getgrgid \
                             -Wl,--wrap,wstr_split -Wl,--wrap,OS_ConnectUnixDomain -Wl,--wrap,OS_SendSecureTCP \
                             -Wl,--wrap,sysconf -Wl,--wrap,getpid")
 if(${TARGET} STREQUAL "winagent")
@@ -98,7 +130,7 @@ list(APPEND shared_tests_flags "-Wl,--wrap,_merror -Wl,--wrap,_mdebug1 -Wl,--wra
                                 -Wl,--wrap,audit_rule_fieldpair_data -Wl,--wrap,fopen -Wl,--wrap,audit_add_rule_data \
                                 -Wl,--wrap,audit_delete_rule_data -Wl,--wrap,audit_close -Wl,--wrap,fclose \
                                 -Wl,--wrap,fflush -Wl,--wrap,fprintf -Wl,--wrap,fread -Wl,--wrap,fseek \
-                                -Wl,--wrap,fwrite -Wl,--wrap,remove")
+                                -Wl,--wrap,fwrite -Wl,--wrap,remove -Wl,--wrap,fgetpos -Wl,--wrap=fgetc")
 
 list(APPEND shared_tests_names "test_privsep_op")
 list(APPEND shared_tests_flags "-Wl,--wrap=sysconf,--wrap=getpwnam_r,--wrap=getgrnam_r,--wrap=getpid")
@@ -111,6 +143,25 @@ list(APPEND shared_tests_names "test_remoted_op")
 list(APPEND shared_tests_flags "-Wl,--wrap,_mdebug2 -Wl,--wrap,_mwarn -Wl,--wrap,_merror")
 endif()
 
+if(${TARGET} STREQUAL "server")
+list(APPEND shared_tests_names "test_json-queue")
+list(APPEND shared_tests_flags "-Wl,--wrap,_merror -Wl,--wrap,_mdebug2 -Wl,--wrap,fopen -Wl,--wrap,fclose \
+                                -Wl,--wrap,fflush -Wl,--wrap,fread -Wl,--wrap,fseek -Wl,--wrap,fwrite \
+                                -Wl,--wrap,remove -Wl,--wrap,fprintf -Wl,--wrap,fgets -Wl,--wrap,w_ftell \
+                                -Wl,--wrap,fgetpos -Wl,--wrap,fgetc")
+endif()
+
+list(APPEND shared_tests_names "test_keys")
+list(APPEND shared_tests_flags "-Wl,--wrap,rbtree_get")
+
+list(APPEND shared_tests_names "test_atomic")
+list(APPEND shared_tests_flags "-Wl,--wrap,pthread_mutex_lock -Wl,--wrap,pthread_mutex_unlock")
+
+list(APPEND shared_tests_names "test_url")
+list(APPEND shared_tests_flags "-Wl,--wrap,curl_slist_free_all -Wl,--wrap,curl_easy_cleanup \
+                                -Wl,--wrap,curl_easy_init -Wl,--wrap,_mdebug1 -Wl,--wrap,curl_easy_setopt \
+                                -Wl,--wrap,curl_slist_append -Wl,--wrap,curl_easy_perform \
+                                -Wl,--wrap,curl_easy_getinfo -Wl,--wrap,FileSize")
 
 # Compiling tests
 list(LENGTH shared_tests_names count)

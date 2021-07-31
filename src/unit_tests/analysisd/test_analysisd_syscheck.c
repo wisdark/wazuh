@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  *
  * This program is free software; you can redistribute it
  * and/or modify it under the terms of the GNU General Public
@@ -24,12 +24,12 @@
 typedef struct __fim_data_s {
     cJSON *event;
     Eventinfo *lf;
-}fim_data_t;
+} fim_data_t;
 
 typedef struct __fim_adjust_checksum_data_s {
     sk_sum_t *newsum;
     char **checksum;
-}fim_adjust_checksum_data_t;
+} fim_adjust_checksum_data_t;
 
 /* private functions to be tested */
 void fim_send_db_query(int * sock, const char * query);
@@ -39,7 +39,7 @@ void fim_process_scan_info(_sdb * sdb, const char * agent_id, fim_scan_event eve
 int fim_fetch_attributes_state(cJSON *attr, Eventinfo *lf, char new_state);
 int fim_fetch_attributes(cJSON *new_attrs, cJSON *old_attrs, Eventinfo *lf);
 size_t fim_generate_comment(char * str, long size, const char * format, const char * a1, const char * a2);
-int fim_generate_alert(Eventinfo *lf, char *event_type, cJSON *attributes, cJSON *old_attributes, cJSON *audit);
+int fim_generate_alert(Eventinfo *lf, syscheck_event_t event_type, cJSON *attributes, cJSON *old_attributes, cJSON *audit);
 int fim_process_alert(_sdb *sdb, Eventinfo *lf, cJSON *event);
 int decode_fim_event(_sdb *sdb, Eventinfo *lf);
 void fim_adjust_checksum(sk_sum_t *newsum, char **checksum);
@@ -121,6 +121,128 @@ static int teardown_fim_event_cjson(void **state) {
     return 0;
 }
 
+static int setup_event_info(void **state) {
+    Eventinfo *lf = calloc(1, sizeof(Eventinfo));
+    if(lf == NULL)
+        return -1;
+    if(lf->fields = calloc(FIM_NFIELDS, sizeof(DynamicField)), lf->fields == NULL)
+        return -1;
+
+    lf->nfields = FIM_NFIELDS;
+
+    if(lf->decoder_info = calloc(1, sizeof(OSDecoderInfo)), lf->decoder_info == NULL)
+        return -1;
+    if(lf->decoder_info->fields = calloc(FIM_NFIELDS, sizeof(char*)), lf->decoder_info->fields == NULL)
+        return -1;
+    if(lf->full_log = calloc(OS_MAXSTR, sizeof(char)), lf->full_log == NULL)
+        return -1;
+
+    if(lf->decoder_info->fields[FIM_FILE] = strdup("file"), lf->decoder_info->fields[FIM_FILE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_HARD_LINKS] = strdup("hard_links"), lf->decoder_info->fields[FIM_HARD_LINKS] == NULL)
+        return -1;
+    if (lf->decoder_info->fields[FIM_MODE] = strdup("mode"), lf->decoder_info->fields[FIM_MODE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_SIZE] = strdup("size"), lf->decoder_info->fields[FIM_SIZE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_SIZE_BEFORE] = strdup("size_before"), lf->decoder_info->fields[FIM_SIZE_BEFORE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_PERM] = strdup("perm"), lf->decoder_info->fields[FIM_PERM] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_PERM_BEFORE] = strdup("perm_before"), lf->decoder_info->fields[FIM_PERM_BEFORE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_UID] = strdup("uid"), lf->decoder_info->fields[FIM_UID] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_UID_BEFORE] = strdup("uid_before"), lf->decoder_info->fields[FIM_UID_BEFORE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_GID] = strdup("gid"), lf->decoder_info->fields[FIM_GID] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_GID_BEFORE] = strdup("gid_before"), lf->decoder_info->fields[FIM_GID_BEFORE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_MD5] = strdup("md5"), lf->decoder_info->fields[FIM_MD5] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_MD5_BEFORE] = strdup("md5_before"), lf->decoder_info->fields[FIM_MD5_BEFORE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_SHA1] = strdup("sha1"), lf->decoder_info->fields[FIM_SHA1] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_SHA1_BEFORE] = strdup("sha1_before"), lf->decoder_info->fields[FIM_SHA1_BEFORE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_UNAME] = strdup("uname"), lf->decoder_info->fields[FIM_UNAME] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_UNAME_BEFORE] = strdup("uname_before"), lf->decoder_info->fields[FIM_UNAME_BEFORE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_GNAME] = strdup("gname"), lf->decoder_info->fields[FIM_GNAME] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_GNAME_BEFORE] = strdup("gname_before"), lf->decoder_info->fields[FIM_GNAME_BEFORE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_MTIME] = strdup("mtime"), lf->decoder_info->fields[FIM_MTIME] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_MTIME_BEFORE] = strdup("mtime_before"), lf->decoder_info->fields[FIM_MTIME_BEFORE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_INODE] = strdup("inode"), lf->decoder_info->fields[FIM_INODE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_INODE_BEFORE] = strdup("inode_before"), lf->decoder_info->fields[FIM_INODE_BEFORE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_SHA256] = strdup("sha256"), lf->decoder_info->fields[FIM_SHA256] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_SHA256_BEFORE] = strdup("sha256_before"), lf->decoder_info->fields[FIM_SHA256_BEFORE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_DIFF] = strdup("diff"), lf->decoder_info->fields[FIM_DIFF] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_ATTRS] = strdup("attrs"), lf->decoder_info->fields[FIM_ATTRS] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_ATTRS_BEFORE] = strdup("attrs_before"), lf->decoder_info->fields[FIM_ATTRS_BEFORE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_CHFIELDS] = strdup("chfields"), lf->decoder_info->fields[FIM_CHFIELDS] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_USER_ID] = strdup("user_id"), lf->decoder_info->fields[FIM_USER_ID] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_USER_NAME] = strdup("user_name"), lf->decoder_info->fields[FIM_USER_NAME] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_GROUP_ID] = strdup("group_id"), lf->decoder_info->fields[FIM_GROUP_ID] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_GROUP_NAME] = strdup("group_name"), lf->decoder_info->fields[FIM_GROUP_NAME] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_PROC_NAME] = strdup("proc_name"), lf->decoder_info->fields[FIM_PROC_NAME] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_AUDIT_ID] = strdup("audit_id"), lf->decoder_info->fields[FIM_AUDIT_ID] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_AUDIT_NAME] = strdup("audit_name"), lf->decoder_info->fields[FIM_AUDIT_NAME] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_EFFECTIVE_UID] = strdup("effective_uid"), lf->decoder_info->fields[FIM_EFFECTIVE_UID] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_EFFECTIVE_NAME] = strdup("effective_name"), lf->decoder_info->fields[FIM_EFFECTIVE_NAME] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_PPID] = strdup("ppid"), lf->decoder_info->fields[FIM_PPID] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_PROC_ID] = strdup("proc_id"), lf->decoder_info->fields[FIM_PROC_ID] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_TAG] = strdup("tag"), lf->decoder_info->fields[FIM_TAG] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_SYM_PATH] = strdup("sym_path"), lf->decoder_info->fields[FIM_SYM_PATH] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_AUDIT_CWD] = strdup("cwd"), lf->decoder_info->fields[FIM_AUDIT_CWD] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_PROC_PNAME] = strdup("parent_name"), lf->decoder_info->fields[FIM_PROC_PNAME] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_AUDIT_PCWD] = strdup("parent_cwd"), lf->decoder_info->fields[FIM_AUDIT_PCWD] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_REGISTRY_ARCH] = strdup("arch"), lf->decoder_info->fields[FIM_REGISTRY_ARCH] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_REGISTRY_VALUE_NAME] = strdup("value_name"), lf->decoder_info->fields[FIM_REGISTRY_VALUE_NAME] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_REGISTRY_VALUE_TYPE] = strdup("value_type"), lf->decoder_info->fields[FIM_REGISTRY_VALUE_TYPE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_ENTRY_TYPE] = strdup("entry_type"), lf->decoder_info->fields[FIM_ENTRY_TYPE] == NULL)
+        return -1;
+    if(lf->decoder_info->fields[FIM_EVENT_TYPE] = strdup("event_type"), lf->decoder_info->fields[FIM_EVENT_TYPE] == NULL)
+        return -1;
+
+    *state = lf;
+
+    return 0;
+}
+
 static int setup_fim_data(void **state) {
     fim_data_t *data;
     const char *plain_event = "{\"type\":\"event\","
@@ -194,86 +316,113 @@ static int setup_fim_data(void **state) {
     if(data->event == NULL)
         return -1;
 
-    if(data->lf = calloc(1, sizeof(Eventinfo)), data->lf == NULL)
+    if (setup_event_info((void **)&data->lf) != 0) {
         return -1;
-    if(data->lf->fields = calloc(FIM_NFIELDS, sizeof(DynamicField)), data->lf->fields == NULL)
-        return -1;
-    data->lf->nfields = FIM_NFIELDS;
+    }
 
-    if(data->lf->decoder_info = calloc(1, sizeof(OSDecoderInfo)), data->lf->decoder_info == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields = calloc(FIM_NFIELDS, sizeof(char*)), data->lf->decoder_info->fields == NULL)
-        return -1;
-    if(data->lf->full_log = calloc(OS_MAXSTR, sizeof(char)), data->lf->full_log == NULL)
+    if (fim_init() != 1)
         return -1;
 
-    if(data->lf->decoder_info->fields[FIM_FILE] = strdup("file"), data->lf->decoder_info->fields[FIM_FILE] == NULL)
+    *state = data;
+
+    return 0;
+}
+
+static int setup_registry_key_data(void **state) {
+    fim_data_t *data;
+    const char *plain_event = "{\"type\":\"event\","
+        "\"data\":{"
+            "\"path\":\"HKEY_LOCAL_MACHINE\\\\software\\\\test\","
+            "\"arch\":\"[x64]\","
+            "\"mode\":\"scheduled\","
+            "\"type\":\"added\","
+            "\"timestamp\":123456789,"
+            "\"changed_attributes\":["
+                "\"permission\",\"uid\","
+                "\"user_name\",\"gid\",\"group_name\","
+                "\"mtime\"],"
+            "\"tags\":\"tags\","
+            "\"old_attributes\":{"
+                "\"type\":\"registry_key\","
+                "\"perm\":\"old_perm\","
+                "\"user_name\":\"old_user_name\","
+                "\"group_name\":\"old_group_name\","
+                "\"uid\":\"old_uid\","
+                "\"gid\":\"old_gid\","
+                "\"mtime\":3456,"
+                "\"checksum\":\"old_checksum\"},"
+            "\"attributes\":{"
+                "\"type\":\"registry_key\","
+                "\"perm\":\"perm\","
+                "\"user_name\":\"user_name\","
+                "\"group_name\":\"group_name\","
+                "\"uid\":\"uid\","
+                "\"gid\":\"gid\","
+                "\"mtime\":6789,"
+                "\"checksum\":\"checksum\"}}}";
+
+    if(data = calloc(1, sizeof(fim_data_t)), data == NULL)
         return -1;
-    if(data->lf->decoder_info->fields[FIM_HARD_LINKS] = strdup("hard_links"), data->lf->decoder_info->fields[FIM_HARD_LINKS] == NULL)
+
+    data->event = cJSON_Parse(plain_event);
+
+    if(data->event == NULL)
         return -1;
-    if (data->lf->decoder_info->fields[FIM_MODE] = strdup("mode"), data->lf->decoder_info->fields[FIM_MODE] == NULL)
+
+    if (setup_event_info((void **)&data->lf) != 0) {
         return -1;
-    if (data->lf->fields[FIM_MODE].value = strdup("fim_mode"), data->lf->fields[FIM_MODE].value == NULL)
+    }
+
+    if (fim_init() != 1)
         return -1;
-    if(data->lf->decoder_info->fields[FIM_SIZE] = strdup("size"), data->lf->decoder_info->fields[FIM_SIZE] == NULL)
+
+    *state = data;
+
+    return 0;
+}
+
+static int setup_registry_value_data(void **state) {
+    fim_data_t *data;
+    const char *plain_event = "{\"type\":\"event\","
+        "\"data\":{"
+            "\"path\":\"HKEY_LOCAL_MACHINE\\\\software\\\\test\","
+            "\"arch\":\"[x64]\","
+            "\"value_name\":\"some:value\","
+            "\"value_type\":\"REG_SZ\","
+            "\"mode\":\"scheduled\","
+            "\"type\":\"added\","
+            "\"timestamp\":123456789,"
+            "\"changed_attributes\":["
+                "\"size\",\"md5\",\"sha1\",\"sha256\"],"
+            "\"tags\":\"tags\","
+            "\"old_attributes\":{"
+                "\"type\":\"registry_value\","
+                "\"size\":1234,"
+                "\"hash_md5\":\"old_hash_md5\","
+                "\"hash_sha1\":\"old_hash_sha1\","
+                "\"hash_sha256\":\"old_hash_sha256\","
+                "\"checksum\":\"old_checksum\"},"
+            "\"attributes\":{"
+                "\"type\":\"registry_value\","
+                "\"size\":4567,"
+                "\"hash_md5\":\"hash_md5\","
+                "\"hash_sha1\":\"hash_sha1\","
+                "\"hash_sha256\":\"hash_sha256\","
+                "\"checksum\":\"checksum\"}}}";
+
+    if(data = calloc(1, sizeof(fim_data_t)), data == NULL)
         return -1;
-    if(data->lf->decoder_info->fields[FIM_PERM] = strdup("perm"), data->lf->decoder_info->fields[FIM_PERM] == NULL)
+
+    data->event = cJSON_Parse(plain_event);
+
+    if(data->event == NULL)
         return -1;
-    if(data->lf->decoder_info->fields[FIM_UID] = strdup("uid"), data->lf->decoder_info->fields[FIM_UID] == NULL)
+
+    if (setup_event_info((void **)&data->lf) != 0) {
         return -1;
-    if(data->lf->decoder_info->fields[FIM_GID] = strdup("gid"), data->lf->decoder_info->fields[FIM_GID] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_MD5] = strdup("md5"), data->lf->decoder_info->fields[FIM_MD5] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_SHA1] = strdup("sha1"), data->lf->decoder_info->fields[FIM_SHA1] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_UNAME] = strdup("uname"), data->lf->decoder_info->fields[FIM_UNAME] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_GNAME] = strdup("gname"), data->lf->decoder_info->fields[FIM_GNAME] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_MTIME] = strdup("mtime"), data->lf->decoder_info->fields[FIM_MTIME] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_INODE] = strdup("inode"), data->lf->decoder_info->fields[FIM_INODE] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_SHA256] = strdup("sha256"), data->lf->decoder_info->fields[FIM_SHA256] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_DIFF] = strdup("diff"), data->lf->decoder_info->fields[FIM_DIFF] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_ATTRS] = strdup("attrs"), data->lf->decoder_info->fields[FIM_ATTRS] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_CHFIELDS] = strdup("chfields"), data->lf->decoder_info->fields[FIM_CHFIELDS] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_USER_ID] = strdup("user_id"), data->lf->decoder_info->fields[FIM_USER_ID] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_USER_NAME] = strdup("user_name"), data->lf->decoder_info->fields[FIM_USER_NAME] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_GROUP_ID] = strdup("group_id"), data->lf->decoder_info->fields[FIM_GROUP_ID] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_GROUP_NAME] = strdup("group_name"), data->lf->decoder_info->fields[FIM_GROUP_NAME] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_PROC_NAME] = strdup("proc_name"), data->lf->decoder_info->fields[FIM_PROC_NAME] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_AUDIT_ID] = strdup("audit_id"), data->lf->decoder_info->fields[FIM_AUDIT_ID] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_AUDIT_NAME] = strdup("audit_name"), data->lf->decoder_info->fields[FIM_AUDIT_NAME] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_EFFECTIVE_UID] = strdup("effective_uid"), data->lf->decoder_info->fields[FIM_EFFECTIVE_UID] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_EFFECTIVE_NAME] = strdup("effective_name"), data->lf->decoder_info->fields[FIM_EFFECTIVE_NAME] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_PPID] = strdup("ppid"), data->lf->decoder_info->fields[FIM_PPID] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_PROC_ID] = strdup("proc_id"), data->lf->decoder_info->fields[FIM_PROC_ID] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_TAG] = strdup("tag"), data->lf->decoder_info->fields[FIM_TAG] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_SYM_PATH] = strdup("sym_path"), data->lf->decoder_info->fields[FIM_SYM_PATH] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_AUDIT_CWD] = strdup("cwd"), data->lf->decoder_info->fields[FIM_AUDIT_CWD] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_PROC_PNAME] = strdup("parent_name"), data->lf->decoder_info->fields[FIM_PROC_PNAME] == NULL)
-        return -1;
-    if(data->lf->decoder_info->fields[FIM_AUDIT_PCWD] = strdup("parent_cwd"), data->lf->decoder_info->fields[FIM_AUDIT_PCWD] == NULL)
+    }
+
+    if (fim_init() != 1)
         return -1;
 
     *state = data;
@@ -285,9 +434,20 @@ static int teardown_fim_data(void **state) {
     fim_data_t *data = *state;
     int i;
 
+    if (data->lf->fields[FIM_MODE].value) {
+        free(data->lf->fields[FIM_ENTRY_TYPE].value);
+        data->lf->fields[FIM_ENTRY_TYPE].value = NULL;
+    }
+
+    if (data->lf->fields[FIM_ENTRY_TYPE].value) {
+        free(data->lf->fields[FIM_ENTRY_TYPE].value);
+        data->lf->fields[FIM_ENTRY_TYPE].value = NULL;
+    }
+
     for(i = 0; i < FIM_NFIELDS; i++) {
         free(data->lf->decoder_info->fields[i]);
     }
+
     free(data->lf->decoder_info->fields);
     free(data->lf->decoder_info);
 
@@ -365,82 +525,9 @@ static int setup_decode_fim_event(void **state) {
                 "\"parent_name\":\"parent_name\","
                 "\"parent_cwd\":\"parent_cwd\"}}}";
 
-    if(data = calloc(1, sizeof(Eventinfo)), data == NULL)
+    if (setup_event_info((void **)&data) != 0) {
         return -1;
-
-    if(data->fields = calloc(FIM_NFIELDS, sizeof(DynamicField)), data->fields == NULL)
-        return -1;
-    if(data->decoder_info = calloc(1, sizeof(OSDecoderInfo)), data->decoder_info == NULL)
-        return -1;
-    if(data->decoder_info->fields = calloc(FIM_NFIELDS, sizeof(char*)), data->decoder_info->fields == NULL)
-        return -1;
-    if(data->full_log = calloc(OS_MAXSTR, sizeof(char)), data->full_log == NULL)
-        return -1;
-
-    if(data->decoder_info->fields[FIM_FILE] = strdup("file"), data->decoder_info->fields[FIM_FILE] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_HARD_LINKS] = strdup("hard_links"), data->decoder_info->fields[FIM_HARD_LINKS] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_SIZE] = strdup("size"), data->decoder_info->fields[FIM_SIZE] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_PERM] = strdup("perm"), data->decoder_info->fields[FIM_PERM] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_UID] = strdup("uid"), data->decoder_info->fields[FIM_UID] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_GID] = strdup("gid"), data->decoder_info->fields[FIM_GID] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_MD5] = strdup("md5"), data->decoder_info->fields[FIM_MD5] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_SHA1] = strdup("sha1"), data->decoder_info->fields[FIM_SHA1] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_UNAME] = strdup("uname"), data->decoder_info->fields[FIM_UNAME] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_GNAME] = strdup("gname"), data->decoder_info->fields[FIM_GNAME] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_MTIME] = strdup("mtime"), data->decoder_info->fields[FIM_MTIME] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_INODE] = strdup("inode"), data->decoder_info->fields[FIM_INODE] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_SHA256] = strdup("sha256"), data->decoder_info->fields[FIM_SHA256] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_DIFF] = strdup("diff"), data->decoder_info->fields[FIM_DIFF] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_ATTRS] = strdup("attrs"), data->decoder_info->fields[FIM_ATTRS] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_CHFIELDS] = strdup("chfields"), data->decoder_info->fields[FIM_CHFIELDS] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_USER_ID] = strdup("user_id"), data->decoder_info->fields[FIM_USER_ID] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_USER_NAME] = strdup("user_name"), data->decoder_info->fields[FIM_USER_NAME] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_GROUP_ID] = strdup("group_id"), data->decoder_info->fields[FIM_GROUP_ID] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_GROUP_NAME] = strdup("group_name"), data->decoder_info->fields[FIM_GROUP_NAME] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_PROC_NAME] = strdup("proc_name"), data->decoder_info->fields[FIM_PROC_NAME] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_AUDIT_ID] = strdup("audit_id"), data->decoder_info->fields[FIM_AUDIT_ID] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_AUDIT_NAME] = strdup("audit_name"), data->decoder_info->fields[FIM_AUDIT_NAME] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_EFFECTIVE_UID] = strdup("effective_uid"), data->decoder_info->fields[FIM_EFFECTIVE_UID] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_EFFECTIVE_NAME] = strdup("effective_name"), data->decoder_info->fields[FIM_EFFECTIVE_NAME] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_PPID] = strdup("ppid"), data->decoder_info->fields[FIM_PPID] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_PROC_ID] = strdup("proc_id"), data->decoder_info->fields[FIM_PROC_ID] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_TAG] = strdup("tag"), data->decoder_info->fields[FIM_TAG] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_SYM_PATH] = strdup("sym_path"), data->decoder_info->fields[FIM_SYM_PATH] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_AUDIT_CWD] = strdup("cwd"), data->decoder_info->fields[FIM_AUDIT_CWD] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_PROC_PNAME] = strdup("parent_name"), data->decoder_info->fields[FIM_PROC_PNAME] == NULL)
-        return -1;
-    if(data->decoder_info->fields[FIM_AUDIT_PCWD] = strdup("parent_cwd"), data->decoder_info->fields[FIM_AUDIT_PCWD] == NULL)
-        return -1;
+    }
 
     if(data->log = strdup(plain_event), data->log == NULL)
         return -1;
@@ -888,9 +975,7 @@ static void test_fim_fetch_attributes_state_new_attr(void **state) {
     assert_int_equal(ret, 0);
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -912,17 +997,17 @@ static void test_fim_fetch_attributes_state_old_attr(void **state) {
     ret = fim_fetch_attributes_state(attr, input->lf, 0);
 
     assert_int_equal(ret, 0);
-    assert_string_equal(input->lf->size_before, "4567");
-    assert_int_equal(input->lf->inode_before, 5678);
-    assert_int_equal(input->lf->mtime_before, 6789);
-    assert_string_equal(input->lf->perm_before, "perm");
-    assert_string_equal(input->lf->uname_before, "user_name");
-    assert_string_equal(input->lf->gname_before, "group_name");
-    assert_string_equal(input->lf->owner_before, "uid");
-    assert_string_equal(input->lf->gowner_before, "gid");
-    assert_string_equal(input->lf->md5_before, "hash_md5");
-    assert_string_equal(input->lf->sha1_before, "hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "4567");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "5678");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "6789");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "hash_sha256");
 }
 
 static void test_fim_fetch_attributes_state_item_with_no_key(void **state) {
@@ -959,9 +1044,7 @@ static void test_fim_fetch_attributes_state_invalid_element_type(void **state) {
     assert_int_equal(ret, 0);
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -1007,9 +1090,7 @@ static void test_fim_fetch_attributes_success(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -1021,17 +1102,17 @@ static void test_fim_fetch_attributes_success(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 }
 
 static void test_fim_fetch_attributes_invalid_attribute(void **state) {
@@ -1067,9 +1148,7 @@ static void test_fim_fetch_attributes_null_new_attrs(void **state) {
     /* assert new attributes */
     assert_null(input->lf->fields[FIM_SIZE].value);
     assert_null(input->lf->fields[FIM_INODE].value);
-    assert_int_equal(input->lf->inode_after, 0);
     assert_null(input->lf->fields[FIM_MTIME].value);
-    assert_int_equal(input->lf->mtime_after, 0);
     assert_null(input->lf->fields[FIM_PERM].value);
     assert_null(input->lf->fields[FIM_UNAME].value);
     assert_null(input->lf->fields[FIM_GNAME].value);
@@ -1081,17 +1160,17 @@ static void test_fim_fetch_attributes_null_new_attrs(void **state) {
     assert_null(input->lf->fields[FIM_SYM_PATH].value);
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 }
 
 static void test_fim_fetch_attributes_null_old_attrs(void **state) {
@@ -1108,9 +1187,7 @@ static void test_fim_fetch_attributes_null_old_attrs(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -1122,17 +1199,17 @@ static void test_fim_fetch_attributes_null_old_attrs(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_null(input->lf->size_before);
-    assert_int_equal(input->lf->inode_before, 0);
-    assert_int_equal(input->lf->mtime_before, 0);
-    assert_null(input->lf->perm_before);
-    assert_null(input->lf->uname_before);
-    assert_null(input->lf->gname_before);
-    assert_null(input->lf->owner_before);
-    assert_null(input->lf->gowner_before);
-    assert_null(input->lf->md5_before);
-    assert_null(input->lf->sha1_before);
-    assert_null(input->lf->sha256_before);
+    assert_null(input->lf->fields[FIM_SIZE_BEFORE].value);
+    assert_int_equal(input->lf->fields[FIM_INODE_BEFORE].value, 0);
+    assert_int_equal(input->lf->fields[FIM_MTIME_BEFORE].value, 0);
+    assert_null(input->lf->fields[FIM_PERM_BEFORE].value);
+    assert_null(input->lf->fields[FIM_UNAME_BEFORE].value);
+    assert_null(input->lf->fields[FIM_GNAME_BEFORE].value);
+    assert_null(input->lf->fields[FIM_UID_BEFORE].value);
+    assert_null(input->lf->fields[FIM_GID_BEFORE].value);
+    assert_null(input->lf->fields[FIM_MD5_BEFORE].value);
+    assert_null(input->lf->fields[FIM_SHA1_BEFORE].value);
+    assert_null(input->lf->fields[FIM_SHA256_BEFORE].value);
 }
 
 static void test_fim_fetch_attributes_null_lf(void **state) {
@@ -1238,8 +1315,8 @@ static void test_fim_generate_comment_invalid_format(void **state) {
 /* fim_generate_alert */
 static void test_fim_generate_alert_full_alert(void **state) {
     fim_data_t *input = *state;
-    char *event_type = "fim_event_type";
     int ret;
+    syscheck_event_t event_type = FIM_MODIFIED;
 
     cJSON *data = cJSON_GetObjectItem(input->event, "data");
     cJSON *attributes = cJSON_GetObjectItem(data, "attributes");
@@ -1248,13 +1325,22 @@ static void test_fim_generate_alert_full_alert(void **state) {
     cJSON *changed_attributes = cJSON_GetObjectItem(data, "changed_attributes");
     cJSON *array_it;
 
-    input->lf->event_type = FIM_MODIFIED;
+    os_strdup(SYSCHECK_EVENT_STRINGS[FIM_MODIFIED], input->lf->fields[FIM_EVENT_TYPE].value);
 
     if(input->lf->fields[FIM_FILE].value = strdup("/a/file"), input->lf->fields[FIM_FILE].value == NULL)
         fail();
 
-    if(input->lf->fields[FIM_HARD_LINKS].value = strdup("[\"/a/hard1.file\",\"/b/hard2.file\"]"), input->lf->fields[FIM_HARD_LINKS].value == NULL)
+    if (input->lf->fields[FIM_MODE].value = strdup("fim_mode"), input->lf->fields[FIM_MODE].value == NULL)
         fail();
+
+    if(input->lf->fields[FIM_ENTRY_TYPE].value = strdup("file"), input->lf->fields[FIM_ENTRY_TYPE].value == NULL)
+        fail();
+
+    if(input->lf->fields[FIM_HARD_LINKS].value = strdup("[\"/a/hard1.file\",\"/b/hard2.file\"]"),
+       input->lf->fields[FIM_HARD_LINKS].value == NULL) {
+
+       fail();
+    }
 
     cJSON_ArrayForEach(array_it, changed_attributes) {
         wm_strcat(&input->lf->fields[FIM_CHFIELDS].value, cJSON_GetStringValue(array_it), ',');
@@ -1268,9 +1354,7 @@ static void test_fim_generate_alert_full_alert(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -1282,17 +1366,17 @@ static void test_fim_generate_alert_full_alert(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 
     /* Assert values gotten from audit */
     assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
@@ -1309,7 +1393,7 @@ static void test_fim_generate_alert_full_alert(void **state) {
 
     /* Assert actual output */
     assert_string_equal(input->lf->full_log,
-        "File '/a/file' fim_event_type\n"
+        "File '/a/file' modified\n"
         "Hard links: /a/hard1.file,/b/hard2.file\n"
         "Mode: fim_mode\n"
         "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n"
@@ -1329,10 +1413,146 @@ static void test_fim_generate_alert_full_alert(void **state) {
         "New sha256sum is : 'hash_sha256'\n");
 }
 
+static void test_fim_generate_alert_registry_key_alert(void **state) {
+    fim_data_t *input = *state;
+    int ret;
+    syscheck_event_t event_type = FIM_MODIFIED;
+
+    cJSON *data = cJSON_GetObjectItem(input->event, "data");
+    cJSON *attributes = cJSON_GetObjectItem(data, "attributes");
+    cJSON *old_attributes = cJSON_GetObjectItem(data, "old_attributes");
+    cJSON *changed_attributes = cJSON_GetObjectItem(data, "changed_attributes");
+    cJSON *array_it;
+
+    os_strdup(SYSCHECK_EVENT_STRINGS[FIM_MODIFIED], input->lf->fields[FIM_EVENT_TYPE].value);
+
+    input->lf->fields[FIM_FILE].value = strdup("HKEY_LOCAL_MACHINE\\software\\test");
+    if (input->lf->fields[FIM_FILE].value == NULL)
+        fail();
+
+    input->lf->fields[FIM_REGISTRY_ARCH].value = strdup("[x64]");
+    if (input->lf->fields[FIM_REGISTRY_ARCH].value == NULL)
+        fail();
+
+    input->lf->fields[FIM_MODE].value = strdup("scheduled");
+    if (input->lf->fields[FIM_MODE].value == NULL)
+        fail();
+
+    if(input->lf->fields[FIM_ENTRY_TYPE].value = strdup("registry_key"), input->lf->fields[FIM_ENTRY_TYPE].value == NULL)
+        fail();
+
+    cJSON_ArrayForEach(array_it, changed_attributes) {
+        wm_strcat(&input->lf->fields[FIM_CHFIELDS].value, cJSON_GetStringValue(array_it), ',');
+    }
+
+    ret = fim_generate_alert(input->lf, event_type, attributes, old_attributes, NULL);
+
+    assert_int_equal(ret, 0);
+
+    // Assert fim_fetch_attributes
+    /* assert new attributes */
+    assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
+    assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
+    assert_string_equal(input->lf->fields[FIM_UID].value, "uid");
+    assert_string_equal(input->lf->fields[FIM_GID].value, "gid");
+
+    /* assert old attributes */
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+
+    /* Assert actual output */
+    assert_string_equal(input->lf->full_log,
+        "Registry Key '[x64] HKEY_LOCAL_MACHINE\\software\\test' modified\n"
+        "Mode: scheduled\n"
+        "Changed attributes: permission,uid,user_name,gid,group_name,mtime\n"
+        "Permissions changed from 'old_perm' to 'perm'\n"
+        "Ownership was 'old_uid', now it is 'uid'\n"
+        "User name was 'old_user_name', now it is 'user_name'\n"
+        "Group ownership was 'old_gid', now it is 'gid'\n"
+        "Group name was 'old_group_name', now it is 'group_name'\n"
+        "Old modification time was: '3456', now it is '6789'\n");
+}
+
+static void test_fim_generate_alert_registry_value_alert(void **state) {
+    fim_data_t *input = *state;
+    int ret;
+    syscheck_event_t event_type = FIM_MODIFIED;
+
+    cJSON *data = cJSON_GetObjectItem(input->event, "data");
+    cJSON *attributes = cJSON_GetObjectItem(data, "attributes");
+    cJSON *old_attributes = cJSON_GetObjectItem(data, "old_attributes");
+    cJSON *changed_attributes = cJSON_GetObjectItem(data, "changed_attributes");
+    cJSON *array_it;
+
+    os_strdup(SYSCHECK_EVENT_STRINGS[FIM_MODIFIED], input->lf->fields[FIM_EVENT_TYPE].value);
+
+    if(input->lf->fields[FIM_FILE].value = strdup("HKEY_LOCAL_MACHINE\\software\\test"), input->lf->fields[FIM_FILE].value == NULL)
+        fail();
+
+    input->lf->fields[FIM_REGISTRY_ARCH].value = strdup("[x64]");
+    if (input->lf->fields[FIM_REGISTRY_ARCH].value == NULL)
+        fail();
+
+    input->lf->fields[FIM_REGISTRY_VALUE_NAME].value = strdup("some:value");
+    if (input->lf->fields[FIM_REGISTRY_VALUE_NAME].value == NULL)
+        fail();
+
+    input->lf->fields[FIM_REGISTRY_VALUE_TYPE].value = strdup("REG_SZ");
+    if (input->lf->fields[FIM_REGISTRY_VALUE_TYPE].value == NULL)
+        fail();
+
+    input->lf->fields[FIM_MODE].value = strdup("scheduled");
+    if (input->lf->fields[FIM_MODE].value == NULL)
+        fail();
+
+    if(input->lf->fields[FIM_ENTRY_TYPE].value = strdup("registry_value"), input->lf->fields[FIM_ENTRY_TYPE].value == NULL)
+        fail();
+
+    cJSON_ArrayForEach(array_it, changed_attributes) {
+        wm_strcat(&input->lf->fields[FIM_CHFIELDS].value, cJSON_GetStringValue(array_it), ',');
+    }
+
+    ret = fim_generate_alert(input->lf, event_type, attributes, old_attributes, NULL);
+
+    assert_int_equal(ret, 0);
+
+    // Assert fim_fetch_attributes
+    /* assert new attributes */
+    assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
+    assert_string_equal(input->lf->fields[FIM_MD5].value, "hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1].value, "hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256].value, "hash_sha256");
+
+    /* assert old attributes */
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
+
+    /* Assert actual output */
+    assert_string_equal(input->lf->full_log,
+        "Registry Value '[x64] HKEY_LOCAL_MACHINE\\software\\test\\some:value' modified\n"
+        "Mode: scheduled\n"
+        "Changed attributes: size,md5,sha1,sha256\n"
+        "Size changed from '1234' to '4567'\n"
+        "Old md5sum was: 'old_hash_md5'\n"
+        "New md5sum is : 'hash_md5'\n"
+        "Old sha1sum was: 'old_hash_sha1'\n"
+        "New sha1sum is : 'hash_sha1'\n"
+        "Old sha256sum was: 'old_hash_sha256'\n"
+        "New sha256sum is : 'hash_sha256'\n");
+}
+
 static void test_fim_generate_alert_type_not_modified(void **state) {
     fim_data_t *input = *state;
-    char *event_type = "fim_event_type";
     int ret;
+    syscheck_event_t event_type = FIM_ADDED;
 
     cJSON *data = cJSON_GetObjectItem(input->event, "data");
     cJSON *attributes = cJSON_GetObjectItem(data, "attributes");
@@ -1341,9 +1561,15 @@ static void test_fim_generate_alert_type_not_modified(void **state) {
     cJSON *changed_attributes = cJSON_GetObjectItem(data, "changed_attributes");
     cJSON *array_it;
 
-    input->lf->event_type = FIM_ADDED;
+    os_strdup(SYSCHECK_EVENT_STRINGS[FIM_ADDED], input->lf->fields[FIM_EVENT_TYPE].value);
 
     if(input->lf->fields[FIM_FILE].value = strdup("/a/file"), input->lf->fields[FIM_FILE].value == NULL)
+        fail();
+
+    if (input->lf->fields[FIM_MODE].value = strdup("fim_mode"), input->lf->fields[FIM_MODE].value == NULL)
+        fail();
+
+    if(input->lf->fields[FIM_ENTRY_TYPE].value = strdup("file"), input->lf->fields[FIM_ENTRY_TYPE].value == NULL)
         fail();
 
     cJSON_ArrayForEach(array_it, changed_attributes) {
@@ -1358,9 +1584,7 @@ static void test_fim_generate_alert_type_not_modified(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -1372,17 +1596,17 @@ static void test_fim_generate_alert_type_not_modified(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 
     /* Assert values gotten from audit */
     assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
@@ -1399,15 +1623,15 @@ static void test_fim_generate_alert_type_not_modified(void **state) {
 
     /* Assert actual output */
     assert_string_equal(input->lf->full_log,
-        "File '/a/file' fim_event_type\n"
+        "File '/a/file' added\n"
         "Mode: fim_mode\n"
         "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n");
 }
 
 static void test_fim_generate_alert_invalid_element_in_attributes(void **state) {
     fim_data_t *input = *state;
-    char *event_type = "fim_event_type";
     int ret;
+    syscheck_event_t event_type = FIM_ADDED;
 
     cJSON *data = cJSON_GetObjectItem(input->event, "data");
     cJSON *attributes = cJSON_GetObjectItem(data, "attributes");
@@ -1427,8 +1651,8 @@ static void test_fim_generate_alert_invalid_element_in_attributes(void **state) 
 
 static void test_fim_generate_alert_invalid_element_in_audit(void **state) {
     fim_data_t *input = *state;
-    char *event_type = "fim_event_type";
     int ret;
+    syscheck_event_t event_type = FIM_ADDED;
 
     cJSON *data = cJSON_GetObjectItem(input->event, "data");
     cJSON *attributes = cJSON_GetObjectItem(data, "attributes");
@@ -1448,8 +1672,8 @@ static void test_fim_generate_alert_invalid_element_in_audit(void **state) {
 
 static void test_fim_generate_alert_null_mode(void **state) {
     fim_data_t *input = *state;
-    char *event_type = "fim_event_type";
     int ret;
+    syscheck_event_t event_type = FIM_ADDED;
 
     cJSON *data = cJSON_GetObjectItem(input->event, "data");
     cJSON *attributes = cJSON_GetObjectItem(data, "attributes");
@@ -1458,9 +1682,12 @@ static void test_fim_generate_alert_null_mode(void **state) {
     cJSON *changed_attributes = cJSON_GetObjectItem(data, "changed_attributes");
     cJSON *array_it;
 
-    input->lf->event_type = FIM_ADDED;
+    os_strdup(SYSCHECK_EVENT_STRINGS[FIM_ADDED], input->lf->fields[FIM_EVENT_TYPE].value);
 
     if(input->lf->fields[FIM_FILE].value = strdup("/a/file"), input->lf->fields[FIM_FILE].value == NULL)
+        fail();
+
+    if(input->lf->fields[FIM_ENTRY_TYPE].value = strdup("file"), input->lf->fields[FIM_ENTRY_TYPE].value == NULL)
         fail();
 
     cJSON_ArrayForEach(array_it, changed_attributes) {
@@ -1477,9 +1704,7 @@ static void test_fim_generate_alert_null_mode(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -1491,17 +1716,17 @@ static void test_fim_generate_alert_null_mode(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 
     /* Assert values gotten from audit */
     assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
@@ -1518,266 +1743,15 @@ static void test_fim_generate_alert_null_mode(void **state) {
 
     /* Assert actual output */
     assert_string_equal(input->lf->full_log,
-        "File '/a/file' fim_event_type\n"
+        "File '/a/file' added\n"
         "Mode: (null)\n"
         "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n");
 }
 
-static void test_fim_generate_alert_null_event_type(void **state) {
-    fim_data_t *input = *state;
-    int ret;
-
-    cJSON *data = cJSON_GetObjectItem(input->event, "data");
-    cJSON *attributes = cJSON_GetObjectItem(data, "attributes");
-    cJSON *old_attributes = cJSON_GetObjectItem(data, "old_attributes");
-    cJSON *audit = cJSON_GetObjectItem(data, "audit");
-    cJSON *changed_attributes = cJSON_GetObjectItem(data, "changed_attributes");
-    cJSON *array_it;
-
-    input->lf->event_type = FIM_ADDED;
-
-    if(input->lf->fields[FIM_FILE].value = strdup("/a/file"), input->lf->fields[FIM_FILE].value == NULL)
-        fail();
-
-    cJSON_ArrayForEach(array_it, changed_attributes) {
-        wm_strcat(&input->lf->fields[FIM_CHFIELDS].value, cJSON_GetStringValue(array_it), ',');
-    }
-
-    ret = fim_generate_alert(input->lf, NULL, attributes, old_attributes, audit);
-
-    assert_int_equal(ret, 0);
-
-    // Assert fim_fetch_attributes
-    /* assert new attributes */
-    assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
-    assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
-    assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
-    assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
-    assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
-    assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
-    assert_string_equal(input->lf->fields[FIM_UID].value, "uid");
-    assert_string_equal(input->lf->fields[FIM_GID].value, "gid");
-    assert_string_equal(input->lf->fields[FIM_MD5].value, "hash_md5");
-    assert_string_equal(input->lf->fields[FIM_SHA1].value, "hash_sha1");
-    assert_string_equal(input->lf->fields[FIM_SHA256].value, "hash_sha256");
-    assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
-
-    /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
-
-    /* Assert values gotten from audit */
-    assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
-    assert_string_equal(input->lf->fields[FIM_PROC_ID].value, "23456");
-    assert_string_equal(input->lf->fields[FIM_USER_ID].value, "user_id");
-    assert_string_equal(input->lf->fields[FIM_USER_NAME].value, "user_name");
-    assert_string_equal(input->lf->fields[FIM_GROUP_ID].value, "group_id");
-    assert_string_equal(input->lf->fields[FIM_GROUP_NAME].value, "group_name");
-    assert_string_equal(input->lf->fields[FIM_PROC_NAME].value, "process_name");
-    assert_string_equal(input->lf->fields[FIM_AUDIT_ID].value, "audit_uid");
-    assert_string_equal(input->lf->fields[FIM_AUDIT_NAME].value, "audit_name");
-    assert_string_equal(input->lf->fields[FIM_EFFECTIVE_UID].value, "effective_uid");
-    assert_string_equal(input->lf->fields[FIM_EFFECTIVE_NAME].value, "effective_name");
-
-    /* Assert actual output */
-    assert_string_equal(input->lf->full_log,
-        "File '/a/file' (null)\n"
-        "Mode: fim_mode\n"
-        "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n");
-}
-
-static void test_fim_generate_alert_null_attributes(void **state) {
-    fim_data_t *input = *state;
-    char *event_type = "fim_event_type";
-    int ret;
-
-    cJSON *data = cJSON_GetObjectItem(input->event, "data");
-    cJSON *old_attributes = cJSON_GetObjectItem(data, "old_attributes");
-    cJSON *audit = cJSON_GetObjectItem(data, "audit");
-    cJSON *changed_attributes = cJSON_GetObjectItem(data, "changed_attributes");
-    cJSON *array_it;
-
-    input->lf->event_type = FIM_MODIFIED;
-
-    if(input->lf->fields[FIM_FILE].value = strdup("/a/file"), input->lf->fields[FIM_FILE].value == NULL)
-        fail();
-
-    cJSON_ArrayForEach(array_it, changed_attributes) {
-        wm_strcat(&input->lf->fields[FIM_CHFIELDS].value, cJSON_GetStringValue(array_it), ',');
-    }
-
-    ret = fim_generate_alert(input->lf, event_type, NULL, old_attributes, audit);
-
-    assert_int_equal(ret, 0);
-
-    // Assert fim_fetch_attributes
-    /* assert new attributes */
-    assert_null(input->lf->fields[FIM_SIZE].value);
-    assert_null(input->lf->fields[FIM_INODE].value);
-    assert_int_equal(input->lf->inode_after, 0);
-    assert_null(input->lf->fields[FIM_MTIME].value);
-    assert_int_equal(input->lf->mtime_after, 0);
-    assert_null(input->lf->fields[FIM_PERM].value);
-    assert_null(input->lf->fields[FIM_UNAME].value);
-    assert_null(input->lf->fields[FIM_GNAME].value);
-    assert_null(input->lf->fields[FIM_UID].value);
-    assert_null(input->lf->fields[FIM_GID].value);
-    assert_null(input->lf->fields[FIM_MD5].value);
-    assert_null(input->lf->fields[FIM_SHA1].value);
-    assert_null(input->lf->fields[FIM_SHA256].value);
-    assert_null(input->lf->fields[FIM_SYM_PATH].value);
-
-    /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
-
-    /* Assert values gotten from audit */
-    assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
-    assert_string_equal(input->lf->fields[FIM_PROC_ID].value, "23456");
-    assert_string_equal(input->lf->fields[FIM_USER_ID].value, "user_id");
-    assert_string_equal(input->lf->fields[FIM_USER_NAME].value, "user_name");
-    assert_string_equal(input->lf->fields[FIM_GROUP_ID].value, "group_id");
-    assert_string_equal(input->lf->fields[FIM_GROUP_NAME].value, "group_name");
-    assert_string_equal(input->lf->fields[FIM_PROC_NAME].value, "process_name");
-    assert_string_equal(input->lf->fields[FIM_AUDIT_ID].value, "audit_uid");
-    assert_string_equal(input->lf->fields[FIM_AUDIT_NAME].value, "audit_name");
-    assert_string_equal(input->lf->fields[FIM_EFFECTIVE_UID].value, "effective_uid");
-    assert_string_equal(input->lf->fields[FIM_EFFECTIVE_NAME].value, "effective_name");
-
-    /* Assert actual output */
-    assert_string_equal(input->lf->full_log,
-        "File '/a/file' fim_event_type\n"
-        "Mode: fim_mode\n"
-        "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n"
-        "Size changed from '1234' to ''\n"
-        "Permissions changed from 'old_perm' to ''\n"
-        "Ownership was 'old_uid', now it is ''\n"
-        "User name was 'old_user_name', now it is ''\n"
-        "Group ownership was 'old_gid', now it is ''\n"
-        "Group name was 'old_group_name', now it is ''\n"
-        "Old modification time was: '3456', now it is '0'\n"
-        "Old inode was: '2345', now it is '0'\n"
-        "Old md5sum was: 'old_hash_md5'\n"
-        "New md5sum is : ''\n"
-        "Old sha1sum was: 'old_hash_sha1'\n"
-        "New sha1sum is : ''\n"
-        "Old sha256sum was: 'old_hash_sha256'\n"
-        "New sha256sum is : ''\n");
-}
-
-static void test_fim_generate_alert_null_old_attributes(void **state) {
-    fim_data_t *input = *state;
-    char *event_type = "fim_event_type";
-    int ret;
-
-    cJSON *data = cJSON_GetObjectItem(input->event, "data");
-    cJSON *attributes = cJSON_GetObjectItem(data, "attributes");
-    cJSON *audit = cJSON_GetObjectItem(data, "audit");
-    cJSON *changed_attributes = cJSON_GetObjectItem(data, "changed_attributes");
-    cJSON *array_it;
-
-    input->lf->event_type = FIM_MODIFIED;
-
-    if(input->lf->fields[FIM_FILE].value = strdup("/a/file"), input->lf->fields[FIM_FILE].value == NULL)
-        fail();
-
-    cJSON_ArrayForEach(array_it, changed_attributes) {
-        wm_strcat(&input->lf->fields[FIM_CHFIELDS].value, cJSON_GetStringValue(array_it), ',');
-    }
-
-    ret = fim_generate_alert(input->lf, event_type, attributes, NULL, audit);
-
-    assert_int_equal(ret, 0);
-
-    // Assert fim_fetch_attributes
-    /* assert new attributes */
-    assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
-    assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
-    assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
-    assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
-    assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
-    assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
-    assert_string_equal(input->lf->fields[FIM_UID].value, "uid");
-    assert_string_equal(input->lf->fields[FIM_GID].value, "gid");
-    assert_string_equal(input->lf->fields[FIM_MD5].value, "hash_md5");
-    assert_string_equal(input->lf->fields[FIM_SHA1].value, "hash_sha1");
-    assert_string_equal(input->lf->fields[FIM_SHA256].value, "hash_sha256");
-    assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
-
-    /* assert old attributes */
-    assert_null(input->lf->size_before);
-    assert_int_equal(input->lf->inode_before, 0);
-    assert_int_equal(input->lf->mtime_before, 0);
-    assert_null(input->lf->perm_before);
-    assert_null(input->lf->uname_before);
-    assert_null(input->lf->gname_before);
-    assert_null(input->lf->owner_before);
-    assert_null(input->lf->gowner_before);
-    assert_null(input->lf->md5_before);
-    assert_null(input->lf->sha1_before);
-    assert_null(input->lf->sha256_before);
-
-    /* Assert values gotten from audit */
-    assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
-    assert_string_equal(input->lf->fields[FIM_PROC_ID].value, "23456");
-    assert_string_equal(input->lf->fields[FIM_USER_ID].value, "user_id");
-    assert_string_equal(input->lf->fields[FIM_USER_NAME].value, "user_name");
-    assert_string_equal(input->lf->fields[FIM_GROUP_ID].value, "group_id");
-    assert_string_equal(input->lf->fields[FIM_GROUP_NAME].value, "group_name");
-    assert_string_equal(input->lf->fields[FIM_PROC_NAME].value, "process_name");
-    assert_string_equal(input->lf->fields[FIM_AUDIT_ID].value, "audit_uid");
-    assert_string_equal(input->lf->fields[FIM_AUDIT_NAME].value, "audit_name");
-    assert_string_equal(input->lf->fields[FIM_EFFECTIVE_UID].value, "effective_uid");
-    assert_string_equal(input->lf->fields[FIM_EFFECTIVE_NAME].value, "effective_name");
-
-    /* Assert actual output */
-    assert_string_equal(input->lf->full_log,
-        "File '/a/file' fim_event_type\n"
-        "Mode: fim_mode\n"
-        "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n"
-        "Size changed from '' to '4567'\n"
-        "Permissions changed from '' to 'perm'\n"
-        "Ownership was '', now it is 'uid'\n"
-        "User name was '', now it is 'user_name'\n"
-        "Group ownership was '', now it is 'gid'\n"
-        "Group name was '', now it is 'group_name'\n"
-        "Old modification time was: '0', now it is '6789'\n"
-        "Old inode was: '0', now it is '5678'\n"
-        "Old md5sum was: ''\n"
-        "New md5sum is : 'hash_md5'\n"
-        "Old sha1sum was: ''\n"
-        "New sha1sum is : 'hash_sha1'\n"
-        "Old sha256sum was: ''\n"
-        "New sha256sum is : 'hash_sha256'\n");
-
-}
-
 static void test_fim_generate_alert_null_audit(void **state) {
     fim_data_t *input = *state;
-    char *event_type = "fim_event_type";
     int ret;
+    syscheck_event_t event_type = FIM_MODIFIED;
 
     cJSON *data = cJSON_GetObjectItem(input->event, "data");
     cJSON *attributes = cJSON_GetObjectItem(data, "attributes");
@@ -1785,9 +1759,15 @@ static void test_fim_generate_alert_null_audit(void **state) {
     cJSON *changed_attributes = cJSON_GetObjectItem(data, "changed_attributes");
     cJSON *array_it;
 
-    input->lf->event_type = FIM_MODIFIED;
+    os_strdup(SYSCHECK_EVENT_STRINGS[FIM_MODIFIED], input->lf->fields[FIM_EVENT_TYPE].value);
 
     if(input->lf->fields[FIM_FILE].value = strdup("/a/file"), input->lf->fields[FIM_FILE].value == NULL)
+        fail();
+
+    if (input->lf->fields[FIM_MODE].value = strdup("fim_mode"), input->lf->fields[FIM_MODE].value == NULL)
+        fail();
+
+    if(input->lf->fields[FIM_ENTRY_TYPE].value = strdup("file"), input->lf->fields[FIM_ENTRY_TYPE].value == NULL)
         fail();
 
     cJSON_ArrayForEach(array_it, changed_attributes) {
@@ -1802,9 +1782,7 @@ static void test_fim_generate_alert_null_audit(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -1816,17 +1794,17 @@ static void test_fim_generate_alert_null_audit(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 
     /* Assert values gotten from audit */
     assert_null(input->lf->fields[FIM_PPID].value);
@@ -1843,7 +1821,7 @@ static void test_fim_generate_alert_null_audit(void **state) {
 
     /* Assert actual output */
     assert_string_equal(input->lf->full_log,
-        "File '/a/file' fim_event_type\n"
+        "File '/a/file' modified\n"
         "Mode: fim_mode\n"
         "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n"
         "Size changed from '1234' to '4567'\n"
@@ -1910,9 +1888,7 @@ static void test_fim_process_alert_added_success(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -1924,17 +1900,17 @@ static void test_fim_process_alert_added_success(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 
     /* Assert values gotten from audit */
     assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
@@ -1956,8 +1932,8 @@ static void test_fim_process_alert_added_success(void **state) {
         "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n");
 
     /* Assert actual output */
-    assert_int_equal(input->lf->event_type, FIM_ADDED);
-    assert_string_equal(input->lf->decoder_info->name, SYSCHECK_NEW);
+    assert_string_equal(input->lf->fields[FIM_EVENT_TYPE].value, SYSCHECK_EVENT_STRINGS[FIM_ADDED]);
+    assert_string_equal(input->lf->decoder_info->name, FIM_NEW);
     assert_int_equal(input->lf->decoder_info->id, 0);
 }
 
@@ -2011,9 +1987,7 @@ static void test_fim_process_alert_modified_success(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -2025,17 +1999,17 @@ static void test_fim_process_alert_modified_success(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 
     /* Assert values gotten from audit */
     assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
@@ -2071,8 +2045,8 @@ static void test_fim_process_alert_modified_success(void **state) {
         "New sha256sum is : 'hash_sha256'\n");
 
     /* Assert actual output */
-    assert_int_equal(input->lf->event_type, FIM_MODIFIED);
-    assert_string_equal(input->lf->decoder_info->name, SYSCHECK_MOD);
+    assert_string_equal(input->lf->fields[FIM_EVENT_TYPE].value, SYSCHECK_EVENT_STRINGS[FIM_MODIFIED]);
+    assert_string_equal(input->lf->decoder_info->name, FIM_MOD);
     assert_int_equal(input->lf->decoder_info->id, 0);
 }
 
@@ -2108,9 +2082,7 @@ static void test_fim_process_alert_deleted_success(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -2122,17 +2094,17 @@ static void test_fim_process_alert_deleted_success(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 
     /* Assert values gotten from audit */
     assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
@@ -2154,8 +2126,8 @@ static void test_fim_process_alert_deleted_success(void **state) {
         "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n");
 
     /* Assert actual output */
-    assert_int_equal(input->lf->event_type, FIM_DELETED);
-    assert_string_equal(input->lf->decoder_info->name, SYSCHECK_DEL);
+    assert_string_equal(input->lf->fields[FIM_EVENT_TYPE].value, SYSCHECK_EVENT_STRINGS[FIM_DELETED]);
+    assert_string_equal(input->lf->decoder_info->name, FIM_DEL);
     assert_int_equal(input->lf->decoder_info->id, 0);
 }
 
@@ -2173,6 +2145,27 @@ static void test_fim_process_alert_no_event_type(void **state) {
 
     /* Inside fim_send_db_delete */
     expect_string(__wrap__mdebug1, formatted_msg, "No member 'type' in Syscheck JSON payload");
+
+    ret = fim_process_alert(&sdb, input->lf, data);
+
+    assert_int_equal(ret, -1);
+}
+
+static void test_fim_process_alert_invalid_entry_type(void **state) {
+    fim_data_t *input = *state;
+    _sdb sdb = {.socket = 10};
+    int ret;
+
+    cJSON *data = cJSON_GetObjectItem(input->event, "data");
+    cJSON *attributes = cJSON_GetObjectItem(data, "attributes");
+
+    cJSON_ReplaceItemInObject(attributes, "type", cJSON_CreateString("invalid"));
+
+    if(input->lf->agent_id = strdup("007"), input->lf->agent_id == NULL)
+        fail();
+
+    /* Inside fim_send_db_delete */
+    expect_string(__wrap__mdebug1, formatted_msg, "Invalid member 'type' in Syscheck attributes JSON payload");
 
     ret = fim_process_alert(&sdb, input->lf, data);
 
@@ -2234,90 +2227,11 @@ static void test_fim_process_alert_no_path(void **state) {
     if(input->lf->agent_id = strdup("007"), input->lf->agent_id == NULL)
         fail();
 
-    /* Inside fim_send_db_save */
-    expect_any(__wrap_wdbc_query_ex, *sock);
-    expect_string(__wrap_wdbc_query_ex, query, "agent 007 syscheck save2 "
-        "{\"timestamp\":123456789,"
-        "\"attributes\":{"
-            "\"type\":\"file\","
-            "\"size\":4567,"
-            "\"perm\":\"perm\","
-            "\"user_name\":\"user_name\","
-            "\"group_name\":\"group_name\","
-            "\"uid\":\"uid\","
-            "\"gid\":\"gid\","
-            "\"inode\":5678,"
-            "\"mtime\":6789,"
-            "\"hash_md5\":\"hash_md5\","
-            "\"hash_sha1\":\"hash_sha1\","
-            "\"hash_sha256\":\"hash_sha256\","
-            "\"win_attributes\":\"win_attributes\","
-            "\"symlink_path\":\"symlink_path\","
-            "\"checksum\":\"checksum\"}}");
-    expect_any(__wrap_wdbc_query_ex, len);
-    will_return(__wrap_wdbc_query_ex, result);
-    will_return(__wrap_wdbc_query_ex, 0);
-
-    expect_string(__wrap_wdbc_parse_result, result, result);
-    will_return(__wrap_wdbc_parse_result, WDBC_OK);
+    expect_string(__wrap__mdebug1, formatted_msg, "No member 'path' in Syscheck JSON payload");
 
     ret = fim_process_alert(&sdb, input->lf, data);
 
-    assert_int_equal(ret, 0);
-
-    // Assert fim_generate_alert
-    /* assert new attributes */
-    assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
-    assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
-    assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
-    assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
-    assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
-    assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
-    assert_string_equal(input->lf->fields[FIM_UID].value, "uid");
-    assert_string_equal(input->lf->fields[FIM_GID].value, "gid");
-    assert_string_equal(input->lf->fields[FIM_MD5].value, "hash_md5");
-    assert_string_equal(input->lf->fields[FIM_SHA1].value, "hash_sha1");
-    assert_string_equal(input->lf->fields[FIM_SHA256].value, "hash_sha256");
-    assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
-
-    /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
-
-    /* Assert values gotten from audit */
-    assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
-    assert_string_equal(input->lf->fields[FIM_PROC_ID].value, "23456");
-    assert_string_equal(input->lf->fields[FIM_USER_ID].value, "user_id");
-    assert_string_equal(input->lf->fields[FIM_USER_NAME].value, "user_name");
-    assert_string_equal(input->lf->fields[FIM_GROUP_ID].value, "group_id");
-    assert_string_equal(input->lf->fields[FIM_GROUP_NAME].value, "group_name");
-    assert_string_equal(input->lf->fields[FIM_PROC_NAME].value, "process_name");
-    assert_string_equal(input->lf->fields[FIM_AUDIT_ID].value, "audit_uid");
-    assert_string_equal(input->lf->fields[FIM_AUDIT_NAME].value, "audit_name");
-    assert_string_equal(input->lf->fields[FIM_EFFECTIVE_UID].value, "effective_uid");
-    assert_string_equal(input->lf->fields[FIM_EFFECTIVE_NAME].value, "effective_name");
-
-    assert_string_equal(input->lf->full_log,
-        "File '(null)' added\n"
-        "Hard links: /a/hard1.file,/b/hard2.file\n"
-        "Mode: whodata\n"
-        "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n");
-
-    /* Assert actual output */
-    assert_int_equal(input->lf->event_type, FIM_ADDED);
-    assert_string_equal(input->lf->decoder_info->name, SYSCHECK_NEW);
-    assert_int_equal(input->lf->decoder_info->id, 0);
+    assert_int_equal(ret, -1);
 }
 
 static void test_fim_process_alert_no_hard_links(void **state) {
@@ -2368,9 +2282,7 @@ static void test_fim_process_alert_no_hard_links(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -2382,17 +2294,17 @@ static void test_fim_process_alert_no_hard_links(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 
     /* Assert values gotten from audit */
     assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
@@ -2413,8 +2325,8 @@ static void test_fim_process_alert_no_hard_links(void **state) {
         "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n");
 
     /* Assert actual output */
-    assert_int_equal(input->lf->event_type, FIM_ADDED);
-    assert_string_equal(input->lf->decoder_info->name, SYSCHECK_NEW);
+    assert_string_equal(input->lf->fields[FIM_EVENT_TYPE].value, SYSCHECK_EVENT_STRINGS[FIM_ADDED]);
+    assert_string_equal(input->lf->decoder_info->name, FIM_NEW);
     assert_int_equal(input->lf->decoder_info->id, 0);
 }
 
@@ -2468,9 +2380,7 @@ static void test_fim_process_alert_no_mode(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -2482,17 +2392,17 @@ static void test_fim_process_alert_no_mode(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 
     /* Assert values gotten from audit */
     assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
@@ -2514,8 +2424,8 @@ static void test_fim_process_alert_no_mode(void **state) {
         "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n");
 
     /* Assert actual output */
-    assert_int_equal(input->lf->event_type, FIM_ADDED);
-    assert_string_equal(input->lf->decoder_info->name, SYSCHECK_NEW);
+    assert_string_equal(input->lf->fields[FIM_EVENT_TYPE].value, SYSCHECK_EVENT_STRINGS[FIM_ADDED]);
+    assert_string_equal(input->lf->decoder_info->name, FIM_NEW);
     assert_int_equal(input->lf->decoder_info->id, 0);
 }
 
@@ -2567,9 +2477,7 @@ static void test_fim_process_alert_no_tags(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -2581,17 +2489,17 @@ static void test_fim_process_alert_no_tags(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 
     /* Assert values gotten from audit */
     assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
@@ -2613,10 +2521,9 @@ static void test_fim_process_alert_no_tags(void **state) {
         "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n");
 
     /* Assert actual output */
-    assert_int_equal(input->lf->event_type, FIM_ADDED);
-    assert_string_equal(input->lf->decoder_info->name, SYSCHECK_NEW);
+    assert_string_equal(input->lf->fields[FIM_EVENT_TYPE].value, SYSCHECK_EVENT_STRINGS[FIM_ADDED]);
+    assert_string_equal(input->lf->decoder_info->name, FIM_NEW);
     assert_int_equal(input->lf->decoder_info->id, 0);
-    assert_null(input->lf->sk_tag);
     assert_null(input->lf->fields[FIM_TAG].value);
 }
 
@@ -2668,9 +2575,7 @@ static void test_fim_process_alert_no_content_changes(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -2682,17 +2587,17 @@ static void test_fim_process_alert_no_content_changes(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 
     /* Assert values gotten from audit */
     assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
@@ -2714,8 +2619,8 @@ static void test_fim_process_alert_no_content_changes(void **state) {
         "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n");
 
     /* Assert actual output */
-    assert_int_equal(input->lf->event_type, FIM_ADDED);
-    assert_string_equal(input->lf->decoder_info->name, SYSCHECK_NEW);
+    assert_string_equal(input->lf->fields[FIM_EVENT_TYPE].value, SYSCHECK_EVENT_STRINGS[FIM_ADDED]);
+    assert_string_equal(input->lf->decoder_info->name, FIM_NEW);
     assert_int_equal(input->lf->decoder_info->id, 0);
     assert_null(input->lf->fields[FIM_DIFF].value);
 }
@@ -2768,9 +2673,7 @@ static void test_fim_process_alert_no_changed_attributes(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -2782,17 +2685,17 @@ static void test_fim_process_alert_no_changed_attributes(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 
     /* Assert values gotten from audit */
     assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
@@ -2813,8 +2716,8 @@ static void test_fim_process_alert_no_changed_attributes(void **state) {
         "Mode: whodata\n");
 
     /* Assert actual output */
-    assert_int_equal(input->lf->event_type, FIM_ADDED);
-    assert_string_equal(input->lf->decoder_info->name, SYSCHECK_NEW);
+    assert_string_equal(input->lf->fields[FIM_EVENT_TYPE].value, SYSCHECK_EVENT_STRINGS[FIM_ADDED]);
+    assert_string_equal(input->lf->decoder_info->name, FIM_NEW);
     assert_int_equal(input->lf->decoder_info->id, 0);
     assert_null(input->lf->fields[FIM_CHFIELDS].value);
 }
@@ -2833,89 +2736,11 @@ static void test_fim_process_alert_no_attributes(void **state) {
     if(input->lf->agent_id = strdup("007"), input->lf->agent_id == NULL)
         fail();
 
-    /* Inside fim_send_db_save */
-    expect_any(__wrap_wdbc_query_ex, *sock);
-    expect_string(__wrap_wdbc_query_ex, query, "agent 007 syscheck save2 "
-        "{\"path\":\"/a/path\","
-        "\"timestamp\":123456789}");
-    expect_any(__wrap_wdbc_query_ex, len);
-    will_return(__wrap_wdbc_query_ex, result);
-    will_return(__wrap_wdbc_query_ex, 0);
-
-    expect_string(__wrap_wdbc_parse_result, result, result);
-    will_return(__wrap_wdbc_parse_result, WDBC_OK);
+    expect_string(__wrap__mdebug1, formatted_msg, "No member 'type' in Syscheck attributes JSON payload");
 
     ret = fim_process_alert(&sdb, input->lf, data);
 
-    assert_int_equal(ret, 0);
-
-    // Assert fim_generate_alert
-    /* assert new attributes */
-    assert_null(input->lf->fields[FIM_SIZE].value);
-    assert_null(input->lf->fields[FIM_INODE].value);
-    assert_int_equal(input->lf->inode_after, 0);
-    assert_null(input->lf->fields[FIM_MTIME].value);
-    assert_int_equal(input->lf->mtime_after, 0);
-    assert_null(input->lf->fields[FIM_PERM].value);
-    assert_null(input->lf->fields[FIM_UNAME].value);
-    assert_null(input->lf->fields[FIM_GNAME].value);
-    assert_null(input->lf->fields[FIM_UID].value);
-    assert_null(input->lf->fields[FIM_GID].value);
-    assert_null(input->lf->fields[FIM_MD5].value);
-    assert_null(input->lf->fields[FIM_SHA1].value);
-    assert_null(input->lf->fields[FIM_SHA256].value);
-    assert_null(input->lf->fields[FIM_SYM_PATH].value);
-
-    /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
-
-    /* Assert values gotten from audit */
-    assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
-    assert_string_equal(input->lf->fields[FIM_PROC_ID].value, "23456");
-    assert_string_equal(input->lf->fields[FIM_USER_ID].value, "user_id");
-    assert_string_equal(input->lf->fields[FIM_USER_NAME].value, "user_name");
-    assert_string_equal(input->lf->fields[FIM_GROUP_ID].value, "group_id");
-    assert_string_equal(input->lf->fields[FIM_GROUP_NAME].value, "group_name");
-    assert_string_equal(input->lf->fields[FIM_PROC_NAME].value, "process_name");
-    assert_string_equal(input->lf->fields[FIM_AUDIT_ID].value, "audit_uid");
-    assert_string_equal(input->lf->fields[FIM_AUDIT_NAME].value, "audit_name");
-    assert_string_equal(input->lf->fields[FIM_EFFECTIVE_UID].value, "effective_uid");
-    assert_string_equal(input->lf->fields[FIM_EFFECTIVE_NAME].value, "effective_name");
-
-    assert_string_equal(input->lf->full_log,
-        "File '/a/path' modified\n"
-        "Hard links: /a/hard1.file,/b/hard2.file\n"
-        "Mode: whodata\n"
-        "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n"
-        "Size changed from '1234' to ''\n"
-        "Permissions changed from 'old_perm' to ''\n"
-        "Ownership was 'old_uid', now it is ''\n"
-        "User name was 'old_user_name', now it is ''\n"
-        "Group ownership was 'old_gid', now it is ''\n"
-        "Group name was 'old_group_name', now it is ''\n"
-        "Old modification time was: '3456', now it is '0'\n"
-        "Old inode was: '2345', now it is '0'\n"
-        "Old md5sum was: 'old_hash_md5'\n"
-        "New md5sum is : ''\n"
-        "Old sha1sum was: 'old_hash_sha1'\n"
-        "New sha1sum is : ''\n"
-        "Old sha256sum was: 'old_hash_sha256'\n"
-        "New sha256sum is : ''\n");
-
-    /* Assert actual output */
-    assert_int_equal(input->lf->event_type, FIM_MODIFIED);
-    assert_string_equal(input->lf->decoder_info->name, SYSCHECK_MOD);
-    assert_int_equal(input->lf->decoder_info->id, 0);
+    assert_int_equal(ret, -1);
 }
 
 static void test_fim_process_alert_no_old_attributes(void **state) {
@@ -2968,9 +2793,7 @@ static void test_fim_process_alert_no_old_attributes(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -2982,17 +2805,17 @@ static void test_fim_process_alert_no_old_attributes(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_null(input->lf->size_before);
-    assert_int_equal(input->lf->inode_before, 0);
-    assert_int_equal(input->lf->mtime_before, 0);
-    assert_null(input->lf->perm_before);
-    assert_null(input->lf->uname_before);
-    assert_null(input->lf->gname_before);
-    assert_null(input->lf->owner_before);
-    assert_null(input->lf->gowner_before);
-    assert_null(input->lf->md5_before);
-    assert_null(input->lf->sha1_before);
-    assert_null(input->lf->sha256_before);
+    assert_null(input->lf->fields[FIM_SIZE_BEFORE].value);
+    assert_int_equal(input->lf->fields[FIM_INODE_BEFORE].value, 0);
+    assert_int_equal(input->lf->fields[FIM_MTIME_BEFORE].value, 0);
+    assert_null(input->lf->fields[FIM_PERM_BEFORE].value);
+    assert_null(input->lf->fields[FIM_UNAME_BEFORE].value);
+    assert_null(input->lf->fields[FIM_GNAME_BEFORE].value);
+    assert_null(input->lf->fields[FIM_UID_BEFORE].value);
+    assert_null(input->lf->fields[FIM_GID_BEFORE].value);
+    assert_null(input->lf->fields[FIM_MD5_BEFORE].value);
+    assert_null(input->lf->fields[FIM_SHA1_BEFORE].value);
+    assert_null(input->lf->fields[FIM_SHA256_BEFORE].value);
 
     /* Assert values gotten from audit */
     assert_string_equal(input->lf->fields[FIM_PPID].value, "12345");
@@ -3018,8 +2841,8 @@ static void test_fim_process_alert_no_old_attributes(void **state) {
         "User name was '', now it is 'user_name'\n"
         "Group ownership was '', now it is 'gid'\n"
         "Group name was '', now it is 'group_name'\n"
-        "Old modification time was: '0', now it is '6789'\n"
-        "Old inode was: '0', now it is '5678'\n"
+        "Old modification time was: '', now it is '6789'\n"
+        "Old inode was: '', now it is '5678'\n"
         "Old md5sum was: ''\n"
         "New md5sum is : 'hash_md5'\n"
         "Old sha1sum was: ''\n"
@@ -3028,8 +2851,8 @@ static void test_fim_process_alert_no_old_attributes(void **state) {
         "New sha256sum is : 'hash_sha256'\n");
 
     /* Assert actual output */
-    assert_int_equal(input->lf->event_type, FIM_MODIFIED);
-    assert_string_equal(input->lf->decoder_info->name, SYSCHECK_MOD);
+    assert_string_equal(input->lf->fields[FIM_EVENT_TYPE].value, SYSCHECK_EVENT_STRINGS[FIM_MODIFIED]);
+    assert_string_equal(input->lf->decoder_info->name, FIM_MOD);
     assert_int_equal(input->lf->decoder_info->id, 0);
 }
 
@@ -3081,9 +2904,7 @@ static void test_fim_process_alert_no_audit(void **state) {
     /* assert new attributes */
     assert_string_equal(input->lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(input->lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(input->lf->inode_after, 5678);
     assert_string_equal(input->lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(input->lf->mtime_after, 6789);
     assert_string_equal(input->lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(input->lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(input->lf->fields[FIM_GNAME].value, "group_name");
@@ -3095,17 +2916,17 @@ static void test_fim_process_alert_no_audit(void **state) {
     assert_string_equal(input->lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(input->lf->size_before, "1234");
-    assert_int_equal(input->lf->inode_before, 2345);
-    assert_int_equal(input->lf->mtime_before, 3456);
-    assert_string_equal(input->lf->perm_before, "old_perm");
-    assert_string_equal(input->lf->uname_before, "old_user_name");
-    assert_string_equal(input->lf->gname_before, "old_group_name");
-    assert_string_equal(input->lf->owner_before, "old_uid");
-    assert_string_equal(input->lf->gowner_before, "old_gid");
-    assert_string_equal(input->lf->md5_before, "old_hash_md5");
-    assert_string_equal(input->lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(input->lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(input->lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(input->lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(input->lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(input->lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(input->lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(input->lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(input->lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(input->lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(input->lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(input->lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(input->lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 
     /* Assert values gotten from audit */
     assert_null(input->lf->fields[FIM_PPID].value);
@@ -3127,8 +2948,8 @@ static void test_fim_process_alert_no_audit(void **state) {
         "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n");
 
     /* Assert actual output */
-    assert_int_equal(input->lf->event_type, FIM_ADDED);
-    assert_string_equal(input->lf->decoder_info->name, SYSCHECK_NEW);
+    assert_string_equal(input->lf->fields[FIM_EVENT_TYPE].value, SYSCHECK_EVENT_STRINGS[FIM_ADDED]);
+    assert_string_equal(input->lf->decoder_info->name, FIM_NEW);
     assert_int_equal(input->lf->decoder_info->id, 0);
 }
 
@@ -3157,8 +2978,6 @@ static void test_decode_fim_event_type_event(void **state) {
 
     if(lf->agent_id = strdup("007"), lf->agent_id == NULL)
         fail();
-
-    lf->decoder_info->fields[FIM_MODE] = strdup("mode");
 
     /* Inside fim_process_alert */
     expect_any(__wrap_wdbc_query_ex, *sock);
@@ -3196,9 +3015,7 @@ static void test_decode_fim_event_type_event(void **state) {
     /* assert new attributes */
     assert_string_equal(lf->fields[FIM_SIZE].value, "4567");
     assert_string_equal(lf->fields[FIM_INODE].value, "5678");
-    assert_int_equal(lf->inode_after, 5678);
     assert_string_equal(lf->fields[FIM_MTIME].value, "6789");
-    assert_int_equal(lf->mtime_after, 6789);
     assert_string_equal(lf->fields[FIM_PERM].value, "perm");
     assert_string_equal(lf->fields[FIM_UNAME].value, "user_name");
     assert_string_equal(lf->fields[FIM_GNAME].value, "group_name");
@@ -3210,17 +3027,17 @@ static void test_decode_fim_event_type_event(void **state) {
     assert_string_equal(lf->fields[FIM_SYM_PATH].value, "symlink_path");
 
     /* assert old attributes */
-    assert_string_equal(lf->size_before, "1234");
-    assert_int_equal(lf->inode_before, 2345);
-    assert_int_equal(lf->mtime_before, 3456);
-    assert_string_equal(lf->perm_before, "old_perm");
-    assert_string_equal(lf->uname_before, "old_user_name");
-    assert_string_equal(lf->gname_before, "old_group_name");
-    assert_string_equal(lf->owner_before, "old_uid");
-    assert_string_equal(lf->gowner_before, "old_gid");
-    assert_string_equal(lf->md5_before, "old_hash_md5");
-    assert_string_equal(lf->sha1_before, "old_hash_sha1");
-    assert_string_equal(lf->sha256_before, "old_hash_sha256");
+    assert_string_equal(lf->fields[FIM_SIZE_BEFORE].value, "1234");
+    assert_string_equal(lf->fields[FIM_INODE_BEFORE].value, "2345");
+    assert_string_equal(lf->fields[FIM_MTIME_BEFORE].value, "3456");
+    assert_string_equal(lf->fields[FIM_PERM_BEFORE].value, "old_perm");
+    assert_string_equal(lf->fields[FIM_UNAME_BEFORE].value, "old_user_name");
+    assert_string_equal(lf->fields[FIM_GNAME_BEFORE].value, "old_group_name");
+    assert_string_equal(lf->fields[FIM_UID_BEFORE].value, "old_uid");
+    assert_string_equal(lf->fields[FIM_GID_BEFORE].value, "old_gid");
+    assert_string_equal(lf->fields[FIM_MD5_BEFORE].value, "old_hash_md5");
+    assert_string_equal(lf->fields[FIM_SHA1_BEFORE].value, "old_hash_sha1");
+    assert_string_equal(lf->fields[FIM_SHA256_BEFORE].value, "old_hash_sha256");
 
     /* Assert values gotten from audit */
     assert_string_equal(lf->fields[FIM_PPID].value, "12345");
@@ -3241,8 +3058,8 @@ static void test_decode_fim_event_type_event(void **state) {
         "Mode: whodata\n"
         "Changed attributes: size,permission,uid,user_name,gid,group_name,mtime,inode,md5,sha1,sha256\n");
 
-    assert_int_equal(lf->event_type, FIM_ADDED);
-    assert_string_equal(lf->decoder_info->name, SYSCHECK_NEW);
+    assert_string_equal(lf->fields[FIM_EVENT_TYPE].value, SYSCHECK_EVENT_STRINGS[FIM_ADDED]);
+    assert_string_equal(lf->decoder_info->name, FIM_NEW);
     assert_int_equal(lf->decoder_info->id, 0);
 
 }
@@ -3575,13 +3392,12 @@ int main(void) {
 
         /* fim_generate_alert */
         cmocka_unit_test_setup_teardown(test_fim_generate_alert_full_alert, setup_fim_data, teardown_fim_data),
+        cmocka_unit_test_setup_teardown(test_fim_generate_alert_registry_key_alert, setup_registry_key_data, teardown_fim_data),
+        cmocka_unit_test_setup_teardown(test_fim_generate_alert_registry_value_alert, setup_registry_value_data, teardown_fim_data),
         cmocka_unit_test_setup_teardown(test_fim_generate_alert_type_not_modified, setup_fim_data, teardown_fim_data),
         cmocka_unit_test_setup_teardown(test_fim_generate_alert_invalid_element_in_attributes, setup_fim_data, teardown_fim_data),
         cmocka_unit_test_setup_teardown(test_fim_generate_alert_invalid_element_in_audit, setup_fim_data, teardown_fim_data),
         cmocka_unit_test_setup_teardown(test_fim_generate_alert_null_mode, setup_fim_data, teardown_fim_data),
-        cmocka_unit_test_setup_teardown(test_fim_generate_alert_null_event_type, setup_fim_data, teardown_fim_data),
-        cmocka_unit_test_setup_teardown(test_fim_generate_alert_null_attributes, setup_fim_data, teardown_fim_data),
-        cmocka_unit_test_setup_teardown(test_fim_generate_alert_null_old_attributes, setup_fim_data, teardown_fim_data),
         cmocka_unit_test_setup_teardown(test_fim_generate_alert_null_audit, setup_fim_data, teardown_fim_data),
 
         /* fim_process_alert */
@@ -3589,6 +3405,7 @@ int main(void) {
         cmocka_unit_test_setup_teardown(test_fim_process_alert_modified_success, setup_fim_data, teardown_fim_data),
         cmocka_unit_test_setup_teardown(test_fim_process_alert_deleted_success, setup_fim_data, teardown_fim_data),
         cmocka_unit_test_setup_teardown(test_fim_process_alert_no_event_type, setup_fim_data, teardown_fim_data),
+        cmocka_unit_test_setup_teardown(test_fim_process_alert_invalid_entry_type, setup_fim_data, teardown_fim_data),
         cmocka_unit_test_setup_teardown(test_fim_process_alert_invalid_event_type, setup_fim_data, teardown_fim_data),
         cmocka_unit_test_setup_teardown(test_fim_process_alert_invalid_object, setup_fim_data, teardown_fim_data),
         cmocka_unit_test_setup_teardown(test_fim_process_alert_no_path, setup_fim_data, teardown_fim_data),

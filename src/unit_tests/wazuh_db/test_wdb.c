@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2015-2020, Wazuh Inc.
- * September, 2020.
+ * Copyright (C) 2015-2021, Wazuh Inc.
+ * March, 2021.
  *
  * This program is free software; you can redistribute it
  * and/or modify it under the terms of the GNU General Public
@@ -24,6 +24,7 @@
 #include "../wrappers/wazuh/shared/hash_op_wrappers.h"
 #include "../wrappers/wazuh/shared/debug_op_wrappers.h"
 #include "../wrappers/externals/sqlite/sqlite3_wrappers.h"
+#include "../wrappers/wazuh/wazuh_db/wdb_wrappers.h"
 
 typedef struct test_struct {
     wdb_t *wdb;
@@ -98,6 +99,7 @@ void test_wdb_open_tasks_create_error(void **state)
     expect_value(__wrap_sqlite3_open_v2, flags, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
     will_return(__wrap_sqlite3_open_v2, OS_INVALID);
 
+    will_return(__wrap_sqlite3_errmsg, "out of memory");
     expect_string(__wrap__mdebug1, formatted_msg, "Couldn't create SQLite database 'queue/tasks/tasks.db': out of memory");
     will_return(__wrap_sqlite3_close_v2, OS_SUCCESS);
 
@@ -149,6 +151,8 @@ void test_wdb_open_global_create_fail(void **state)
     will_return(__wrap_sqlite3_open_v2, NULL);
     expect_value(__wrap_sqlite3_open_v2, flags, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
     will_return(__wrap_sqlite3_open_v2, OS_INVALID);
+
+    will_return(__wrap_sqlite3_errmsg, "out of memory");
     expect_string(__wrap__mdebug1, formatted_msg, "Couldn't create SQLite database 'queue/db/global.db': out of memory");
     will_return(__wrap_sqlite3_close_v2, OS_SUCCESS);
 
@@ -167,7 +171,7 @@ void test_wdb_exec_row_stmt_one_int(void **state) {
     const char* json_str = "COLUMN";
     double json_value = 10;
 
-    will_return(__wrap_sqlite3_step, SQLITE_ROW);
+    expect_sqlite3_step_call(SQLITE_ROW);
     will_return(__wrap_sqlite3_column_count, 1);
     expect_value(__wrap_sqlite3_column_type, i, 0);
     will_return(__wrap_sqlite3_column_type, SQLITE_INTEGER);
@@ -195,7 +199,7 @@ void test_wdb_exec_row_stmt_multiple_int(void **state) {
         snprintf(json_strs[column], OS_SIZE_256, "COLUMN%d",column);
     }
 
-    will_return(__wrap_sqlite3_step, SQLITE_ROW);
+    expect_sqlite3_step_call(SQLITE_ROW);
     will_return(__wrap_sqlite3_column_count, columns);
     for (int column=0; column < columns; column++){
         expect_value(__wrap_sqlite3_column_type, i, column);
@@ -227,7 +231,7 @@ void test_wdb_exec_row_stmt_one_text(void **state) {
     const char* json_str = "COLUMN";
     const char*  json_value = "VALUE";
 
-    will_return(__wrap_sqlite3_step, SQLITE_ROW);
+    expect_sqlite3_step_call(SQLITE_ROW);
     will_return(__wrap_sqlite3_column_count, 1);
     expect_value(__wrap_sqlite3_column_type, i, 0);
     will_return(__wrap_sqlite3_column_type, SQLITE_TEXT);
@@ -249,7 +253,7 @@ void test_wdb_exec_row_stmt_one_text(void **state) {
 void test_wdb_exec_row_stmt_done(void **state) {
     test_struct_t *data  = (test_struct_t *)*state;
 
-    will_return(__wrap_sqlite3_step, SQLITE_DONE);
+    expect_sqlite3_step_call(SQLITE_DONE);
 
     int status = 0;
     cJSON* result = wdb_exec_row_stmt(*data->wdb->stmt, &status);assert_null(result);
@@ -260,7 +264,7 @@ void test_wdb_exec_row_stmt_done(void **state) {
 void test_wdb_exec_row_stmt_error(void **state) {
     test_struct_t *data  = (test_struct_t *)*state;
 
-    will_return(__wrap_sqlite3_step, SQLITE_ERROR);
+    expect_sqlite3_step_call(SQLITE_ERROR);
     expect_string(__wrap__mdebug1, formatted_msg, "SQL statement execution failed");
 
     int status = 0;
@@ -277,8 +281,8 @@ void test_wdb_exec_stmt_sized_success(void **state) {
     double json_value = 10;
 
     //Calling wdb_exec_row_stmt
-    will_return(__wrap_sqlite3_step, SQLITE_ROW);
-    will_return(__wrap_sqlite3_step, SQLITE_DONE);
+    expect_sqlite3_step_call(SQLITE_ROW);
+    expect_sqlite3_step_call(SQLITE_DONE);
     will_return_count(__wrap_sqlite3_column_count, 1, -1);
     expect_any(__wrap_sqlite3_column_type, i);
     will_return_count(__wrap_sqlite3_column_type, SQLITE_INTEGER,-1);
@@ -306,7 +310,7 @@ void test_wdb_exec_stmt_sized_success_limited(void **state) {
     const int max_size = 282;
 
     //Calling wdb_exec_row_stmt
-    will_return_count(__wrap_sqlite3_step, SQLITE_ROW, rows);
+    expect_sqlite3_step_count(SQLITE_ROW, rows);
     will_return_count(__wrap_sqlite3_column_count, 1, -1);
     expect_any_count(__wrap_sqlite3_column_type, i, -1);
     will_return_count(__wrap_sqlite3_column_type, SQLITE_INTEGER, -1);
@@ -339,7 +343,7 @@ void test_wdb_exec_stmt_sized_error(void **state) {
     test_struct_t *data  = (test_struct_t *)*state;
 
     //Calling wdb_exec_row_stmt
-    will_return(__wrap_sqlite3_step, SQLITE_ERROR);
+    expect_sqlite3_step_call(SQLITE_ERROR);
     expect_string(__wrap__mdebug1, formatted_msg, "SQL statement execution failed");
 
     int status = 0;
@@ -359,8 +363,8 @@ void test_wdb_exec_stmt_success(void **state) {
     double json_value = 10;
 
     //Calling wdb_exec_row_stmt
-    will_return(__wrap_sqlite3_step, SQLITE_ROW);
-    will_return(__wrap_sqlite3_step, SQLITE_DONE);
+    expect_sqlite3_step_call(SQLITE_ROW);
+    expect_sqlite3_step_call(SQLITE_DONE);
     will_return_count(__wrap_sqlite3_column_count, 1, -1);
     expect_any(__wrap_sqlite3_column_type, i);
     will_return_count(__wrap_sqlite3_column_type, SQLITE_INTEGER,-1);
@@ -390,13 +394,96 @@ void test_wdb_exec_stmt_error(void **state) {
     test_struct_t *data  = (test_struct_t *)*state;
 
     //Calling wdb_exec_row_stmt
-    will_return(__wrap_sqlite3_step, SQLITE_ERROR);
+    expect_sqlite3_step_call(SQLITE_ERROR);
     expect_string(__wrap__mdebug1, formatted_msg, "SQL statement execution failed");
 
     cJSON* result = wdb_exec_stmt(*data->wdb->stmt);
     assert_null(result);
 
     cJSON_Delete(result);
+}
+
+/* Tests wdb_exec_stmt_silent */
+
+void test_wdb_exec_stmt_silent_success_sqlite_done(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+
+    expect_sqlite3_step_call(SQLITE_DONE);
+
+    int result = wdb_exec_stmt_silent(*data->wdb->stmt);
+
+    assert_int_equal(result, OS_SUCCESS);
+}
+
+void test_wdb_exec_stmt_silent_success_sqlite_row(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+
+    expect_sqlite3_step_call(SQLITE_ROW);
+
+    int result = wdb_exec_stmt_silent(*data->wdb->stmt);
+
+    assert_int_equal(result, OS_SUCCESS);
+}
+
+void test_wdb_exec_stmt_silent_invalid(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+
+    expect_sqlite3_step_call(SQLITE_ERROR);
+    expect_string(__wrap__mdebug1, formatted_msg, "SQL statement execution failed");
+
+    int result = wdb_exec_stmt_silent(*data->wdb->stmt);
+
+    assert_int_equal(result, OS_INVALID);
+}
+
+/* Tests wdb_init_stmt_in_cache */
+
+void test_wdb_init_stmt_in_cache_success(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+
+    // wdb_begin2
+    will_return(__wrap_sqlite3_prepare_v2, SQLITE_OK);
+    expect_sqlite3_step_call(SQLITE_DONE);
+    will_return(__wrap_sqlite3_finalize, SQLITE_OK);
+
+    // wdb_stmt_cache
+    will_return(__wrap_sqlite3_reset, SQLITE_OK);
+    will_return(__wrap_sqlite3_clear_bindings, SQLITE_OK);
+
+    sqlite3_stmt* result = wdb_init_stmt_in_cache(data->wdb, WDB_STMT_FIM_LOAD);
+
+    assert_non_null(result);
+}
+
+void test_wdb_init_stmt_in_cache_invalid_transaction(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+
+    // wdb_begin2
+    will_return(__wrap_sqlite3_prepare_v2, SQLITE_ERROR);
+    will_return(__wrap_sqlite3_errmsg, "ERROR MESSAGE");
+    expect_string(__wrap__mdebug1, formatted_msg, "sqlite3_prepare_v2(): ERROR MESSAGE");
+    expect_string(__wrap__mdebug1, formatted_msg, "Cannot begin transaction");
+
+    sqlite3_stmt* result = wdb_init_stmt_in_cache(data->wdb, 0);
+
+    assert_null(result);
+}
+
+void test_wdb_init_stmt_in_cache_invalid_statement(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+
+    // wdb_begin2
+    will_return(__wrap_sqlite3_prepare_v2, SQLITE_OK);
+    expect_sqlite3_step_call(SQLITE_DONE);
+    will_return(__wrap_sqlite3_finalize, SQLITE_OK);
+
+    // wdb_stmt_cache
+    expect_string(__wrap__merror, formatted_msg, "DB(000) SQL statement index (171) out of bounds");
+    expect_string(__wrap__mdebug1, formatted_msg, "Cannot cache statement");
+
+    sqlite3_stmt* result = wdb_init_stmt_in_cache(data->wdb,WDB_STMT_SIZE);
+
+    assert_null(result);
 }
 
 int main()
@@ -424,6 +511,14 @@ int main()
         cmocka_unit_test_setup_teardown(test_wdb_exec_stmt_sized_success_limited, setup_wdb, teardown_wdb),
         cmocka_unit_test_setup_teardown(test_wdb_exec_stmt_sized_invalid_statement, setup_wdb, teardown_wdb),
         cmocka_unit_test_setup_teardown(test_wdb_exec_stmt_sized_error, setup_wdb, teardown_wdb),
+        //wdb_exec_stmt_silent
+        cmocka_unit_test_setup_teardown(test_wdb_exec_stmt_silent_success_sqlite_done, setup_wdb, teardown_wdb),
+        cmocka_unit_test_setup_teardown(test_wdb_exec_stmt_silent_success_sqlite_row, setup_wdb, teardown_wdb),
+        cmocka_unit_test_setup_teardown(test_wdb_exec_stmt_silent_invalid, setup_wdb, teardown_wdb),
+        //wdb_init_stmt_in_cache
+        cmocka_unit_test_setup_teardown(test_wdb_init_stmt_in_cache_success, setup_wdb, teardown_wdb),
+        cmocka_unit_test_setup_teardown(test_wdb_init_stmt_in_cache_invalid_transaction, setup_wdb, teardown_wdb),
+        cmocka_unit_test_setup_teardown(test_wdb_init_stmt_in_cache_invalid_statement, setup_wdb, teardown_wdb)
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -15,13 +15,11 @@
 #include "shared.h"
 #include "syscheck.h"
 #include "rootcheck/rootcheck.h"
-#include "fim_db.h"
+#include "db/fim_db_files.h"
 
 // Global variables
 syscheck_config syscheck;
-pthread_cond_t audit_thread_started;
-pthread_cond_t audit_hc_started;
-pthread_cond_t audit_db_consistency;
+
 int sys_debug_level;
 
 #ifdef USE_MAGIC
@@ -85,23 +83,26 @@ void fim_initialize() {
         merror_exit(FIM_CRITICAL_DATA_CREATE, "sqlite3 db");
     }
 
+    w_rwlock_init(&syscheck.directories_lock, NULL);
     w_mutex_init(&syscheck.fim_entry_mutex, NULL);
     w_mutex_init(&syscheck.fim_scan_mutex, NULL);
     w_mutex_init(&syscheck.fim_realtime_mutex, NULL);
+#ifndef WIN32
+    w_mutex_init(&syscheck.fim_symlink_mutex, NULL)
+#endif
 }
 
 
 #ifdef WIN32
 /* syscheck main for Windows */
-int Start_win32_Syscheck()
-{
+int Start_win32_Syscheck() {
     int debug_level = 0;
     int r = 0;
-    char *cfg = DEFAULTCPATH;
+    char *cfg = OSSECCONF;
+    OSListNode *node_it;
+
     /* Read internal options */
     read_internal(debug_level);
-
-    mdebug1(STARTED_MSG);
 
     /* Check if the configuration is present */
     if (File_DateofChange(cfg) < 0) {
@@ -114,14 +115,14 @@ int Start_win32_Syscheck()
         syscheck.disabled = 1;
     } else if ((r == 1) || (syscheck.disabled == 1)) {
         /* Disabled */
-        if (!syscheck.dir) {
-            minfo(FIM_DIRECTORY_NOPROVIDED);
-            dump_syscheck_entry(&syscheck, "", 0, 0, NULL, 0, NULL, NULL, -1);
-        } else if (!syscheck.dir[0]) {
-            minfo(FIM_DIRECTORY_NOPROVIDED);
-        }
+        minfo(FIM_DIRECTORY_NOPROVIDED);
 
-        os_free(syscheck.dir[0]);
+        // Free directories list
+        OSList_foreach(node_it, syscheck.directories) {
+            free_directory(node_it->data);
+            node_it->data = NULL;
+        }
+        OSList_CleanNodes(syscheck.directories);
 
         if (!syscheck.ignore) {
             os_calloc(1, sizeof(char *), syscheck.ignore);
@@ -130,7 +131,7 @@ int Start_win32_Syscheck()
         }
 
         if (!syscheck.registry) {
-            dump_syscheck_entry(&syscheck, "", 0, 1, NULL, 0, NULL, NULL, -1);
+            dump_syscheck_registry(&syscheck, "", 0, NULL, NULL,  0, NULL, 0, -1);
         }
         os_free(syscheck.registry[0].entry);
 
@@ -145,17 +146,20 @@ int Start_win32_Syscheck()
     }
 
     if (!syscheck.disabled) {
+        directory_t *dir_it;
+        OSListNode *node_it;
 #ifndef WIN_WHODATA
         int whodata_notification = 0;
         /* Remove whodata attributes */
-        for (r = 0; syscheck.dir[r]; r++) {
-            if (syscheck.opts[r] & WHODATA_ACTIVE) {
+        OSList_foreach(node_it, syscheck.directories) {
+            dir_it = node_it->data;
+            if (dir_it->options & WHODATA_ACTIVE) {
                 if (!whodata_notification) {
                     whodata_notification = 1;
                     minfo(FIM_REALTIME_INCOMPATIBLE);
                 }
-                syscheck.opts[r] &= ~WHODATA_ACTIVE;
-                syscheck.opts[r] |= REALTIME_ACTIVE;
+                dir_it->options &= ~WHODATA_ACTIVE;
+                dir_it->options |= REALTIME_ACTIVE;
             }
         }
 #endif
@@ -164,27 +168,31 @@ int Start_win32_Syscheck()
         r = 0;
         // TODO: allow sha256 sum on registries
         while (syscheck.registry[r].entry != NULL) {
-            minfo(FIM_MONITORING_REGISTRY, syscheck.registry[r].entry, syscheck.registry[r].arch == ARCH_64BIT ? " [x64]" : "");
+            char optstr[1024];
+            minfo(FIM_MONITORING_REGISTRY, syscheck.registry[r].entry,
+                  syscheck.registry[r].arch == ARCH_64BIT ? " [x64]" : "",
+                  syscheck_opts2str(optstr, sizeof(optstr), syscheck.registry[r].opts));
+            if (syscheck.file_size_enabled){
+                minfo(FIM_DIFF_FILE_SIZE_LIMIT, syscheck.registry[r].diff_size_limit, syscheck.registry[r].entry);
+            }
             r++;
         }
 
         /* Print directories to be monitored */
-        r = 0;
-        while (syscheck.dir[r] != NULL) {
+        OSList_foreach(node_it, syscheck.directories) {
+            dir_it = node_it->data;
             char optstr[ 1024 ];
 
-            minfo(FIM_MONITORING_DIRECTORY, syscheck.dir[r], syscheck_opts2str(optstr, sizeof( optstr ), syscheck.opts[r]));
+            minfo(FIM_MONITORING_DIRECTORY, dir_it->path, syscheck_opts2str(optstr, sizeof(optstr), dir_it->options));
 
-            if (syscheck.tag && syscheck.tag[r] != NULL) {
-                mdebug1(FIM_TAG_ADDED, syscheck.tag[r], syscheck.dir[r]);
+            if (dir_it->tag != NULL) {
+                mdebug1(FIM_TAG_ADDED, dir_it->tag, dir_it->path);
             }
 
             // Print diff file size limit
-            if ((syscheck.opts[r] & CHECK_SEECHANGES) && syscheck.file_size_enabled) {
-                mdebug2(FIM_DIFF_FILE_SIZE_LIMIT, syscheck.diff_size_limit[r], syscheck.dir[r]);
+            if ((dir_it->options & CHECK_SEECHANGES) && syscheck.file_size_enabled) {
+                mdebug2(FIM_DIFF_FILE_SIZE_LIMIT, dir_it->diff_size_limit, dir_it->path);
             }
-
-            r++;
         }
 
         if (!syscheck.file_size_enabled) {
@@ -210,14 +218,33 @@ int Start_win32_Syscheck()
                 minfo(FIM_PRINT_IGNORE_SREGEX, "file", syscheck.ignore_regex[r]->raw);
 
         /* Print registry ignores. */
-        if(syscheck.registry_ignore)
-            for (r = 0; syscheck.registry_ignore[r].entry != NULL; r++)
-                minfo(FIM_PRINT_IGNORE_ENTRY, "registry", syscheck.registry_ignore[r].entry);
+        if(syscheck.key_ignore)
+            for (r = 0; syscheck.key_ignore[r].entry != NULL; r++)
+                minfo(FIM_PRINT_IGNORE_ENTRY, "registry", syscheck.key_ignore[r].entry);
 
         /* Print sregex registry ignores. */
-        if(syscheck.registry_ignore_regex)
-            for (r = 0; syscheck.registry_ignore_regex[r].regex != NULL; r++)
-                minfo(FIM_PRINT_IGNORE_SREGEX, "registry", syscheck.registry_ignore_regex[r].regex->raw);
+        if(syscheck.key_ignore_regex)
+            for (r = 0; syscheck.key_ignore_regex[r].regex != NULL; r++)
+                minfo(FIM_PRINT_IGNORE_SREGEX, "registry", syscheck.key_ignore_regex[r].regex->raw);
+
+        if(syscheck.value_ignore)
+            for (r = 0; syscheck.value_ignore[r].entry != NULL; r++)
+                minfo(FIM_PRINT_IGNORE_ENTRY, "value", syscheck.value_ignore[r].entry);
+
+        /* Print sregex registry ignores. */
+        if(syscheck.value_ignore_regex)
+            for (r = 0; syscheck.value_ignore_regex[r].regex != NULL; r++)
+                minfo(FIM_PRINT_IGNORE_SREGEX, "value", syscheck.value_ignore_regex[r].regex->raw);
+
+        /* Print registry values with nodiff. */
+        if(syscheck.registry_nodiff)
+            for (r = 0; syscheck.registry_nodiff[r].entry != NULL; r++)
+                minfo(FIM_NO_DIFF_REGISTRY, "registry value", syscheck.registry_nodiff[r].entry);
+
+        /* Print sregex registry values with nodiff. */
+        if(syscheck.registry_nodiff_regex)
+            for (r = 0; syscheck.registry_nodiff_regex[r].regex != NULL; r++)
+                minfo(FIM_NO_DIFF_REGISTRY, "registry sregex", syscheck.registry_nodiff_regex[r].regex->raw);
 
         /* Print files with no diff. */
         if (syscheck.nodiff){
@@ -230,6 +257,24 @@ int Start_win32_Syscheck()
 
         /* Start up message */
         minfo(STARTUP_MSG, getpid());
+        OSList_foreach(node_it, syscheck.directories) {
+            dir_it = node_it->data;
+            if (dir_it->options & REALTIME_ACTIVE) {
+                realtime_start();
+                break;
+            }
+        }
+
+        if (syscheck.realtime == NULL) {
+            // Check if a wildcard might require realtime later
+            OSList_foreach(node_it, syscheck.wildcards) {
+                dir_it = node_it->data;
+                if (dir_it->options & REALTIME_ACTIVE) {
+                    realtime_start();
+                    break;
+                }
+            }
+        }
     }
 
     /* Some sync time */

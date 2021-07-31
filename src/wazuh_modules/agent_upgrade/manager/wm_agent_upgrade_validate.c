@@ -1,6 +1,6 @@
 /*
  * Wazuh Module for Agent Upgrading
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * July 20, 2020.
  *
  * This program is free software; you can redistribute it
@@ -9,7 +9,7 @@
  * Foundation.
  */
 
-#include "wazuh_db/wdb.h"
+#include "wazuh_db/helpers/wdb_global_helpers.h"
 #include "wazuh_modules/wmodules.h"
 #include "wm_agent_upgrade_validate.h"
 
@@ -187,7 +187,7 @@ int wm_agent_upgrade_validate_wpk_version(const wm_agent_info *agent_info, wm_up
     // Set versions respository
     snprintf(versions_url, OS_SIZE_4096, "%sversions", path_url);
 
-    versions = wurl_http_get(versions_url);
+    versions = wurl_http_get(versions_url, WM_UPGRADE_MAX_RESPONSE_SIZE);
 
     if (versions) {
         char *version = versions;

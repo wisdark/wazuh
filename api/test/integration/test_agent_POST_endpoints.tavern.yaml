@@ -15,9 +15,10 @@ stages:
       headers:
         Authorization: "Bearer {test_login_token}"
     response:
-      status_code: 406
-      json:
-        error: 6002
+      status_code: 400
+      json: &error_spec
+        detail: !anystr
+        title: !anystr
 
     # POST /agents
   - name: Create a new agent
@@ -73,9 +74,8 @@ stages:
         ip: "any"
     response:
       status_code: 400
-      json: &error_spec
-        detail: !anystr
-        title: !anystr
+      json:
+        <<: *error_spec
 
     # POST /agents
   - name: Create agent without assigning an specific IP
@@ -88,7 +88,6 @@ stages:
       status_code: 200
       json:
         <<: *agent_create_response
-    delay_after: !float "{global_db_delay}"
 
     # POST /agents
   - name: Create agent with an specific IP
@@ -159,7 +158,6 @@ stages:
       status_code: 200
       json:
         <<: *agent_create_response
-    delay_after: !float "{global_db_delay}"
 
 ---
 test_name: POST /agents (no IP)
@@ -202,11 +200,24 @@ stages:
               ip: 'any'
 
 ---
-test_name: POST /groups/{group_id}
+test_name: POST /groups
 
 stages:
 
-    # POST /groups?group_id=group4
+    # POST /groups
+  - name: Try to create a group without body
+    request:
+      verify: False
+      url: "{protocol:s}://{host:s}:{port:d}/groups"
+      method: POST
+      headers:
+        Authorization: "Bearer {test_login_token}"
+    response:
+      status_code: 400
+      json:
+        <<: *error_spec
+
+    # POST /groups
   - name: Create a group called group4
     request:
       verify: False
@@ -214,15 +225,14 @@ stages:
       method: POST
       headers:
         Authorization: "Bearer {test_login_token}"
-      params:
-        group_id: group4
+      json:
+        group_id: "group4"
     response:
       status_code: 200
       json:
         message: !anystr
-    delay_after: !float "{global_db_delay}"
 
-    # POST /groups?group_id=group1
+    # POST /groups
   - name: Try to create a group that already exists
     request:
       verify: False
@@ -230,14 +240,14 @@ stages:
       method: POST
       headers:
         Authorization: "Bearer {test_login_token}"
-      params:
-        group_id: group1
+      json:
+        group_id: "group1"
     response:
       status_code: 400
       json:
         error: 1711
 
-    # POST /groups?group_id=;wrong_name
+    # POST /groups
   - name: Try to create a group with an invalid name
     request:
       verify: False
@@ -245,8 +255,8 @@ stages:
       method: POST
       headers:
         Authorization: "Bearer {test_login_token}"
-      params:
-        group_id: ';wrong_name'
+      json:
+        group_id: ";wrong_name"
     response:
       status_code: 400
       json:
@@ -266,9 +276,7 @@ stages:
       headers:
         Authorization: "Bearer {test_login_token}"
     response:
-      status_code: 406
-      json:
-        error: 6002
+      status_code: 400
 
     # POST /agents/insert
   - name: Create a new agent specifying id, ip, key and name
@@ -361,7 +369,6 @@ stages:
       status_code: 200
       json:
         <<: *agent_create_response
-    delay_after: !float "{global_db_delay}"
 
     # POST /agents/insert
   - name: Create a new agent using a manual IP
@@ -437,7 +444,6 @@ stages:
       status_code: 200
       json:
         <<: *agent_create_response
-    delay_after: !float "{global_db_delay}"
 
 ---
 test_name: POST /agents/insert/quick
@@ -472,7 +478,7 @@ stages:
       headers:
         Authorization: "Bearer {test_login_token}"
       params:
-        agent_name: 'wrong%name'
+        agent_name: 'wrong*name'
     response:
       status_code: 400
       json:

@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2020, Wazuh Inc.
+# Copyright (C) 2015-2021, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is free software; you can redistribute it and/or modify it under the terms of GPLv2
 
@@ -33,6 +33,12 @@ class WazuhDBConnection:
             self.__conn.connect(self.socket_path)
         except OSError as e:
             raise WazuhInternalError(2005, e)
+
+    def close(self):
+        self.__conn.close()
+
+    def __del__(self):
+        self.close()
 
     def __query_input_validation(self, query):
         """
@@ -78,8 +84,10 @@ class WazuhDBConnection:
         """
         Send a message to the wdb socket
         """
-        msg = struct.pack('<I', len(msg)) + msg.encode()
-        self.__conn.send(msg)
+        encoded_msg = msg.encode(encoding='utf-8')
+        packed_msg = struct.pack('<I', len(encoded_msg)) + encoded_msg
+        # Send msg
+        self.__conn.send(packed_msg)
 
         # Get the data size (4 bytes)
         data = self.__conn.recv(4)
@@ -89,7 +97,7 @@ class WazuhDBConnection:
 
         # Max size socket buffer is 64KB
         if data_size >= MAX_SOCKET_BUFFER_SIZE:
-            raise ValueError
+            raise WazuhInternalError(2009)
 
         if data[0] == "err":
             raise WazuhError(2003, data[1])
@@ -189,6 +197,23 @@ class WazuhDBConnection:
 
         return response
 
+    def send(self, query, raw=True):
+        """Send a message to the wdb socket.
+
+        Parameters
+        ----------
+        query : str
+            Query to be executed in wazuh-db.
+        raw : bool
+            Whether to process the response.
+
+        Returns
+        -------
+        str, dict
+            Result of the query.
+        """
+        return self._send(query, raw)
+
     def execute(self, query, count=False, delete=False, update=False):
         """
         Sends a sql query to wdb socket
@@ -196,14 +221,20 @@ class WazuhDBConnection:
         def send_request_to_wdb(query_lower, step, off, response):
             try:
                 request = query_lower.replace(':limit', 'limit {}'.format(step)).replace(':offset', 'offset {}'.format(off))
-                response.extend(self._send(request))
-            except ValueError:
+                request_response = self._send(request, raw=True)[1]
+                response.extend(json.loads(request_response, object_hook=WazuhDBConnection.json_decoder))
+                if len(request_response)*2 < MAX_SOCKET_BUFFER_SIZE:
+                    return step*2
+                else:
+                    return step
+            except WazuhInternalError:
                 # if the step is already 1, it can't be divided
                 if step == 1:
-                    raise WazuhInternalError(2007)
+                    raise WazuhInternalError(2009)
+
                 send_request_to_wdb(query_lower, step // 2, off, response)
                 # Add step // 2 remaining when the step is odd to avoid losing information
-                send_request_to_wdb(query_lower, step // 2 + step % 2, step // 2 + off, response)
+                return send_request_to_wdb(query_lower, step // 2 + step % 2, step // 2 + off, response)
 
         query_lower = self.__query_lower(query)
 
@@ -218,7 +249,6 @@ class WazuhDBConnection:
 
         # only for update queries
         if update:
-            # regex = re.compile(r"\w+ \d+? sql update ([a-z0-9,*_ ]+) set value = '([a-z0-9,*_ ]+)' where key (=|like)?"
             regex = re.compile(r"\w+ \d+? sql update ([\w\d,*_ ]+) set value = '([\w\d,*_ ]+)' where key (=|like)?"
                                r" '([a-z0-9,*_%\- ]+)'")
             if regex.match(query_lower) is None:
@@ -261,18 +291,21 @@ class WazuhDBConnection:
             limit = lim if lim != 0 else total
 
             response = []
-            step = limit if limit < self.request_slice and limit > 0 else self.request_slice
             if ':limit' not in query_lower:
                 query_lower += ' :limit'
             if ':offset' not in query_lower:
                 query_lower += ' :offset'
 
             try:
-                for off in range(offset, limit + offset, step):
-                    send_request_to_wdb(query_lower, step, off, response)
+                off = offset
+                while off < limit + offset:
+                    step = limit if self.request_slice > limit > 0 else self.request_slice
+                    # Min() used to avoid fetching more items than the maximum specified in `limit`.
+                    self.request_slice = send_request_to_wdb(query_lower, min(limit + offset - off, step), off, response)
+                    off += step
             except ValueError as e:
                 raise WazuhError(2006, str(e))
-            except WazuhError as e:
+            except (WazuhError, WazuhInternalError) as e:
                 raise e
             except Exception as e:
                 raise WazuhInternalError(2007, str(e))

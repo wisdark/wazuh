@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -42,27 +42,16 @@ static unsigned int _netmasks[33];
 static char *_read_file(const char *high_name, const char *low_name, const char *defines_file)
 {
     FILE *fp;
-    char def_file[OS_FLSIZE + 1];
     char buf[OS_SIZE_1024 + 1];
     char *buf_pt;
     char *tmp_buffer;
     char *ret;
     int i;
 
-#ifndef WIN32
-    if (isChroot()) {
-        snprintf(def_file, OS_FLSIZE, "%s", defines_file);
-    } else {
-        snprintf(def_file, OS_FLSIZE, "%s%s", DEFAULTDIR, defines_file);
-    }
-#else
-    snprintf(def_file, OS_FLSIZE, "%s", defines_file);
-#endif
-
-    fp = fopen(def_file, "r");
+    fp = fopen(defines_file, "r");
     if (!fp) {
         if (strcmp(defines_file, OSSEC_LDEFINES) != 0) {
-            merror(FOPEN_ERROR, def_file, errno, strerror(errno));
+            merror(FOPEN_ERROR, defines_file, errno, strerror(errno));
         }
         return (NULL);
     }
@@ -86,7 +75,7 @@ static char *_read_file(const char *high_name, const char *low_name, const char 
         /* Messages not formatted correctly */
         buf_pt = strchr(buf, '.');
         if (!buf_pt) {
-            merror(FGETS_ERROR, def_file, buf);
+            merror(FGETS_ERROR, defines_file, buf);
             continue;
         }
 
@@ -102,7 +91,7 @@ static char *_read_file(const char *high_name, const char *low_name, const char 
         /* Get the equal */
         buf_pt = strchr(buf_pt, '=');
         if (!buf_pt) {
-            merror(FGETS_ERROR, def_file, buf);
+            merror(FGETS_ERROR, defines_file, buf);
             continue;
         }
 
@@ -532,6 +521,7 @@ static const char *__gethour(const char *str, char *ossec_hour)
     if ((*str == 'a') || (*str == 'A')) {
         str++;
         if ((*str == 'm') || (*str == 'M')) {
+            if (chour == 12) chour = 0;
             snprintf(ossec_hour, 6, "%02d:%02d", chour, cmin);
             str++;
             return (str);
@@ -539,6 +529,7 @@ static const char *__gethour(const char *str, char *ossec_hour)
     } else if ((*str == 'p') || (*str == 'P')) {
         str++;
         if ((*str == 'm') || (*str == 'M')) {
+            if (chour == 12) chour = 0;
             chour += 12;
 
             /* New hour must be valid */
@@ -900,4 +891,35 @@ int w_validate_interval(int interval, int force) {
     }
 
     return ret;
+}
+
+long long w_validate_bytes(const char *content) {
+
+    long long converted_value = 0;
+    char * end;
+    long read_value = strtol(content, &end, 10);
+
+    if (read_value < 0 || read_value == LONG_MAX || content == end) {
+        return -1;
+    }
+
+    switch (*end) {
+        case 'K':
+        case 'k':
+            converted_value = read_value * 1024LL;
+            break;
+        case 'M':
+        case 'm':
+            converted_value = read_value * (1024 * 1024LL);
+            break;
+        case 'G':
+        case 'g':
+            converted_value = read_value * (1024 * 1024 * 1024LL);
+            break;
+        default:
+            converted_value = read_value;
+            break;
+    }
+
+    return converted_value;
 }

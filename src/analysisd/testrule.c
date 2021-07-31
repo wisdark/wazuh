@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -10,7 +10,7 @@
 
 #ifdef ARGV0
 #undef ARGV0
-#define ARGV0 "ossec-testrule"
+#define ARGV0 "wazuh-testrule"
 #endif
 
 #include "shared.h"
@@ -42,7 +42,7 @@ static void onsignal(int signum);
 
 /* Print help statement */
 __attribute__((noreturn))
-static void help_logtest(void)
+static void help_logtest(char * home_path)
 {
     print_header();
     print_out("\nSince Wazuh v4.1.0 this binary is deprecated. Use wazuh-logtest instead\n");
@@ -55,10 +55,11 @@ static void help_logtest(void)
     print_out("    -t          Test configuration");
     print_out("    -a          Alerts output");
     print_out("    -v          Verbose (full) output/rule debugging");
-    print_out("    -c <config> Configuration file to use (default: %s)", DEFAULTCPATH);
-    print_out("    -D <dir>    Directory to chroot into (default: %s)", DEFAULTDIR);
+    print_out("    -c <config> Configuration file to use (default: %s)", OSSECCONF);
+    print_out("    -D <dir>    Directory to chroot into (default: %s)", home_path);
     print_out("    -U <rule:alert:decoder>  Unit test. Refer to contrib/ossec-testing/runtests.py");
     print_out(" ");
+    os_free(home_path);
     exit(1);
 }
 
@@ -67,8 +68,7 @@ int main(int argc, char **argv)
     int test_config = 0;
     int c = 0;
     char *ut_str = NULL;
-    const char *dir = DEFAULTDIR;
-    const char *cfg = DEFAULTCPATH;
+    const char *cfg = OSSECCONF;
     const char *user = USER;
     const char *group = GROUPGLOBAL;
     uid_t uid;
@@ -80,6 +80,9 @@ int main(int argc, char **argv)
 
     /* Set the name */
     OS_SetName(ARGV0);
+
+    // Define current working directory
+    char * home_path = w_homedir(argv[0]);
 
     thishour = 0;
     today = 0;
@@ -103,7 +106,7 @@ int main(int argc, char **argv)
                 test_config = 1;
                 break;
             case 'h':
-                help_logtest();
+                help_logtest(home_path);
                 break;
             case 'd':
                 nowDebug();
@@ -118,7 +121,7 @@ int main(int argc, char **argv)
                 if (!optarg) {
                     merror_exit("-D needs an argument");
                 }
-                dir = optarg;
+                snprintf(home_path, PATH_MAX, "%s", optarg);
                 break;
             case 'c':
                 if (!optarg) {
@@ -136,10 +139,17 @@ int main(int argc, char **argv)
                 full_output = 1;
                 break;
             default:
-                help_logtest();
+                help_logtest(home_path);
                 break;
         }
     }
+
+    /* Change working directory */
+    if (chdir(home_path) == -1) {
+        merror_exit(CHDIR_ERROR, home_path, errno, strerror(errno));
+    }
+
+    mdebug1(WAZUH_HOMEDIR, home_path);
 
     /* Read configuration file */
     if (GlobalConf(cfg) < 0) {
@@ -164,7 +174,7 @@ int main(int argc, char **argv)
     /* Get server hostname */
     memset(__shost, '\0', 512);
     if (gethostname(__shost, 512 - 1) != 0) {
-        strncpy(__shost, OSSEC_SERVER, 512 - 1);
+        strncpy(__shost, WAZUH_SERVER, 512 - 1);
     } else {
         char *_ltmp;
 
@@ -190,8 +200,8 @@ int main(int argc, char **argv)
     }
 
     /* Chroot */
-    if (Privsep_Chroot(dir) < 0) {
-        merror_exit(CHROOT_ERROR, dir, errno, strerror(errno));
+    if (Privsep_Chroot(home_path) < 0) {
+        merror_exit(CHROOT_ERROR, home_path, errno, strerror(errno));
     }
     nowChroot();
 
@@ -696,7 +706,8 @@ void OS_ReadMSG(char *ut_str)
                 /* Log the alert if configured to */
                 if (currently_rule->alert_opts & DO_LOGALERT) {
                     if (alert_only) {
-                        OS_LogOutput(lf);
+                        OS_Log(lf, stdout);
+                        fflush(stdout);
                         __crt_ftell++;
                     } else {
                         print_out("**Alert to be generated.\n\n");

@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
@@ -10,6 +10,7 @@
 
 #include "shared.h"
 #include "logcollector.h"
+#include "os_crypto/sha1/sha1_op.h"
 
 #define NMAPG_HOST  "Host: "
 #define NMAPG_PORT  "Ports:"
@@ -146,9 +147,19 @@ void *read_nmapg(logreader *lf, int *rc, int drop_it) {
     port[16] = '\0';
     proto[16] = '\0';
 
+    /* Obtain context to calculate hash */
+    SHA_CTX context;
+    int64_t current_position = w_ftell(lf->fp);
+    bool is_valid_context_file = w_get_hash_context(lf, &context, current_position);
+
     while (can_read() && fgets(str, OS_MAXSTR - OS_LOG_HEADER, lf->fp) != NULL && (!maximum_lines || lines < maximum_lines)) {
 
         lines++;
+
+        if (is_valid_context_file) {
+            OS_SHA1_Stream(&context, NULL, str);
+        }
+
         /* If need clear is set, we need to clear the line */
         if (need_clear) {
             if (q = strchr(str, '\n'), q != NULL) {
@@ -252,6 +263,11 @@ file_error:
         *rc = -1;
         return (NULL);
 
+    }
+
+    current_position = w_ftell(lf->fp);
+    if (is_valid_context_file) {
+        w_update_file_status(lf->file, current_position, &context);
     }
 
     mdebug2("Read %d lines from %s", lines, lf->file);

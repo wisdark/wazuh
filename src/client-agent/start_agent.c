@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
@@ -15,7 +15,7 @@
 #ifdef WAZUH_UNIT_TESTING
     #define static
     #ifdef WIN32
-            #include "unit_tests/wrappers/client-agent/start_agent.h"
+            #include "unit_tests/wrappers/wazuh/client-agent/start_agent.h"
             #undef CloseSocket
             #define CloseSocket wrap_closesocket
             #define recv wrap_recv
@@ -67,7 +67,7 @@ bool connect_server(int server_id, bool verbose)
     if (tmp_str) {
         /* Resolve hostname */
         if (!isChroot()) {
-            resolveHostname(&agt->server[server_id].rip, 5);
+            resolve_hostname(&agt->server[server_id].rip, 5);
 
             tmp_str = strchr(agt->server[server_id].rip, '/');
             if (tmp_str) {
@@ -82,8 +82,12 @@ bool connect_server(int server_id, bool verbose)
 
     /* The hostname was not resolved correctly */
     if (tmp_str == NULL || *tmp_str == '\0') {
-        int rip_l = strlen(agt->server[server_id].rip);
-        mdebug2("Could not resolve hostname '%.*s'", agt->server[server_id].rip[rip_l - 1] == '/' ? rip_l - 1 : rip_l, agt->server[server_id].rip);
+        if (agt->server[server_id].rip != NULL) {
+            const int rip_l = strlen(agt->server[server_id].rip);
+            mdebug2("Could not resolve hostname '%.*s'", agt->server[server_id].rip[rip_l - 1] == '/' ? rip_l - 1 : rip_l, agt->server[server_id].rip);
+        } else {
+            mdebug2("Could not resolve hostname");
+        }
 
         return false;
     }
@@ -120,6 +124,7 @@ bool connect_server(int server_id, bool verbose)
             }
         #endif
         agt->rip_id = server_id;
+        last_connection_time = (int)time(NULL);
         return true;
     }
     return false;
@@ -412,7 +417,7 @@ static bool agent_handshake_to_server(int server_id, bool is_startup) {
 /**
  * @brief Sends log message about start up
  * */
-static void send_msg_on_startup(void){
+static void send_msg_on_startup(void) {
 
     char msg[OS_MAXSTR + 2] = { '\0' };
     char fmsg[OS_MAXSTR + 1] = { '\0' };
@@ -425,4 +430,16 @@ static void send_msg_on_startup(void){
             "ossec", msg);
 
     send_msg(fmsg, -1);
+}
+
+/**
+ * @brief Send agent stopped message to server before exit
+ * */
+void send_agent_stopped_message() {
+    char msg[OS_SIZE_32] = { '\0' };
+
+    snprintf(msg, OS_SIZE_32, "%s%s", CONTROL_HEADER, HC_SHUTDOWN);
+
+    /* Send shutdown message */
+    send_msg(msg, -1);
 }

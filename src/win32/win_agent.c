@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -22,7 +22,7 @@
 #include "external/cJSON/cJSON.h"
 
 #ifndef ARGV0
-#define ARGV0 "ossec-agent"
+#define ARGV0 "wazuh-agent"
 #endif
 
 /* Help message */

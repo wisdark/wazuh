@@ -1,6 +1,6 @@
 /*
  * Wazuh Module Manager
- * Copyright (C) 2015-2020, Wazuh Inc.
+ * Copyright (C) 2015-2021, Wazuh Inc.
  * April 25, 2016.
  *
  * This program is free software; you can redistribute it
@@ -343,7 +343,7 @@ int wm_exec(char *command, char **output, int *exitcode, int secs, const char * 
             free(new_path);
         }
 
-        argv = wm_strtok(command);
+        argv = w_strtok(command);
 
         int fd = open("/dev/null", O_RDWR, 0);
 

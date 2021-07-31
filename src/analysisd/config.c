@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -216,9 +216,6 @@ cJSON *getARCommandsConfig(void) {
         if (data->name) cJSON_AddStringToObject(ar,"name",data->name);
         if (data->executable) cJSON_AddStringToObject(ar,"executable",data->executable);
         cJSON_AddNumberToObject(ar,"timeout_allowed",data->timeout_allowed);
-        if (data->expect & USERNAME) cJSON_AddItemToObject(ar,"expect",cJSON_CreateString("username"));
-        else if (data->expect & SRCIP) cJSON_AddItemToObject(ar,"expect",cJSON_CreateString("srcip"));
-        else if (data->expect & FILENAME) cJSON_AddItemToObject(ar,"expect",cJSON_CreateString("filename"));
         cJSON_AddItemToArray(ar_list,ar);
         node = node->next;
     }

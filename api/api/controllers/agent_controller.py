@@ -1,48 +1,93 @@
-# Copyright (C) 2015-2020, Wazuh Inc.
+# Copyright (C) 2015-2021, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is a free software; you can redistribute it and/or modify it under the terms of GPLv2
 
 import logging
+from typing import Union
 
 from aiohttp import web
 from connexion.lifecycle import ConnexionResponse
 
-import wazuh.agent as agent
 from api import configuration
 from api.encoder import dumps, prettify
 from api.models.agent_added_model import AgentAddedModel
 from api.models.agent_inserted_model import AgentInsertedModel
 from api.models.base_model_ import Body
+from api.models.group_added_model import GroupAddedModel
 from api.util import parse_api_param, remove_nones_to_dict, raise_if_exc
+from wazuh import agent, stats
 from wazuh.core.cluster.control import get_system_nodes
 from wazuh.core.cluster.dapi.dapi import DistributedAPI
 from wazuh.core.common import database_limit
-from wazuh.core.exception import WazuhError
+from wazuh.core.exception import WazuhResourceNotFound
+from wazuh.core.results import AffectedItemsWazuhResult
 
 logger = logging.getLogger('wazuh-api')
 
 
 async def delete_agents(request, pretty=False, wait_for_complete=False, agents_list=None, purge=False, status=None,
-                        older_than="7d"):
-    """Delete all agents or a list of them with optional criteria based on the status or time of the last connection.
+                        q=None, older_than=None, manager=None, version=None, group=None, node_name=None, name=None,
+                        ip=None):
+    """Delete all agents or a list of them based on optional criteria.
 
-    :param pretty: Show results in human-readable format
-    :param wait_for_complete: Disable timeout response
-    :param agents_list: List of agent's IDs.
-    :param purge: Delete an agent from the key store
-    :param status: Filters by agent status. Use commas to enter multiple statuses.
-    :param older_than: Filters out disconnected agents for longer than specified. Time in seconds, ‘[n_days]d’,
-    ‘[n_hours]h’, ‘[n_minutes]m’ or ‘[n_seconds]s’. For never_connected agents, uses the register date.
-    :return: AllItemsResponseAgentIDs
+    Parameters
+    ----------
+    pretty : bool
+        Show results in human-readable format.
+    wait_for_complete : bool
+        Disable timeout response.
+    agents_list : list
+        List of agent's IDs.
+    purge : bool
+        Delete an agent from the key store.
+    status : str
+        Filter by agent status. Use commas to enter multiple statuses.
+    q : str
+        Query to filter agents by.
+    older_than : str
+        Filter out disconnected agents for longer than specified. Time in seconds, ‘[n_days]d’.
+    manager : str
+        Filter by manager hostname to which agents are connected.
+    version : str
+        Filter by agents version.
+    group : str
+        Filter by group of agents.
+    node_name : str
+        Filter by node name.
+    name : str
+        Filter by agent name.
+    ip : str
+        Filter by agent IP.
+
+    Returns
+    -------
+    ApiResponse
+        Agents which have been deleted.
     """
     if 'all' in agents_list:
         agents_list = None
     f_kwargs = {'agent_list': agents_list,
                 'purge': purge,
-                'status': status,
-                'older_than': older_than,
-                'use_only_authd': configuration.api_conf['use_only_authd']
+                'use_only_authd': configuration.api_conf['use_only_authd'],
+                'filters': {
+                    'status': status,
+                    'older_than': older_than,
+                    'manager': manager,
+                    'version': version,
+                    'group': group,
+                    'node_name': node_name,
+                    'name': name,
+                    'ip': ip,
+                    'registerIP': request.query.get('registerIP', None)
+                },
+                'q': q
                 }
+
+    # Add nested fields to kwargs filters
+    nested = ['os.version', 'os.name', 'os.platform']
+    for field in nested:
+        f_kwargs['filters'][field] = request.query.get(field, None)
+
     dapi = DistributedAPI(f=agent.delete_agents,
                           f_kwargs=remove_nones_to_dict(f_kwargs),
                           request_type='local_master',
@@ -141,6 +186,39 @@ async def add_agent(request, pretty=False, wait_for_complete=False):
                           rbac_permissions=request['token_info']['rbac_policies']
                           )
 
+    data = raise_if_exc(await dapi.distribute_function())
+
+    return web.json_response(data=data, status=200, dumps=prettify if pretty else dumps)
+
+
+async def reconnect_agents(request, pretty: bool = False, wait_for_complete: bool = False,
+                           agents_list: Union[list, str] = '*') -> web.Response:
+    """Force reconnect all agents or a list of them.
+
+    Parameters
+    ----------
+    pretty : bool
+        Show results in human-readable format. Default `False`
+    wait_for_complete : bool
+        Disable timeout response. Default `False`
+    agents_list : Union[list, str]
+        List of agent IDs. All possible values from 000 onwards. Default `*`
+
+    Returns
+    -------
+    Response
+    """
+    f_kwargs = {'agent_list': agents_list}
+
+    dapi = DistributedAPI(f=agent.reconnect_agents,
+                          f_kwargs=remove_nones_to_dict(f_kwargs),
+                          request_type='distributed_master',
+                          is_async=False,
+                          wait_for_complete=wait_for_complete,
+                          rbac_permissions=request['token_info']['rbac_policies'],
+                          broadcasting=agents_list == '*',
+                          logger=logger
+                          )
     data = raise_if_exc(await dapi.distribute_function())
 
     return web.json_response(data=data, status=200, dumps=prettify if pretty else dumps)
@@ -476,6 +554,39 @@ async def put_upgrade_custom_agents(request, agents_list=None, pretty=False, wai
     return web.json_response(data=data, status=200, dumps=prettify if pretty else dumps)
 
 
+async def get_component_stats(request, pretty=False, wait_for_complete=False, agent_id=None, component=None):
+    """Get a specified agent's component stats.
+
+    Parameters
+    ----------
+    pretty : bool
+        Show results in human-readable format.
+    wait_for_complete : bool
+        Disable timeout response.
+    agent_id : list
+        List of agent IDs. All possible values from 000 onwards.
+
+    Returns
+    -------
+    ApiResponse
+        Module stats.
+    """
+    f_kwargs = {'agent_list': [agent_id],
+                'component': component}
+
+    dapi = DistributedAPI(f=stats.get_agents_component_stats_json,
+                          f_kwargs=remove_nones_to_dict(f_kwargs),
+                          request_type='distributed_master',
+                          is_async=False,
+                          wait_for_complete=wait_for_complete,
+                          logger=logger,
+                          rbac_permissions=request['token_info']['rbac_policies']
+                          )
+    data = raise_if_exc(await dapi.distribute_function())
+
+    return web.json_response(data=data, status=200, dumps=prettify if pretty else dumps)
+
+
 async def get_agent_upgrade(request, agents_list=None, pretty=False, wait_for_complete=False):
     """Get upgrade results from agents.
 
@@ -693,15 +804,23 @@ async def get_agents_in_group(request, group_id, pretty=False, wait_for_complete
     return web.json_response(data=data, status=200, dumps=prettify if pretty else dumps)
 
 
-async def post_group(request, group_id, pretty=False, wait_for_complete=False):
+async def post_group(request, pretty=False, wait_for_complete=False):
     """Create a new group.
+    
+    Parameters
+    ----------
+    pretty : bool
+        Show results in human-readable format.
+    wait_for_complete : bool
+        Disable timeout response.
 
-    :param pretty: Show results in human-readable format
-    :param wait_for_complete: Disable timeout response
-    :param group_id: Group ID.
-    :return: ApiResponse
+    Returns
+    -------
+    ApiResponse
     """
-    f_kwargs = {'group_id': group_id}
+    # Get body parameters
+    Body.validate_content_type(request, expected_content_type='application/json')
+    f_kwargs = await GroupAddedModel.get_kwargs(request)
 
     dapi = DistributedAPI(f=agent.create_group,
                           f_kwargs=remove_nones_to_dict(f_kwargs),
@@ -870,13 +989,37 @@ async def get_group_file_xml(request, group_id, file_name, pretty=False, wait_fo
 async def restart_agents_by_group(request, group_id, pretty=False, wait_for_complete=False):
     """Restart all agents from a group.
 
-    :param pretty: Show results in human-readable format
-    :param wait_for_complete: Disable timeout response
-    :param group_id: Group ID.
-    :return: AllItemsResponseAgents
-    """
-    f_kwargs = {'group_id': group_id}
+    Parameters
+    ----------
+    request
+    group_id : str
+        Group name
+    pretty : bool, optional
+        Show results in human-readable format. Default `False`
+    wait_for_complete : bool, optional
+        Disable timeout response. Default `False`
 
+    Returns
+    -------
+    Response
+    """
+    f_kwargs = {'group_list': [group_id], 'select': ['id'], 'limit': None}
+    dapi = DistributedAPI(f=agent.get_agents_in_group,
+                          f_kwargs=f_kwargs,
+                          request_type='local_master',
+                          is_async=False,
+                          wait_for_complete=wait_for_complete,
+                          logger=logger,
+                          rbac_permissions=request['token_info']['rbac_policies']
+                          )
+    agents = raise_if_exc(await dapi.distribute_function())
+
+    agent_list = [a['id'] for a in agents.affected_items]
+    if not agent_list:
+        data = AffectedItemsWazuhResult(none_msg='Restart command was not sent to any agent')
+        return web.json_response(data=data, status=200, dumps=prettify if pretty else dumps)
+
+    f_kwargs = {'agent_list': agent_list}
     dapi = DistributedAPI(f=agent.restart_agents,
                           f_kwargs=remove_nones_to_dict(f_kwargs),
                           request_type='distributed_master',
@@ -902,17 +1045,6 @@ async def insert_agent(request, pretty=False, wait_for_complete=False):
     Body.validate_content_type(request, expected_content_type='application/json')
     f_kwargs = await AgentInsertedModel.get_kwargs(request)
 
-    # Get IP if not given
-    if not f_kwargs['ip']:
-        if configuration.api_conf['behind_proxy_server']:
-            try:
-                f_kwargs['ip'] = request.headers['X-Forwarded-For']
-            except KeyError:
-                raise_if_exc(WazuhError(1120))
-        else:
-            peername = request.transport.get_extra_info('peername')
-            if peername is not None:
-                f_kwargs['ip'], _ = peername
     f_kwargs['use_only_authd'] = configuration.api_conf['use_only_authd']
 
     dapi = DistributedAPI(f=agent.add_agent,
@@ -996,28 +1128,40 @@ async def get_agent_outdated(request, pretty=False, wait_for_complete=False, off
     return web.json_response(data=data, status=200, dumps=prettify if pretty else dumps)
 
 
-async def get_agent_fields(request, pretty=False, wait_for_complete=False, fields=None, offset=0, limit=database_limit,
-                           select=None, sort=None, search=None, q=None):
+async def get_agent_fields(request, pretty: bool = False, wait_for_complete: bool = False, fields: str = None,
+                           offset: int = 0, limit: int = database_limit, sort: str = None, search: str = None,
+                           q: str = None) -> web.Response:
     """Get distinct fields in agents.
 
     Returns all the different combinations that agents have for the selected fields. It also indicates the total number
     of agents that have each combination.
 
-    :param pretty: Show results in human-readable format
-    :param wait_for_complete: Disable timeout response
-    :param fields: List of fields affecting the operation.
-    :param offset: First element to return in the collection
-    :param limit: Maximum number of elements to return
-    :param select: Select which fields to return (separated by comma)
-    :param sort: Sorts the collection by a field or fields (separated by comma). Use +/- at the beginning to list in
-    ascending or descending order.
-    :param search: Looks for elements with the specified string
-    :param q: Query to filter results by. For example q&#x3D;&amp;quot;status&#x3D;active&amp;quot;
-    :return: ListMetadata
+    Parameters
+    ----------
+    pretty : bool
+        Show results in human-readable format.
+    wait_for_complete : bool
+        Disable timeout response.
+    fields : str
+        List of fields affecting the operation.
+    offset : int
+        First element to return in the collection.
+    limit : int
+        Maximum number of elements to return.
+    sort : str
+        Sorts the collection by a field or fields (separated by comma). Use +/- at the beginning to list in
+        ascending or descending order.
+    search : str
+        Looks for elements with the specified string.
+    q : str
+        Query to filter results by. For example q&#x3D;&amp;quot;status&#x3D;active&amp;quot;
+
+    Returns
+    -------
+    web.Response
     """
     f_kwargs = {'offset': offset,
                 'limit': limit,
-                'select': select,
                 'sort': parse_api_param(sort, 'sort'),
                 'search': parse_api_param(search, 'search'),
                 'fields': fields,

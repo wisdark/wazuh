@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2020, Wazuh Inc.
+# Copyright (C) 2015-2021, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is a free software; you can redistribute it and/or modify it under the terms of GPLv2
 
@@ -41,9 +41,10 @@ def get_ciscat_results(agent_list=None, offset=0, limit=common.database_limit, s
                            'notchecked': 'notchecked', 'unknown': 'unknown', 'score': 'score'}
     table = 'ciscat_results'
 
+    system_agents = get_agents_info()
     for agent in agent_list:
         try:
-            if agent not in get_agents_info():
+            if agent not in system_agents:
                 raise WazuhResourceNotFound(1701)
             db_query = WazuhDBQuerySyscollector(agent_id=agent, offset=offset, limit=limit, select=select,
                                                 search=search,

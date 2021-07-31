@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
@@ -96,7 +96,7 @@ int receive_msg()
             undefined_msg_logged = 0;
 
             available_server = (int)time(NULL);
-            update_ack(available_server);
+            w_agentd_state_update(UPDATE_ACK, (void *) &available_server);
 
 #ifdef WIN32
             /* Run timeout commands */
@@ -125,9 +125,38 @@ int receive_msg()
                 continue;
             }
 
+            /* Force reconnect agent to the manager */
+            else if (strncmp(tmp_msg, HC_FORCE_RECONNECT, strlen(HC_FORCE_RECONNECT)) == 0) {
+                /* Set lock and wait for it */
+                minfo("Wazuh Agent will be reconnected because a reconnect message was received");
+                os_setwait();
+                w_agentd_state_update(UPDATE_STATUS, (void *) GA_STATUS_NACTIVE);
+
+                /* Send sync message */
+                start_agent(0);
+
+                os_delwait();
+                w_agentd_state_update(UPDATE_STATUS, (void *) GA_STATUS_ACTIVE);
+                continue;
+            }
+
             /* Syscheck */
             else if (strncmp(tmp_msg, HC_SK, strlen(HC_SK)) == 0) {
                 ag_send_syscheck(tmp_msg + strlen(HC_SK));
+                continue;
+            }
+            else if (strncmp(tmp_msg, HC_FIM_FILE, strlen(HC_FIM_FILE)) == 0) {
+                ag_send_syscheck(tmp_msg + strlen(HC_FIM_FILE));
+                continue;
+            }
+            else if (strncmp(tmp_msg, HC_FIM_REGISTRY, strlen(HC_FIM_REGISTRY)) == 0) {
+                ag_send_syscheck(tmp_msg + strlen(HC_FIM_REGISTRY));
+                continue;
+            }
+
+            /* syscollector */
+            else if (strncmp(tmp_msg, HC_SYSCOLLECTOR, strlen(HC_SYSCOLLECTOR)) == 0) {
+                wmcom_send(tmp_msg);
                 continue;
             }
 
@@ -151,7 +180,7 @@ int receive_msg()
                         mwarn("Error communicating with Security configuration assessment");
                         close(agt->cfgadq);
 
-                        if ((agt->cfgadq = StartMQ(CFGASSESSMENTQUEUEPATH, WRITE, 1)) < 0) {
+                        if ((agt->cfgadq = StartMQ(CFGAQUEUE, WRITE, 1)) < 0) {
                             mwarn("Unable to connect to the Security configuration assessment "
                                     "queue (disabled).");
                             agt->cfgadq = -1;
@@ -162,7 +191,7 @@ int receive_msg()
                         }
                     }
                 } else {
-                    if ((agt->cfgadq = StartMQ(CFGASSESSMENTQUEUEPATH, WRITE, 1)) < 0) {
+                    if ((agt->cfgadq = StartMQ(CFGAQUEUE, WRITE, 1)) < 0) {
                         mwarn("Unable to connect to the Security configuration assessment "
                             "queue (disabled).");
                         agt->cfgadq = -1;
@@ -221,7 +250,7 @@ int receive_msg()
                 }
 
                 snprintf(file, OS_SIZE_1024, "%s/%s",
-                         SHAREDCFG_DIRPATH,
+                         SHAREDCFG_DIR,
                          tmp_msg);
 
                 fp = fopen(file, "w");
@@ -261,14 +290,14 @@ int receive_msg()
                         final_file = strrchr(file, '/');
                         if (final_file) {
                             if (strcmp(final_file + 1, SHAREDCFG_FILENAME) == 0) {
-                                if (cldir_ex_ignore(SHAREDCFG_DIRPATH, IGNORE_LIST)) {
+                                if (cldir_ex_ignore(SHAREDCFG_DIR, IGNORE_LIST)) {
                                     mwarn("Could not clean up shared directory.");
                                 }
 
-                                if(!UnmergeFiles(file, SHAREDCFG_DIRPATH, OS_TEXT)){
+                                if(!UnmergeFiles(file, SHAREDCFG_DIR, OS_TEXT)){
                                     char msg_output[OS_MAXSTR];
 
-                                    snprintf(msg_output, OS_MAXSTR, "%c:%s:%s",  LOCALFILE_MQ, "ossec-agent", AG_IN_UNMERGE);
+                                    snprintf(msg_output, OS_MAXSTR, "%c:%s:%s",  LOCALFILE_MQ, "wazuh-agent", AG_IN_UNMERGE);
                                     send_msg(msg_output, -1);
                                 }
                                 else if (agt->flags.remote_conf && !verifyRemoteConf()) {
@@ -297,7 +326,7 @@ int receive_msg()
 
         else if (fp) {
             available_server = (int)time(NULL);
-            update_ack(available_server);
+            w_agentd_state_update(UPDATE_ACK, (void *) &available_server);
             fprintf(fp, "%s", tmp_msg);
         }
 

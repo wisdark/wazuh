@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
@@ -15,7 +15,9 @@
 
 #include "shared.h"
 
-#ifdef SOLARIS
+#if defined(SUN_MAJOR_VERSION) && defined(SUN_MINOR_VERSION)  && \
+    (SUN_MAJOR_VERSION < 11) || \
+    ((SUN_MAJOR_VERSION == 11) && (SUN_MINOR_VERSION < 4))
 #define w_ctime(x,y,z) ctime_r(x,y,z)
 #else
 #define w_ctime(x,y,z) ctime_r(x,y)

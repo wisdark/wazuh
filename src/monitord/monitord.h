@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2020, Wazuh Inc.
+/* Copyright (C) 2015-2021, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -13,7 +13,7 @@
 
 #include "hash_op.h"
 #ifndef ARGV0
-#define ARGV0 "ossec-monitord"
+#define ARGV0 "wazuh-monitord"
 #endif
 
 #include "config/reports-config.h"
