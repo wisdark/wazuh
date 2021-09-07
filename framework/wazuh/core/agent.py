@@ -32,8 +32,8 @@ from wazuh.core.wazuh_queue import WazuhQueue
 from wazuh.core.wazuh_socket import WazuhSocket, WazuhSocketJSON
 from wazuh.core.wdb import WazuhDBConnection
 
-detect_wrong_lines = re.compile(r'(.+ .+ .+ .+)')
-detect_valid_lines = re.compile(r'^(\d+) (.*) (.*) (.*)', re.MULTILINE)
+detect_wrong_lines = re.compile(r'(.+ .+ (?:any|\d+\.\d+\.\d+\.\d+) \w+)')
+detect_valid_lines = re.compile(r'^(\d{3,}) (.+) (any|\d+\.\d+\.\d+\.\d+) (\w+)', re.MULTILINE)
 
 mutex = threading.Lock()
 lock_file = None
@@ -78,7 +78,7 @@ class WazuhDBQueryAgents(WazuhDBQuery):
             self.fields['id'] = 'id'
             self.query = self.query[:-1] + ' OR id LIKE :search_id)'
             self.request['search_id'] = int(self.search['value']) if self.search['value'].isdigit() \
-                else self.search['value']
+                else re.sub(f"[{self.special_characters}]", '_', self.search['value'])
 
     def _format_data_into_dictionary(self):
         fields_to_nest, non_nested = get_fields_to_nest(self.fields.keys(), ['os'], '.')
@@ -400,13 +400,13 @@ class Agent:
     def load_info_from_db(self, select=None):
         """Gets attributes of existing agent.
         """
-        db_query = WazuhDBQueryAgents(offset=0, limit=None, sort=None, search=None, select=select,
-                                      query="id={}".format(self.id), count=False, get_data=True,
-                                      remove_extra_fields=False)
-        try:
-            data = db_query.run()['items'][0]
-        except IndexError:
-            raise WazuhResourceNotFound(1701)
+        with WazuhDBQueryAgents(offset=0, limit=None, sort=None, search=None, select=select,
+                                query="id={}".format(self.id), count=False, get_data=True,
+                                remove_extra_fields=False) as db_query:
+            try:
+                data = db_query.run()['items'][0]
+            except IndexError:
+                raise WazuhResourceNotFound(1701)
 
         list(map(lambda x: setattr(self, x[0], x[1]), data.items()))
 
