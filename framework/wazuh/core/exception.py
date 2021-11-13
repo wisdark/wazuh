@@ -4,7 +4,7 @@
 
 
 from copy import deepcopy
-from wazuh.core.common import MAX_SOCKET_BUFFER_SIZE, wazuh_version as wazuh_full_version
+from wazuh.core.common import MAX_SOCKET_BUFFER_SIZE, wazuh_version as wazuh_full_version, agent_name_len_limit
 
 GENERIC_ERROR_MSG = "Wazuh Internal Error. See log for more detail"
 WAZUH_VERSION = 'current' if wazuh_full_version == '' else '.'.join(wazuh_full_version.split('.')[:2]).lstrip('v')
@@ -163,7 +163,7 @@ class WazuhException(Exception):
                },
         1407: 'Query does not match expected format',
         1408: 'Field does not exist.',
-        1409: 'Invalid query operator.',
+        1409: 'Invalid query operator',
         1410: 'Selecting more than one field in distinct mode',
         1411: 'TimeFrame is not valid',
         1412: 'Date filter not valid. Valid formats are YYYY-MM-DD HH:mm:ss, YYYY-MM-DDTHH:mm:ssZ or YYYY-MM-DD',
@@ -265,8 +265,8 @@ class WazuhException(Exception):
         1725: {'message': 'Error registering a new agent',
                'remediation': 'Please check all data fields and try again'
                },
-        1726: {'message': 'Ossec authd is not running and API use_only_authd is enabled',
-               'remediation': f'Please enable authd or change the API use_only_authd configuration'
+        1726: {'message': 'Wazuh authd is not running',
+               'remediation': 'Please enable authd or check if there is any error'
                },
         1727: {'message': 'Error listing group files',
                'remediation': 'Please, use `GET /agents/groups/:group_id/files` to get all available group files'
@@ -301,7 +301,7 @@ class WazuhException(Exception):
                'remediation': 'Please choose another group or remove an agent from the target group'
                },
         1738: {'message': 'Agent name is too long',
-               'remediation': 'Max length allowed for agent name is 128'
+               'remediation': f'Max length allowed for agent name is {agent_name_len_limit}'
                },
         1739: {'message': 'Error getting agents group sync',
                'remediation': f'Please check that the agent and the group are correctly created. Official documentation: https://documentation.wazuh.com/{WAZUH_VERSION}/user-manual/agents/grouping-agents.html'

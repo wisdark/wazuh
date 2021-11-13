@@ -118,23 +118,33 @@ char *os_shell_escape(const char *src)
     /* Determine how long the string will be */
     const char *iterator = src;
     for (; *iterator; iterator++) {
-        if ( strchr(shell_escapes, *iterator) ) {
+        if (strchr(shell_escapes, *iterator)) {
+            if ((*iterator == '\\') && *(iterator+1) && strchr(shell_escapes, *(iterator+1))) {
+                // avoid scape because it's already scaped
+                iterator++;
+            }
             length++;
         }
         length++;
     }
     /* Allocate memory */
-    if ( (escaped_string = (char *) calloc(1, length + 1 )) == NULL ) {
-        // Return NULL
+    if ((escaped_string = (char *) calloc(1, length + 1 )) == NULL) {
         return NULL;
     }
 
     /* Escape the escapable characters */
     iterator = src;
-    for ( i = 0; *iterator; iterator++ ) {
-        if ( strchr(shell_escapes, *iterator) ) {
-            escaped_string[i] = '\\';
-            i++;
+    for (i = 0; *iterator; iterator++) {
+        if (strchr(shell_escapes, *iterator)) {
+            if ((*iterator == '\\') && *(iterator+1) && strchr(shell_escapes, *(iterator+1))) {
+                // avoid scape because it's already scaped
+                escaped_string[i] = *iterator;
+                i++;
+                iterator++;
+            } else {
+                escaped_string[i] = '\\';
+                i++;
+            }
         }
         escaped_string[i] = *iterator;
         i++;
@@ -861,7 +871,7 @@ char* decode_hex_buffer_2_ascii_buffer(const char * const encoded_buffer, const 
 
     const size_t decoded_len = buffer_size / 2;
     char *decoded_buffer;
-    os_calloc(decoded_len, sizeof(char), decoded_buffer);
+    os_calloc(decoded_len + 1, sizeof(char), decoded_buffer);
 
     size_t i;
     for(i = 0; i < decoded_len; ++i) {
@@ -1043,6 +1053,11 @@ int os_snprintf(char *str, size_t size, const char *format, ...) {
 
 char * w_remove_substr(char *str, const char *sub) {
     char *p, *q, *r;
+
+    if (!str || !sub) {
+        return NULL;
+    }
+
     if ((q = r = strstr(str, sub)) != NULL) {
         size_t len = strlen(sub);
         while ((r = strstr(p = r + len, sub)) != NULL) {
@@ -1191,4 +1206,23 @@ char** w_strtok(const char *string) {
     }
 
     return output;
+}
+
+char* w_strcat_list(char ** list, char sep_char) {
+
+    char * concatenation = NULL;
+    char sep[] = {sep_char, '\0'};
+
+    if (list != NULL) {
+        char ** FIRST_ELEMENT = list;
+        while (*list != NULL) {
+            if (list != FIRST_ELEMENT) {
+                concatenation = w_strcat(concatenation, sep, 1);
+            }
+            concatenation = w_strcat(concatenation, *list, w_strlen(*list));
+            list++;
+        }
+    }
+
+    return concatenation;
 }

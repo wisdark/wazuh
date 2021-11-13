@@ -268,6 +268,9 @@ typedef struct registry_ignore_regex {
 typedef struct fim_file_data {
     // Checksum attributes
     unsigned int size;
+#ifdef WIN32
+    cJSON * perm_json;
+#endif
     char * perm;
     char * attributes;
     char * uid;
@@ -292,6 +295,7 @@ typedef struct fim_file_data {
 typedef struct fim_registry_key {
     unsigned int id;
     char * path;
+    cJSON * perm_json;
     char * perm;
     char * uid;
     char * gid;
@@ -555,14 +559,6 @@ void Free_Syscheck(syscheck_config *config);
  * @param dir The directory to be free'd
  */
 void free_directory(directory_t *dir);
-
-/**
- * @brief Transforms an ASCII text to HEX
- *
- * @param input The input text to transform
- * @return The HEX string on success, the original string on failure
- */
-char *check_ascci_hex(char *input);
 
 /**
  * @brief Logs the real time engine status

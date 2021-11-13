@@ -91,7 +91,20 @@ void test_os_snprintf_more_parameters(void **state)
     assert_int_equal(ret, 21);
 }
 
-void test_w_remove_substr(void **state)
+/* w_remove_substr */
+
+void test_w_remove_substr_null_sub(void **state)
+{
+    int i;
+    char * ret;
+    char * sub = NULL;
+    char * str = "This is a test";
+
+    ret = w_remove_substr(str, sub);
+    assert_null(ret);
+}
+
+void test_w_remove_substr_success(void **state)
 {
     int i;
     char * ret;
@@ -587,9 +600,147 @@ void test_wstr_replace_not_found(void **state)
     os_free(subject);
 }
 
+void test_w_strcat_list_null_list(void ** state) {
+
+    char ** list = NULL;
+    char * retstr;
+
+    retstr = w_strcat_list(list, ' ');
+
+    assert_null(retstr);
+}
+
+void test_w_strcat_list_empty_list(void ** state) {
+
+    char ** list = {NULL};
+    char * retstr;
+
+    retstr = w_strcat_list(list, ' ');
+
+    assert_null(retstr);
+}
+
+void test_w_strcat_list_one_element_list(void ** state) {
+
+    char * list[] = {"TestString", NULL};
+    char * retstr;
+
+    retstr = w_strcat_list(list, ' ');
+
+    assert_non_null(retstr);
+    assert_string_equal(retstr, "TestString");
+
+    os_free(retstr);
+}
+
+void test_w_strcat_list_large_list(void ** state) {
+
+    char * list[] = {"A", "large", "test", "string", "to", "be", "concatenated", "in", "this", "function", NULL};
+    char * retstr;
+
+    retstr = w_strcat_list(list, ' ');
+
+    assert_non_null(retstr);
+    assert_string_equal(retstr, "A large test string to be concatenated in this function");
+
+    os_free(retstr);
+}
+
+// Test os_shell_escape
+
+void test_os_shell_escape_already_escaped(void ** state) {
+
+    const char *src = "\\'";  // to scape: \'
+
+    char * ret = os_shell_escape(src);
+
+    assert_non_null(ret);
+    assert_string_equal(ret, "\\'");  // espected: \'
+
+    os_free(ret);
+}
+
+void test_os_shell_escape_not_escaped(void ** state) {
+
+    const char *src = "\'";  // to escape: '
+
+    char * ret = os_shell_escape(src);
+
+    assert_non_null(ret);
+    assert_string_equal(ret, "\\\'");  // espected: \'
+
+    os_free(ret);
+}
+
+void test_os_shell_escape_border(void ** state) {
+
+    const char *src = "$ border case `";  // to scape: $ border case `
+
+    char * ret = os_shell_escape(src);
+
+    assert_non_null(ret);
+    assert_string_equal(ret, "\\$ border case \\`");  // espected: \$ border case \`
+
+    os_free(ret);
+}
+
+void test_os_shell_escape_all(void ** state) {
+
+    const char *src = "\" \' \t ; ` > < | # * [ ] { } & $ ! : ( )";
+
+    char * ret = os_shell_escape(src);
+
+    assert_non_null(ret);
+    assert_string_equal(ret, "\\\" \\\' \\\t \\; \\` \\> \\< \\| \\# \\* \\[ \\] \\{ \\} \\& \\$ \\! \\: \\( \\)");
+
+    os_free(ret);
+}
+
+void test_os_shell_avoid_escape_all(void ** state) {
+
+    const char *src = "\\\" \\\' \\\t \\; \\` \\> \\< \\| \\# \\* \\[ \\] \\{ \\} \\& \\$ \\! \\: \\( \\)";
+
+    char * ret = os_shell_escape(src);
+
+    assert_non_null(ret);
+    assert_string_equal(ret, "\\\" \\\' \\\t \\; \\` \\> \\< \\| \\# \\* \\[ \\] \\{ \\} \\& \\$ \\! \\: \\( \\)");
+
+    os_free(ret);
+}
+
+void test_os_shell_escape_backslash(void ** state) {
+
+    const char *src = "\a \t \\a \\t";
+
+    char * ret = os_shell_escape(src);
+
+    assert_non_null(ret);
+    assert_string_equal(ret, "\a \\\t \\\\a \\\\t");
+
+    os_free(ret);
+}
+
+void test_os_shell_double_escape(void ** state) {
+
+    const char *src = "\" \' \t ; ` > < | # * [ ] { } & $ ! : ( )";
+
+    char * ret1 = os_shell_escape(src);
+
+    assert_non_null(ret1);
+
+    char * ret2 = os_shell_escape(ret1);
+
+    assert_non_null(ret2);
+    assert_string_equal(ret1, ret2);
+
+    os_free(ret1);
+    os_free(ret2);
+}
+
 /* Tests */
 
 int main(void) {
+
     const struct CMUnitTest tests[] = {
         //Tests w_tolower_str
         cmocka_unit_test(test_w_tolower_str_NULL),
@@ -600,7 +751,8 @@ int main(void) {
         cmocka_unit_test(test_os_snprintf_long),
         cmocka_unit_test(test_os_snprintf_more_parameters),
         // Tests w_remove_substr
-        cmocka_unit_test(test_w_remove_substr),
+        cmocka_unit_test(test_w_remove_substr_null_sub),
+        cmocka_unit_test(test_w_remove_substr_success),
         // Tests W_JSON_AddField
         cmocka_unit_test(test_W_JSON_AddField_nest_object),
         cmocka_unit_test(test_W_JSON_AddField_nest_no_object),
@@ -642,7 +794,21 @@ int main(void) {
         cmocka_unit_test(test_wstr_replace_different_variables),
         cmocka_unit_test(test_wstr_replace_multiples_variables_surround_$),
         cmocka_unit_test(test_wstr_replace_contained_variables),
-        cmocka_unit_test(test_wstr_replace_not_found)
+        cmocka_unit_test(test_wstr_replace_not_found),
+        // Tests w_strcat_list
+        cmocka_unit_test(test_w_strcat_list_null_list),
+        cmocka_unit_test(test_w_strcat_list_empty_list),
+        cmocka_unit_test(test_w_strcat_list_one_element_list),
+        cmocka_unit_test(test_w_strcat_list_large_list),
+
+        // Test os_shell_escape
+        cmocka_unit_test(test_os_shell_escape_already_escaped),
+        cmocka_unit_test(test_os_shell_escape_not_escaped),
+        cmocka_unit_test(test_os_shell_escape_border),
+        cmocka_unit_test(test_os_shell_escape_all),
+        cmocka_unit_test(test_os_shell_avoid_escape_all),
+        cmocka_unit_test(test_os_shell_escape_backslash),
+        cmocka_unit_test(test_os_shell_double_escape),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

@@ -13,6 +13,12 @@
 
 #include <external/cJSON/cJSON.h>
 
+#ifdef WIN32
+#define WSTD_CALL __stdcall
+#else
+#define WSTD_CALL
+#endif
+
 cJSON_bool __wrap_cJSON_AddItemToArray(cJSON *array, cJSON *item);
 
 extern cJSON_bool __real_cJSON_AddItemToArray(cJSON *array, cJSON *item);
@@ -55,6 +61,8 @@ cJSON * __wrap_cJSON_CreateObject(void);
 
 cJSON * __wrap_cJSON_CreateNumber(double num);
 
+extern cJSON * __real_cJSON_CreateNumber(double num);
+
 cJSON * __wrap_cJSON_CreateString(const char *string);
 
 extern cJSON * __real_cJSON_CreateString(const char *string);
@@ -63,25 +71,19 @@ void __wrap_cJSON_Delete(cJSON *item);
 
 extern void __real_cJSON_Delete(cJSON *item);
 
-cJSON * __wrap_cJSON_GetObjectItem(const cJSON * const object, const char * const string);
-
-void expect_cJSON_GetObjectItem_call(cJSON *object);
+cJSON * WSTD_CALL __wrap_cJSON_GetObjectItem(const cJSON * const object, const char * const string);
 
 extern cJSON * __real_cJSON_GetObjectItem(const cJSON * const object, const char * const string);
 
-char* __wrap_cJSON_GetStringValue(cJSON * item);
-
-void expect_cJSON_GetStringValue_call(char *str);
+char* WSTD_CALL __wrap_cJSON_GetStringValue(cJSON * item);
 
 cJSON_bool __wrap_cJSON_IsNumber(cJSON * item);
 
-void expect_cJSON_IsNumber_call(int ret);
-
 cJSON_bool __wrap_cJSON_IsObject(cJSON * item);
 
-void expect_cJSON_IsObject_call(int ret);
-
 cJSON * __wrap_cJSON_Parse(const char *value);
+
+cJSON * __wrap_cJSON_ParseWithOpts(const char *value, const char **return_parse_end, cJSON_bool require_null_terminated);
 
 extern cJSON * __real_cJSON_Parse(const char *value);
 
