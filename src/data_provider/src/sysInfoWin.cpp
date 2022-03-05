@@ -1,6 +1,6 @@
 /*
  * Wazuh SysInfo
- * Copyright (C) 2015-2021, Wazuh Inc.
+ * Copyright (C) 2015, Wazuh Inc.
  * October 7, 2020.
  *
  * This program is free software; you can redistribute it
@@ -37,6 +37,8 @@
 #include "ports/portWindowsWrapper.h"
 #include "ports/portImpl.h"
 #include "packages/packagesWindowsParserHelper.h"
+#include "packages/packagesWindows.h"
+#include "packages/appxWindowsWrapper.h"
 
 constexpr int BASEBOARD_INFORMATION_TYPE { 2 };
 constexpr auto CENTRAL_PROCESSOR_REGISTRY {"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0"};
@@ -50,6 +52,7 @@ class SysInfoProcess final
         SysInfoProcess(const DWORD pId, const HANDLE processHandle)
             : m_pId{ pId },
               m_hProcess{ processHandle },
+              m_creationTime{},
               m_kernelModeTime{},
               m_userModeTime{}
         {
@@ -74,6 +77,12 @@ class SysInfoProcess final
 
             // else: Unable to retrieve executable path from current process.
             return ret;
+        }
+
+        ULONGLONG creationTime() const
+        {
+            //convert Win32 Epoch(1 January 1601 00:00:00) to Unix Epoch(1 January 1970 00:00:00)
+            return m_creationTime.QuadPart - WINDOWS_UNIX_EPOCH_DIFF_SECONDS;
         }
 
         ULONGLONG kernelModeTime() const
@@ -130,6 +139,12 @@ class SysInfoProcess final
                 m_userModeTime.LowPart = lpUserTime.dwLowDateTime;
                 m_userModeTime.HighPart = lpUserTime.dwHighDateTime;
                 m_userModeTime.QuadPart /= TO_SECONDS_VALUE;
+
+                // Copy the creation filetime high and low parts and convert it to seconds
+                m_creationTime.LowPart = lpCreationTime.dwLowDateTime;
+                m_creationTime.HighPart = lpCreationTime.dwHighDateTime;
+                m_creationTime.QuadPart /= TO_SECONDS_VALUE;
+
             }
 
             // else: Unable to retrieve kernel mode and user mode times from current process.
@@ -227,6 +242,7 @@ class SysInfoProcess final
 
         const DWORD     m_pId;
         HANDLE          m_hProcess;
+        ULARGE_INTEGER  m_creationTime;
         ULARGE_INTEGER  m_kernelModeTime;
         ULARGE_INTEGER  m_userModeTime;
         DWORD           m_pageFileUsage;
@@ -349,6 +365,7 @@ static nlohmann::json getProcessInfo(const PROCESSENTRY32& processEntry)
         jsProcessInfo["nlwp"]       = processEntry.cntThreads;
         jsProcessInfo["utime"]      = process.userModeTime();
         jsProcessInfo["vm_size"]    = process.virtualSize();
+        jsProcessInfo["start_time"] = process.creationTime();
         CloseHandle(processHandle);
     }
 
@@ -427,6 +444,41 @@ static void getPackagesFromReg(const HKEY key, const std::string& subKey, std::f
             }
         };
         Utils::Registry root{key, subKey, access | KEY_ENUMERATE_SUB_KEYS | KEY_READ};
+        root.enumerate(callback);
+    }
+    catch (...)
+    {
+    }
+}
+
+static void getStorePackages(const HKEY key, const std::string& user, std::function<void(nlohmann::json&)> returnCallback)
+{
+    std::set<std::string> cacheReg;
+
+    try
+    {
+        for (const auto& registry : Utils::Registry{key, user + "\\" + CACHE_NAME_REGISTRY, KEY_READ | KEY_ENUMERATE_SUB_KEYS}.enumerate())
+        {
+            cacheReg.insert(registry);
+        }
+
+        const auto callback
+        {
+            [&](const std::string & nameApp)
+            {
+                nlohmann::json jsPackage;
+
+                FactoryWindowsPackage::create(key, user, nameApp, cacheReg)->buildPackageData(jsPackage);
+
+                if (!jsPackage.at("name").get_ref<const std::string&>().empty())
+                {
+                    // Only return valid content packages
+                    returnCallback(jsPackage);
+                }
+            }
+        };
+
+        Utils::Registry root(key, user + "\\" + APPLICATION_STORE_REGISTRY, KEY_READ | KEY_ENUMERATE_SUB_KEYS);
         root.enumerate(callback);
     }
     catch (...)
@@ -763,21 +815,48 @@ void SysInfo::getProcessesInfo(std::function<void(nlohmann::json&)> callback) co
 
 void SysInfo::getPackages(std::function<void(nlohmann::json&)> callback) const
 {
-    getPackagesFromReg(HKEY_LOCAL_MACHINE, UNINSTALL_REGISTRY, callback, KEY_WOW64_64KEY);
-    getPackagesFromReg(HKEY_LOCAL_MACHINE, UNINSTALL_REGISTRY, callback, KEY_WOW64_32KEY);
+    std::set<std::string> set;
+
+    auto fillList
+    {
+        [&callback, &set](nlohmann::json & data)
+        {
+            const std::string key { data.at("name").get_ref<const std::string&>() + data.at("version").get_ref<const std::string&>() };
+            const auto result { set.insert(key) };
+
+            if (result.second)
+            {
+                callback(data);
+            }
+        }
+    };
+
+    getPackagesFromReg(HKEY_LOCAL_MACHINE, UNINSTALL_REGISTRY, fillList, KEY_WOW64_64KEY);
+    getPackagesFromReg(HKEY_LOCAL_MACHINE, UNINSTALL_REGISTRY, fillList, KEY_WOW64_32KEY);
 
     for (const auto& user : Utils::Registry{HKEY_USERS, "", KEY_READ | KEY_ENUMERATE_SUB_KEYS}.enumerate())
     {
-        getPackagesFromReg(HKEY_USERS, user + "\\" + UNINSTALL_REGISTRY, callback);
+        getPackagesFromReg(HKEY_USERS, user + "\\" + UNINSTALL_REGISTRY, fillList);
+        getStorePackages(HKEY_USERS, user, fillList);
     }
 }
 
 nlohmann::json SysInfo::getHotfixes() const
 {
+    std::set<std::string> hotfixes;
+    PackageWindowsHelper::getHotFixFromReg(HKEY_LOCAL_MACHINE, PackageWindowsHelper::WIN_REG_HOTFIX, hotfixes);
+    PackageWindowsHelper::getHotFixFromRegNT(HKEY_LOCAL_MACHINE, PackageWindowsHelper::VISTA_REG_HOTFIX, hotfixes);
+    PackageWindowsHelper::getHotFixFromRegWOW(HKEY_LOCAL_MACHINE, PackageWindowsHelper::WIN_REG_WOW_HOTFIX, hotfixes);
+    PackageWindowsHelper::getHotFixFromRegProduct(HKEY_LOCAL_MACHINE, PackageWindowsHelper::WIN_REG_PRODUCT_HOTFIX, hotfixes);
+
     nlohmann::json ret;
-    PackageWindowsHelper::getHotFixFromReg(HKEY_LOCAL_MACHINE, PackageWindowsHelper::WIN_REG_HOTFIX, ret);
-    PackageWindowsHelper::getHotFixFromRegNT(HKEY_LOCAL_MACHINE, PackageWindowsHelper::VISTA_REG_HOTFIX, ret);
-    PackageWindowsHelper::getHotFixFromRegWOW(HKEY_LOCAL_MACHINE, PackageWindowsHelper::WIN_REG_WOW_HOTFIX, ret);
-    PackageWindowsHelper::getHotFixFromRegProduct(HKEY_LOCAL_MACHINE, PackageWindowsHelper::WIN_REG_PRODUCT_HOTFIX, ret);
+
+    for (auto& hotfix : hotfixes)
+    {
+        nlohmann::json hotfixValue;
+        hotfixValue["hotfix"] = std::move(hotfix);
+        ret.push_back(std::move(hotfixValue));
+    }
+
     return ret;
 }

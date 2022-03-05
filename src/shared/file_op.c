@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2021, Wazuh Inc.
+/* Copyright (C) 2015, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -1877,6 +1877,7 @@ const char *getuname()
                 TCHAR wincomp[size];
                 DWORD winMajor = 0;
                 DWORD winMinor = 0;
+                DWORD buildRevision = 0;
                 DWORD dwCount = size;
                 unsigned long type=REG_DWORD;
 
@@ -1900,12 +1901,19 @@ const char *getuname()
                             snprintf(__wp, 63, " [Ver: %d.%d]", (unsigned int)winMajor, (unsigned int)winMinor);
                         }
                         else {
-                            snprintf(__wp, 63, " [Ver: %d.%d.%s]", (unsigned int)winMajor, (unsigned int)winMinor, wincomp);
+                            dwCount = size;
+                            dwRet = RegQueryValueEx(RegistryKey, TEXT("UBR"), NULL, &type, (LPBYTE)&buildRevision, &dwCount);
+                            if (dwRet != ERROR_SUCCESS) {
+                                snprintf(__wp,  sizeof(__wp), " [Ver: %d.%d.%s]", (unsigned int)winMajor, (unsigned int)winMinor, wincomp);
+                            }
+                            else {
+                                snprintf(__wp,  sizeof(__wp), " [Ver: %d.%d.%s.%d]", (unsigned int)winMajor, (unsigned int)winMinor, wincomp, buildRevision);
+                            }
 
                             char *endptr = NULL, *osVersion = NULL;
-                            const int buildNumber = (int) strtol(wincomp, endptr, 10);
+                            const int buildNumber = (int) strtol(wincomp, &endptr, 10);
 
-                            if ('\0' == endptr && buildNumber >= FIRST_BUILD_WINDOWS_11) {
+                            if ('\0' == *endptr && buildNumber >= FIRST_BUILD_WINDOWS_11) {
                                 if (osVersion = strstr(ret, "Microsoft Windows 10"), osVersion != NULL) {
                                     memcpy(osVersion, "Microsoft Windows 11", strlen("Microsoft Windows 11"));
                                 }
@@ -1929,10 +1937,17 @@ const char *getuname()
                             snprintf(__wp, 63, " [Ver: 6.2]");
                         }
                         else {
-                            snprintf(__wp, 63, " [Ver: %s.%s]", winver,wincomp);
+                            dwCount = size;
+                            dwRet = RegQueryValueEx(RegistryKey, TEXT("UBR"), NULL, &type, (LPBYTE)&buildRevision, &dwCount);
+                            if (dwRet != ERROR_SUCCESS) {
+                                snprintf(__wp, sizeof(__wp), " [Ver: %s.%s]", winver,wincomp);
+                            }
+                            else {
+                                snprintf(__wp, sizeof(__wp), " [Ver: %s.%s.%d]", winver, wincomp, buildRevision);
+                            }
                         }
-                        RegCloseKey(RegistryKey);
                     }
+                    RegCloseKey(RegistryKey);
                 }
 
                 strncat(ret, __wp, ret_size - 1);
@@ -2773,53 +2788,6 @@ FILE * wfopen(const char * pathname, const char * mode) {
 #else
     return fopen(pathname, mode);
 #endif
-}
-
-
-int w_remove_line_from_file(char *file, int line){
-    FILE *fp_src;
-    FILE *fp_dst;
-    size_t count_w;
-    char buffer[OS_SIZE_65536 + 1];
-    char destination[PATH_MAX] = {0};
-
-    fp_src = fopen(file, "r");
-
-    if (!fp_src) {
-        merror("At remove_line_from_file(): Couldn't open file '%s'", file);
-        return -1;
-    }
-
-    snprintf(destination, PATH_MAX, "%s.back", file);
-
-    /* Write to file */
-    fp_dst = fopen(destination, "w");
-
-    if (!fp_dst) {
-        mdebug1("At remove_line_from_file(): Couldn't open file '%s'", destination);
-        fclose(fp_src);
-        return -1;
-    }
-
-    /* Write message to the destination file */
-    int i = 0;
-    while (fgets(buffer, OS_SIZE_65536 + 1, fp_src) != NULL) {
-
-        if(i != line){
-            count_w = fwrite(buffer, 1, strlen(buffer) , fp_dst);
-
-            if (count_w != strlen(buffer) || ferror(fp_dst)) {
-                merror("At remove_line_from_file(): Couldn't write file '%s'", destination);
-                break;
-            }
-        }
-        i++;
-    }
-
-    fclose(fp_src);
-    fclose(fp_dst);
-
-    return w_copy_file(destination, file, 'w', NULL, 0);
 }
 
 

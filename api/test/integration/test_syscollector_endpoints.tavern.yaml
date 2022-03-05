@@ -1,9 +1,6 @@
 ---
 test_name: GET /syscollector/{agent_id}/os
 
-marks:
-  - base_tests
-
 stages:
 
   - name: Get the OS of an agent

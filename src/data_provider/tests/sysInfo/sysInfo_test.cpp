@@ -1,6 +1,6 @@
 /*
  * Wazuh SysInfo
- * Copyright (C) 2015-2021, Wazuh Inc.
+ * Copyright (C) 2015, Wazuh Inc.
  * October 19, 2020.
  *
  * This program is free software; you can redistribute it
@@ -29,6 +29,7 @@ auto PACKAGES_EXPECTED
 };
 
 using ::testing::_;
+using ::testing::DoAll;
 using ::testing::Return;
 
 std::string SysInfo::getSerialNumber() const

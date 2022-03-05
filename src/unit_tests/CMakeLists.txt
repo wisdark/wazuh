@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2021, Wazuh Inc.
+# Copyright (C) 2015, Wazuh Inc.
 #
 # This program is free software; you can redistribute it
 # and/or modify it under the terms of the GNU General Public
@@ -59,6 +59,7 @@ if((${uname} STREQUAL "Linux") OR (${uname} STREQUAL "Win32"))
 if(${uname} STREQUAL "Linux")
   add_subdirectory(os_net)
   add_subdirectory(fluentd_forwarder)
+  add_subdirectory(active-response)
   endif()
 
 # Config files

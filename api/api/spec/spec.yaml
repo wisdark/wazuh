@@ -40,8 +40,8 @@ info:
 
     <SecurityDefinitions />
 
-  version: '4.3.0'
-  x-revision: '40302'
+  version: '4.4.0'
+  x-revision: '40400'
   title: 'Wazuh API REST'
   license:
     name: 'GPL 2.0'
@@ -1718,7 +1718,7 @@ components:
                         shared:
                           type: integer
                           format: int32
-                sync_agentinfo_free:
+                sync_agent_info_free:
                   type: boolean
                 sync_integrity_free:
                   type: boolean
@@ -2567,11 +2567,15 @@ components:
             $ref: '#/components/schemas/LogSummary'
           wazuh-modulesd:agent-key-polling:
             $ref: '#/components/schemas/LogSummary'
+          wazuh-modulesd:agent-upgrade:
+            $ref: '#/components/schemas/LogSummary'
           wazuh-modulesd:aws-s3:
             $ref: '#/components/schemas/LogSummary'
           wazuh-modulesd:azure-logs:
             $ref: '#/components/schemas/LogSummary'
           wazuh-modulesd:ciscat:
+            $ref: '#/components/schemas/LogSummary'
+          wazuh-modulesd:control:
             $ref: '#/components/schemas/LogSummary'
           wazuh-modulesd:command:
             $ref: '#/components/schemas/LogSummary'
@@ -2588,6 +2592,8 @@ components:
           wazuh-modulesd:syscollector:
             $ref: '#/components/schemas/LogSummary'
           wazuh-modulesd:vulnerability-detector:
+            $ref: '#/components/schemas/LogSummary'
+          wazuh-modulesd:task-manager:
             $ref: '#/components/schemas/LogSummary'
 
     ConfirmationMessage:
@@ -4731,6 +4737,8 @@ components:
         - wazuh-modulesd:agent-key-polling
         - wazuh-modulesd:aws-s3
         - wazuh-modulesd:azure-logs
+        - wazuh-modulesd:agent-upgrade
+        - wazuh-modulesd:task-manager
         - wazuh-modulesd:ciscat
         - wazuh-modulesd:control
         - wazuh-modulesd:command
@@ -6675,7 +6683,7 @@ paths:
               required:
                 - group_id
             example:
-              name: NewGroup_1
+              group_id: NewGroup_1
       responses:
         '200':
           description: "Add new agent"
@@ -7914,6 +7922,7 @@ paths:
                             extra: 0
                             extra_valid: 0
                             shared: 0
+                        sync_agent_info_free: true
                         last_sync_agentinfo:
                           date_start_master: 2021-05-27T10:50:49.174463Z
                           date_end_master: 2021-05-27T10:50:49.175921Z
@@ -7940,6 +7949,7 @@ paths:
                             extra: 0
                             extra_valid: 0
                             shared: 0
+                        sync_agent_info_free: true
                         last_sync_agentinfo:
                           date_start_master: 2021-05-27T10:50:48.832800Z
                           date_end_master: 2021-05-27T10:50:48.833854Z
@@ -10645,7 +10655,7 @@ paths:
                     - timestamp: '2020-04-15T13:50:24Z'
                       tag: wazuh-maild
                       level: error
-                      description: " (1223): Error Sending email to 69.172.200.109 (smtp server)"
+                      description: " (1263): Error Sending email to 69.172.200.109 (smtp server)"
                   total_affected_items: 3
                   failed_items: []
                   total_failed_items: 0
@@ -10969,7 +10979,7 @@ paths:
               example:
                 data:
                   affected_items:
-                    - mitre_version: '1.2'
+                    - mitre_version: '4.4.0'
                       deprecated: 0
                       description: |-
                         [APT38](https://attack.mitre.org/groups/G0082) is a financially-motivated threat group that is backed by the North Korean regime. The group mainly targets banks and financial institutions and has targeted more than 16 organizations in at least 13 countries since at least 2014.(Citation: FireEye APT38 Oct 2018)
@@ -11231,7 +11241,7 @@ paths:
               example:
                 data:
                   affected_items:
-                    - mitre_version: '1.0'
+                    - mitre_version: '4.4.0'
                       deprecated: 0
                       description: "[HDoor](https://attack.mitre.org/software/S0061) is malware that
                         has been customized and used by the [Naikon](https://attack.mitre.org/groups/G0019)
@@ -11386,7 +11396,7 @@ paths:
               example:
                 data:
                   affected_items:
-                    - mitre_version: '1.0'
+                    - mitre_version: '4.4.0'
                       network_requirements: 0
                       remote_support: 0
                       mitre_detection: |-
@@ -11990,7 +12000,7 @@ paths:
                   -  Rules config
                   -  Author: Daniel Cid.
                   -  Updated by Wazuh, Inc.
-                  -  Copyright (C) 2015-2021, Wazuh Inc.
+                  -  Copyright (C) 2015, Wazuh Inc.
                   -  Copyright (C) 2009 Trend Micro Inc.
                   -  This program is a free software; you can redistribute it and/or modify it under the terms of GPLv2.
                 -->
@@ -12771,7 +12781,7 @@ paths:
                 <!--
                   -  Wazuh decoders
                   -  Created by Wazuh, Inc.
-                  -  Copyright (C) 2015-2021, Wazuh Inc.
+                  -  Copyright (C) 2015, Wazuh Inc.
                   -  This program is a free software; you can redistribute it and/or modify it under the terms of GPLv2.
                 -->
                 <decoder name="wazuh">

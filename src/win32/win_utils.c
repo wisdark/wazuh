@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2021, Wazuh Inc.
+/* Copyright (C) 2015, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -293,16 +293,14 @@ int local_start()
     return (0);
 }
 
-/* SendMSG for Windows */
-int SendMSG(__attribute__((unused)) int queue, const char *message, const char *locmsg, char loc)
+/* SendMSGAction for Windows */
+int SendMSGAction(__attribute__((unused)) int queue, const char *message, const char *locmsg, char loc)
 {
     const char *pl;
     char tmpstr[OS_MAXSTR + 2];
     DWORD dwWaitResult;
     int retval = -1;
     tmpstr[OS_MAXSTR + 1] = '\0';
-
-    os_wait();
 
     /* Using a mutex to synchronize the writes */
     while (1) {
@@ -355,6 +353,18 @@ int SendMSG(__attribute__((unused)) int queue, const char *message, const char *
     return retval;
 }
 
+/* SendMSG for Windows */
+int SendMSG(__attribute__((unused)) int queue, const char *message, const char *locmsg, char loc) {
+    os_wait();
+    return SendMSGAction(queue, message, locmsg, loc);
+}
+
+/* SendMSGPredicated for Windows */
+int SendMSGPredicated(__attribute__((unused)) int queue, const char *message, const char *locmsg, char loc, bool (*fn_ptr)()) {
+    os_wait_predicate(fn_ptr);
+    return SendMSGAction(queue, message, locmsg, loc);
+}
+
 /* StartMQ for Windows */
 int StartMQ(__attribute__((unused)) const char *path, __attribute__((unused)) short int type, __attribute__((unused)) short int n_tries)
 {
@@ -386,17 +396,20 @@ char *get_agent_ip()
                         }
                         cJSON *gateway = cJSON_GetObjectItem(element, "gateway");
                         if(gateway && cJSON_GetStringValue(gateway) && 0 != strcmp(gateway->valuestring, " ")) {
-                            const cJSON *ipv4 = cJSON_GetObjectItem(element, "IPv4");
-                            if (!ipv4) {
-                                continue;
-                            }
-                            const int size_proto_interfaces = cJSON_GetArraySize(ipv4);
-                            for (int j = 0; j < size_proto_interfaces; ++j) {
-                                const cJSON *element_ipv4 = cJSON_GetArrayItem(ipv4, j);
-                                if(!element_ipv4) {
+                            const cJSON *ip = cJSON_GetObjectItem(element, "IPv6");
+                            if (!ip) {
+                                ip = cJSON_GetObjectItem(element, "IPv4");
+                                if (!ip) {
                                     continue;
                                 }
-                                cJSON *address = cJSON_GetObjectItem(element_ipv4, "address");
+                            }
+                            const int size_proto_interfaces = cJSON_GetArraySize(ip);
+                            for (int j = 0; j < size_proto_interfaces; ++j) {
+                                const cJSON *element_ip = cJSON_GetArrayItem(ip, j);
+                                if(!element_ip) {
+                                    continue;
+                                }
+                                cJSON *address = cJSON_GetObjectItem(element_ip, "address");
                                 if (address && cJSON_GetStringValue(address))
                                 {
                                     strncpy(agent_ip, address->valuestring, IPSIZE);
@@ -415,6 +428,10 @@ char *get_agent_ip()
         else {
             merror("Unable to get system network information. Error code: %d.", error_code);
         }
+    }
+
+    if (strchr(agent_ip, ':') != NULL) {
+        OS_ExpandIPv6(agent_ip, IPSIZE);
     }
 
     return strdup(agent_ip);

@@ -1,16 +1,16 @@
 #!/usr/bin/env python
 
-# Copyright (C) 2015-2021, Wazuh Inc.
+# Copyright (C) 2015, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is free software; you can redistribute it and/or modify it under the terms of GPLv2
 import argparse
 import asyncio
 import logging
 import os
+import signal
 import sys
-from signal import signal, Signals, SIGTERM, SIG_DFL
 
-from wazuh.core.utils import check_pid
+from wazuh.core.utils import clean_pid_files
 
 
 #
@@ -31,16 +31,20 @@ def print_version():
 
 
 def exit_handler(signum, frame):
-    main_logger.info(f'SIGNAL [({signum})-({Signals(signum).name})] received. Exit...')
+    cluster_pid = os.getpid()
+    main_logger.info(f'SIGNAL [({signum})-({signal.Signals(signum).name})] received. Exit...')
+
+    # Terminate cluster's child processes
+    pyDaemonModule.delete_child_pids('wazuh-clusterd', cluster_pid, main_logger)
 
     # Remove cluster's pidfile
-    pyDaemonModule.delete_pid('wazuh-clusterd', os.getpid())
+    pyDaemonModule.delete_pid('wazuh-clusterd', cluster_pid)
 
     if callable(original_sig_handler):
         original_sig_handler(signum, frame)
-    elif original_sig_handler == SIG_DFL:
+    elif original_sig_handler == signal.SIG_DFL:
         # Call default handler if the original one can't be run
-        signal(signum, SIG_DFL)
+        signal.signal(signum, signal.SIG_DFL)
         os.kill(os.getpid(), signum)
 
 
@@ -57,6 +61,9 @@ async def master_main(args, cluster_config, cluster_items, logger):
                                                      concurrency_test=args.concurrency_test, node=my_server,
                                                      configuration=cluster_config, enable_ssl=args.ssl,
                                                      cluster_items=cluster_items)
+    # Spawn pool processes
+    if my_server.task_pool is not None:
+        my_server.task_pool.map(cluster_utils.process_spawn_sleep, range(my_server.task_pool._max_workers))
     await asyncio.gather(my_server.start(), my_local_server.start())
 
 
@@ -65,16 +72,32 @@ async def master_main(args, cluster_config, cluster_items, logger):
 #
 async def worker_main(args, cluster_config, cluster_items, logger):
     from wazuh.core.cluster import worker, local_server
+    from concurrent.futures import ProcessPoolExecutor
     cluster_utils.context_tag.set('Worker')
+
+    # Pool is defined here so the child process is not recreated when the connection with master node is broken.
+    try:
+        task_pool = ProcessPoolExecutor(max_workers=1)
+    # Handle exception when the user running Wazuh cannot access /dev/shm
+    except (FileNotFoundError, PermissionError):
+        main_logger.warning(
+            "In order to take advantage of Wazuh 4.3.0 cluster improvements, the directory '/dev/shm' must be "
+            "accessible by the 'wazuh' user. Check that this file has permissions to be accessed by all users. "
+            "Changing the file permissions to 777 will solve this issue.")
+        main_logger.warning(
+            "The Wazuh cluster will be run without the improvements added in Wazuh 4.3.0 and higher versions.")
+        task_pool = None
+
     while True:
         my_client = worker.Worker(configuration=cluster_config, enable_ssl=args.ssl,
                                   performance_test=args.performance_test, concurrency_test=args.concurrency_test,
                                   file=args.send_file, string=args.send_string, logger=logger,
-                                  cluster_items=cluster_items)
+                                  cluster_items=cluster_items, task_pool=task_pool)
         my_local_server = local_server.LocalServerWorker(performance_test=args.performance_test, logger=logger,
                                                          concurrency_test=args.concurrency_test, node=my_client,
                                                          configuration=cluster_config, enable_ssl=args.ssl,
                                                          cluster_items=cluster_items)
+
         try:
             await asyncio.gather(my_client.start(), my_local_server.start())
         except asyncio.CancelledError:
@@ -115,7 +138,7 @@ if __name__ == '__main__':
     parser.add_argument('-r', help="Run as root", action='store_true', dest='root')
     parser.add_argument('-t', help="Test configuration", action='store_true', dest='test_config')
     parser.add_argument('-c', help="Configuration file to use", type=str, metavar='config', dest='config_file',
-                        default=common.ossec_conf)
+                        default=common.OSSEC_CONF)
     args = parser.parse_args()
 
     if args.version:
@@ -129,9 +152,9 @@ if __name__ == '__main__':
         debug_mode = 0
 
     # set correct permissions on cluster.log file
-    if os.path.exists('{0}/logs/cluster.log'.format(common.wazuh_path)):
-        os.chown('{0}/logs/cluster.log'.format(common.wazuh_path), common.wazuh_uid(), common.wazuh_gid())
-        os.chmod('{0}/logs/cluster.log'.format(common.wazuh_path), 0o660)
+    if os.path.exists('{0}/logs/cluster.log'.format(common.WAZUH_PATH)):
+        os.chown('{0}/logs/cluster.log'.format(common.WAZUH_PATH), common.wazuh_uid(), common.wazuh_gid())
+        os.chmod('{0}/logs/cluster.log'.format(common.WAZUH_PATH), 0o660)
 
     main_logger = set_logging(foreground_mode=args.foreground, debug_mode=debug_mode)
 
@@ -156,6 +179,9 @@ if __name__ == '__main__':
     # clean
     wazuh.core.cluster.cluster.clean_up()
 
+    # Check for unused PID files
+    clean_pid_files('wazuh-clusterd')
+
     # Foreground/Daemon
     if not args.foreground:
         pyDaemonModule.pyDaemon()
@@ -165,13 +191,12 @@ if __name__ == '__main__':
         os.setgid(common.wazuh_gid())
         os.setuid(common.wazuh_uid())
 
-    check_pid('wazuh-clusterd')
     pid = os.getpid()
     pyDaemonModule.create_pid('wazuh-clusterd', pid)
     if args.foreground:
         print(f"Starting cluster in foreground (pid: {pid})")
 
-    original_sig_handler = signal(SIGTERM, exit_handler)
+    original_sig_handler = signal.signal(signal.SIGTERM, exit_handler)
 
     main_function = master_main if cluster_configuration['node_type'] == 'master' else worker_main
     try:
@@ -184,4 +209,5 @@ if __name__ == '__main__':
     except Exception as e:
         main_logger.error(f"Unhandled exception: {e}")
     finally:
+        pyDaemonModule.delete_child_pids('wazuh-clusterd', pid, main_logger)
         pyDaemonModule.delete_pid('wazuh-clusterd', pid)

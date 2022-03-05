@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2021, Wazuh Inc.
+# Copyright (C) 2015, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is a free software; you can redistribute it and/or modify it under the terms of GPLv2
 import fcntl
@@ -6,7 +6,9 @@ import json
 import logging
 import os
 import re
+import signal
 import socket
+import time
 import typing
 from contextvars import ContextVar
 from functools import lru_cache
@@ -14,7 +16,7 @@ from glob import glob
 from operator import setitem
 from os.path import join, exists
 
-from wazuh.core import common
+from wazuh.core import common, pyDaemonModule
 from wazuh.core.configuration import get_ossec_conf
 from wazuh.core.exception import WazuhException, WazuhError, WazuhInternalError
 from wazuh.core.results import WazuhResult
@@ -23,10 +25,10 @@ from wazuh.core.wazuh_socket import create_wazuh_socket_message
 from wazuh.core.wlogging import WazuhLogger
 
 logger = logging.getLogger('wazuh')
-execq_lockfile = join(common.wazuh_path, "var/run/.api_execq_lock")
+execq_lockfile = join(common.WAZUH_PATH, "var/run/.api_execq_lock")
 
 
-def read_cluster_config(config_file=common.ossec_conf, from_import=False) -> typing.Dict:
+def read_cluster_config(config_file=common.OSSEC_CONF, from_import=False) -> typing.Dict:
     """Read cluster configuration from ossec.conf.
 
     If some fields are missing in the ossec.conf cluster configuration, they are replaced
@@ -106,7 +108,7 @@ def get_manager_status(cache=False) -> typing.Dict:
                  'wazuh-execd', 'wazuh-integratord', 'wazuh-logcollector', 'wazuh-maild', 'wazuh-remoted',
                  'wazuh-reportd', 'wazuh-syscheckd', 'wazuh-clusterd', 'wazuh-modulesd', 'wazuh-db', 'wazuh-apid']
 
-    data, pidfile_regex, run_dir = {}, re.compile(r'.+\-(\d+)\.pid$'), join(common.wazuh_path, 'var/run')
+    data, pidfile_regex, run_dir = {}, re.compile(r'.+\-(\d+)\.pid$'), join(common.WAZUH_PATH, 'var/run')
     for process in processes:
         pidfile = glob(join(run_dir, f"{process}-*.pid"))
         if exists(join(run_dir, f'{process}.failed')):
@@ -146,7 +148,7 @@ def get_cluster_status() -> typing.Dict:
 def manager_restart() -> WazuhResult:
     """Restart Wazuh manager.
 
-    Send JSON message with the 'restart-wazuh' command to common.EXECQ socket.
+    Send JSON message with the 'restart-wazuh' command to common.EXECQ_SOCKET socket.
 
     Raises
     ------
@@ -166,7 +168,7 @@ def manager_restart() -> WazuhResult:
     fcntl.lockf(lock_file, fcntl.LOCK_EX)
     try:
         # execq socket path
-        socket_path = common.EXECQ
+        socket_path = common.EXECQ_SOCKET
         # json msg for restarting Wazuh manager
         msg = json.dumps(create_wazuh_socket_message(origin={'module': common.origin_module.get()},
                                                      command=common.RESTART_WAZUH_COMMAND,
@@ -205,7 +207,7 @@ def get_cluster_items():
     """
     try:
         here = os.path.abspath(os.path.dirname(__file__))
-        with open(os.path.join(common.wazuh_path, here, 'cluster.json')) as f:
+        with open(os.path.join(common.WAZUH_PATH, here, 'cluster.json')) as f:
             cluster_items = json.load(f)
         # Rebase permissions.
         list(map(lambda x: setitem(x, 'permissions', int(x['permissions'], base=0)),
@@ -216,7 +218,7 @@ def get_cluster_items():
 
 
 @lru_cache()
-def read_config(config_file=common.ossec_conf):
+def read_config(config_file=common.OSSEC_CONF):
     """Get the cluster configuration.
 
     Parameters
@@ -287,3 +289,21 @@ class ClusterLogger(WazuhLogger):
             logging.DEBUG if self.debug_level == 1 else logging.INFO
 
         self.logger.setLevel(debug_level)
+
+
+def process_spawn_sleep(child):
+    """Task to force the cluster pool spawn all its children and create their PID files.
+
+    Parameters
+    ----------
+    child: int
+        Process child number.
+    """
+    pid = os.getpid()
+    pyDaemonModule.create_pid(f'wazuh-clusterd_child_{child}', pid)
+
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    # Add a delay to force each child process to create its own PID file, preventing multiple calls
+    # executed by the same child
+    time.sleep(0.1)

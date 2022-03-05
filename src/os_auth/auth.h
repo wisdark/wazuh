@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2021, Wazuh Inc.
+/* Copyright (C) 2015, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -55,7 +55,11 @@ extern BIO *bio_err;
 
 struct client {
     int socket;
-    struct in_addr addr;
+    union {
+        struct in_addr *addr4;
+        struct in6_addr *addr6;
+    };
+    bool is_ipv6;
 };
 
 struct keynode {

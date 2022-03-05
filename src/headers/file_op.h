@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2021, Wazuh Inc.
+/* Copyright (C) 2015, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -20,6 +20,7 @@
 #include <external/cJSON/cJSON.h>
 
 #ifdef WIN32
+#include <winsock2.h>
 #include <windows.h>
 #endif
 
@@ -392,16 +393,6 @@ char ** wreaddir(const char * name);
  * @return File pointer.
  */
 FILE * wfopen(const char * pathname, const char * mode);
-
-
-/**
- * @brief Delete a line from a file.
- *
- * @param file Path of the file.
- * @param line Line to be removed.
- * @return 0 on success, -1 on error.
- */
-int w_remove_line_from_file(char *file, int line);
 
 
 /**

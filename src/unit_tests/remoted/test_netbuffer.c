@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021, Wazuh Inc.
+ * Copyright (C) 2015, Wazuh Inc.
  *
  * This program is free software; you can redistribute it
  * and/or modify it under the terms of the GNU General Public
@@ -37,9 +37,9 @@ static int test_setup(void ** state) {
     send_buffer_size = 100;
 
     netbuffer_t *netbuffer;
-    struct sockaddr_in peer_info;
+    struct sockaddr_storage peer_info;
 
-    memset(&peer_info, 0, sizeof(struct sockaddr_in));
+    memset(&peer_info, 0, sizeof(struct sockaddr_storage));
 
     os_calloc(1, sizeof(netbuffer_t), netbuffer);
 

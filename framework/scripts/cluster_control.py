@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (C) 2015-2021, Wazuh Inc.
+# Copyright (C) 2015, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is free software; you can redistribute it and/or modify it under the terms of GPLv2
 
@@ -11,11 +11,12 @@ import logging
 import operator
 import sys
 from datetime import datetime
+from os import path
 
 import wazuh.core.cluster.cluster
 import wazuh.core.cluster.utils
 from wazuh.core.cluster import control, local_client
-from wazuh.core.common import decimals_date_format
+from wazuh.core.common import DECIMALS_DATE_FORMAT
 
 
 def __print_table(data, headers, show_header=False):
@@ -71,6 +72,7 @@ async def print_health(config, more, filter_node):
     filter_node : str, list
         Node to return.
     """
+
     def calculate_seconds(start_time, end_time):
         """Calculate the time difference between two dates.
 
@@ -88,7 +90,7 @@ async def print_health(config, more, filter_node):
         """
         if end_time != 'n/a' and start_time != 'n/a':
             seconds = \
-                datetime.strptime(end_time, decimals_date_format) - datetime.strptime(start_time, decimals_date_format)
+                datetime.strptime(end_time, DECIMALS_DATE_FORMAT) - datetime.strptime(start_time, DECIMALS_DATE_FORMAT)
             total_seconds = f"{round(seconds.total_seconds(), 3) if seconds.total_seconds() >= 0.0005 else 0.001}s"
         else:
             total_seconds = 'n/a'
@@ -159,9 +161,39 @@ async def print_health(config, more, filter_node):
                     f"{node_info['status']['last_sync_agentinfo']['date_end_master']}).\n"
             msg2 += f"                Number of synchronized chunks: " \
                     f"{node_info['status']['last_sync_agentinfo']['n_synced_chunks']}.\n"
+            msg2 += f"                Permission to synchronize agent-info: " \
+                    f"{node_info['status']['sync_agent_info_free']}.\n"
 
     print(msg1)
     more and print(msg2)
+
+
+def usage():
+    """Show the usage of the parameters."""
+    msg = """
+    {0} [-h] [-d] [-fn [FILTER_NODE ...]] [-fs [FILTER_STATUS ...]][-a | -l | -i [HEALTH]]
+    Usage:
+    \t-l                                    # List all nodes present in a cluster
+    \t-l -fn <node_name>                    # List certain nodes that belong to the cluster
+    \t-a                                    # List all agents connected to the cluster
+    \t-a -fn <node_name>                    # Check which agents are reporting to certain nodes
+    \t-a -fs <agent_status>                 # List agents with certain status
+    \t-a -fn <node_name> <agent_status>     # List agents reporting to certain node and with certain status
+    \t-i                                    # Check cluster health
+    \t-i -fn <node_name>                    # Check certain node's health
+    
+
+    Params:
+    \t-l, --list
+    \t-d, --debug
+    \t-h, --help
+    \t-fn, --filter-node
+    \t-fs, --filter-agent-status
+    \t-a, --list-agents
+    \t-i, --health
+    
+    """.format(path.basename(sys.argv[0]))
+    print(msg)
 
 
 if __name__ == '__main__':
@@ -174,6 +206,7 @@ if __name__ == '__main__':
     exclusive.add_argument('-a', '--list-agents', action='store_const', const='list_agents', help='List agents')
     exclusive.add_argument('-l', '--list-nodes', action='store_const', const='list_nodes', help='List nodes')
     exclusive.add_argument('-i', '--health', action='store', nargs='?', const='health', help='Show cluster health')
+    exclusive.add_argument('-u', '--usage', action='store_true', help='Show usage')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.ERROR, format='%(levelname)s: %(message)s')
@@ -185,11 +218,10 @@ if __name__ == '__main__':
 
     cluster_config = wazuh.core.cluster.utils.read_config()
     wazuh.core.cluster.cluster.check_cluster_config(config=cluster_config)
-
     try:
         if args.filter_status and not args.list_agents:
             logging.error("Wrong arguments.")
-            parser.print_help()
+            usage()
             sys.exit(1)
         elif args.list_agents:
             my_function, my_args = print_agents, (args.filter_status, args.filter_node,)
@@ -198,6 +230,9 @@ if __name__ == '__main__':
         elif args.health:
             more = args.health.lower() == 'more'
             my_function, my_args = print_health, (cluster_config, more, args.filter_node,)
+        elif args.usage:
+            usage()
+            sys.exit(0)
         else:
             parser.print_help()
             sys.exit(0)

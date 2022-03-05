@@ -1,6 +1,6 @@
 /*
  * Wazuh shared modules utils
- * Copyright (C) 2015-2021, Wazuh Inc.
+ * Copyright (C) 2015, Wazuh Inc.
  * November 1, 2020.
  *
  * This program is free software; you can redistribute it
@@ -39,6 +39,11 @@ constexpr auto WORKING_ADAPTERS_INFO_BUFFER_SIZE
 constexpr auto MAX_ADAPTERS_INFO_TRIES
 {
     3
+};
+
+constexpr auto WINDOWS_UNIX_EPOCH_DIFF_SECONDS
+{
+    11644473600ULL
 };
 
 namespace Utils
@@ -333,7 +338,7 @@ namespace Utils
                     }
                 }
 
-                // inet_ntoa with in6_addr for Windows XP is not supported
+                // IPv6 in Windows XP is not supported
                 return retVal;
             }
 

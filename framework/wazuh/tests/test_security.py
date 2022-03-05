@@ -1,17 +1,17 @@
 #!/usr/bin/env python
-# Copyright (C) 2015-2021, Wazuh Inc.
+# Copyright (C) 2015, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is free software; you can redistribute it and/or modify it under the terms of GPLv2
 
 
 import glob
 import os
-from contextvars import ContextVar
 from importlib import reload
 from unittest.mock import patch
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy import orm as sqlalchemy_orm
 from sqlalchemy.exc import OperationalError
 from yaml import safe_load
 
@@ -56,6 +56,7 @@ def reload_default_rbac_resources():
             with patch('shutil.chown'), patch('os.chmod'):
                 import wazuh.rbac.orm as orm
                 reload(orm)
+                orm.create_rbac_db()
                 import wazuh.rbac.decorators as decorators
                 from wazuh.tests.util import RBAC_bypasser
 
@@ -71,7 +72,16 @@ def db_setup():
             with patch('shutil.chown'), patch('os.chmod'):
                 with patch('api.constants.SECURITY_PATH', new=test_data_path):
                     import wazuh.rbac.orm as orm
+                    # Clear mappers
+                    sqlalchemy_orm.clear_mappers()
+                    # Invalidate in-memory database
+                    conn = orm._engine.connect()
+                    orm._Session().close()
+                    conn.invalidate()
+                    orm._engine.dispose()
+
                     reload(orm)
+                    orm.create_rbac_db()
                     import wazuh.rbac.decorators as decorators
                     from wazuh.tests.util import RBAC_bypasser
 
@@ -208,6 +218,7 @@ def test_add_new_default_policies(new_default_resources):
 def test_migrate_default_policies(new_default_resources):
     """Check that the migration process overwrites default policies in the user range including their relationships
     and positions."""
+
     def mock_open_default_resources(*args, **kwargs):
         args = list(args)
         file_path = args[0]

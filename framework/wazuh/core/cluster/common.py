@@ -293,6 +293,8 @@ class Handler(asyncio.Protocol):
         self.cluster_items = cluster_items
         # Transports in asyncio are an abstraction of sockets.
         self.transport = None
+        # Tasks to be interrupted.
+        self.interrupted_tasks = set()
 
     def push(self, message: bytes):
         """Send a message to peer.
@@ -343,13 +345,13 @@ class Handler(asyncio.Protocol):
         # Adds - to command until it reaches cmd length
         command = command + b' ' + b'-' * (self.cmd_len - cmd_len - 1)
         encrypted_data = self.my_fernet.encrypt(data) if self.my_fernet is not None else data
-        message_size = self.header_len + len(encrypted_data)
+        encrypted_message_size = self.header_len + len(encrypted_data)
 
         # Message size is <= request_chunk, send the message
-        if message_size <= self.request_chunk:
-            msg = bytearray(message_size)
+        if len(data) <= self.request_chunk:
+            msg = bytearray(encrypted_message_size)
             msg[:self.header_len] = struct.pack(self.header_format, counter, len(encrypted_data), command)
-            msg[self.header_len:message_size] = encrypted_data
+            msg[self.header_len:encrypted_message_size] = encrypted_data
             return [msg]
 
         # Message size > request_chunk, send the message divided
@@ -475,38 +477,45 @@ class Handler(asyncio.Protocol):
             return b'Error sending request: timeout expired.'
         return response_data
 
-    async def send_file(self, filename: str) -> bytes:
+    async def send_file(self, filename: str, task_id: bytes = None) -> int:
         """Send a file to peer, slicing it into chunks.
 
         Parameters
         ----------
         filename : str
             Full path of the file to send.
+        task_id : bytes
+            Task identifier to stop sending file if needed.
 
         Returns
         -------
-        bytes
-            Response message.
+        sent_size : int
+            Number of bytes that were successfully sent.
         """
         if not os.path.exists(filename):
             raise exception.WazuhClusterError(3034, extra_message=filename)
 
+        sent_size = 0
         filename = filename.encode()
-        relative_path = filename.replace(common.wazuh_path.encode(), b'')
+        relative_path = filename.replace(common.WAZUH_PATH.encode(), b'')
+
         # Tell to the destination node where (inside wazuh_path) the file has to be written.
         await self.send_request(command=b'new_file', data=relative_path)
 
         # Send each chunk so it is updated in the destination.
         file_hash = hashlib.sha256()
         with open(filename, 'rb') as f:
-            data = f.read()
-            await self.send_request(command=b'file_upd', data=relative_path + b' ' + data)
-            file_hash.update(data)
+            for chunk in iter(lambda: f.read(self.request_chunk - len(relative_path) - 1), b''):
+                await self.send_request(command=b'file_upd', data=relative_path + b' ' + chunk)
+                file_hash.update(chunk)
+                sent_size += len(chunk)
+                if task_id in self.interrupted_tasks:
+                    break
 
         # Close the destination file descriptor so the file in memory is dumped to disk.
         await self.send_request(command=b'file_end', data=relative_path + b' ' + file_hash.digest())
 
-        return b'File sent'
+        return sent_size
 
     async def send_string(self, my_str: bytes) -> bytes:
         """Send a large string to peer, slicing it into chunks.
@@ -529,7 +538,10 @@ class Handler(asyncio.Protocol):
             self.logger.error(f'There was an error while trying to send a string: {task_id}')
             await self.send_request(command=b'err_str', data=str(total).encode())
         else:
-            await self.send_request(command=b'str_upd', data=task_id + b' ' + my_str)
+            # Send chunks of the string to the destination node, indicating the ID of the string.
+            local_req_chunk = self.request_chunk - len(task_id) - 1
+            for c in range(0, total, local_req_chunk):
+                await self.send_request(command=b'str_upd', data=task_id + b' ' + my_str[c:c + local_req_chunk])
 
         return task_id
 
@@ -561,7 +573,7 @@ class Handler(asyncio.Protocol):
             res = await self.send_request(b'dapi_err', json.dumps(e, cls=WazuhJSONEncoder).encode())
         except Exception as e:
             self.logger.error(f"Error sending API response to local client: {e}")
-            exc_info = json.dumps(exception.WazuhClusterError(code=1000, extra_message=str(e)),
+            exc_info = json.dumps(exception.WazuhClusterError(1000, extra_message=str(e)),
                                   cls=WazuhJSONEncoder).encode()
             res = await self.send_request(b'dapi_err', exc_info)
         finally:
@@ -585,7 +597,7 @@ class Handler(asyncio.Protocol):
             await self.send_request(b'sendsyn_err', json.dumps(e, cls=WazuhJSONEncoder).encode())
         except Exception as e:
             self.logger.error(f"Error sending send sync response to local client: {e}")
-            exc_info = json.dumps(exception.WazuhClusterError(code=1000, extra_message=str(e)),
+            exc_info = json.dumps(exception.WazuhClusterError(1000, extra_message=str(e)),
                                   cls=WazuhJSONEncoder).encode()
             await self.send_request(b'sendsync_err', exc_info)
         finally:
@@ -693,8 +705,10 @@ class Handler(asyncio.Protocol):
             return self.str_upd(data)
         elif command == b'err_str':
             return self.process_error_str(data)
-        elif command == b"file_end":
+        elif command == b'file_end':
             return self.end_file(data)
+        elif command == b'cancel_task':
+            return self.cancel_task(data)
         else:
             return self.process_unknown_cmd(command)
 
@@ -752,7 +766,7 @@ class Handler(asyncio.Protocol):
         bytes
             Response message.
         """
-        self.in_file[data] = {'fd': open(common.wazuh_path + data.decode(), 'wb'), 'checksum': hashlib.sha256()}
+        self.in_file[data] = {'fd': open(common.WAZUH_PATH + data.decode(), 'wb'), 'checksum': hashlib.sha256()}
         return b"ok ", b"Ready to receive new file"
 
     def update_file(self, data: bytes) -> Tuple[bytes, bytes]:
@@ -798,6 +812,31 @@ class Handler(asyncio.Protocol):
         else:
             del self.in_file[name]
             return b"err", b"File wasn't correctly received. Checksums aren't equal."
+
+    def cancel_task(self, data: bytes) -> Tuple[bytes, bytes]:
+        """Add task_id to interrupted_tasks and log the error message.
+
+        Parameters
+        ----------
+        data : bytes
+            String containing task_id and WazuhJSONEncoded object with the exception details.
+
+        Returns
+        -------
+        bytes
+            Result.
+        bytes
+            Response message.
+        """
+        task_id, error_details = data.split(b' ', 1)
+        error_json = json.loads(error_details, object_hook=as_wazuh_object)
+        if task_id != b'None':
+            self.interrupted_tasks.add(task_id)
+            self.logger.error(f'The task was canceled due to the following error on the remote node: {error_json}')
+        else:
+            self.logger.error(f'The task was requested to be canceled but no task_id was received: {error_json}')
+
+        return b'ok', b'Request received correctly'
 
     def receive_str(self, data: bytes) -> Tuple[bytes, bytes]:
         """Create a bytearray with the string size.
@@ -986,16 +1025,16 @@ class WazuhCommon:
         task_id, filename = task_and_file_names.split(' ', 1)
         if task_id not in self.sync_tasks:
             # Remove filename if task_id does not exists, before raising exception.
-            if os.path.exists(os.path.join(common.wazuh_path, filename)):
+            if os.path.exists(os.path.join(common.WAZUH_PATH, filename)):
                 try:
-                    os.remove(os.path.join(common.wazuh_path, filename))
+                    os.remove(os.path.join(common.WAZUH_PATH, filename))
                 except Exception as e:
                     self.get_logger(self.logger_tag).error(
-                        f"Attempt to delete file {os.path.join(common.wazuh_path, filename)} failed: {e}")
+                        f"Attempt to delete file {os.path.join(common.WAZUH_PATH, filename)} failed: {e}")
             raise exception.WazuhClusterError(3027, extra_message=task_id)
 
         # Set full path to file for task 'task_id' and notify it is ready to be read, so the lock is released.
-        self.sync_tasks[task_id].filename = os.path.join(common.wazuh_path, filename)
+        self.sync_tasks[task_id].filename = os.path.join(common.WAZUH_PATH, filename)
         self.sync_tasks[task_id].received_information.set()
         return b'ok', b'File correctly received'
 
@@ -1104,7 +1143,6 @@ def as_wazuh_object(dct: Dict):
             funcname = encoded_callable['__name__']
             if '__wazuh__' in encoded_callable:
                 # Encoded Wazuh instance method.
-                wazuh_dict = encoded_callable['__wazuh__']
                 wazuh = Wazuh()
                 return getattr(wazuh, funcname)
             else:

@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2021, Wazuh Inc.
+/* Copyright (C) 2015, Wazuh Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it
@@ -190,5 +190,12 @@ int __wrap_OSHash_Update_ex(__attribute__((unused)) OSHash *self,
 
 int __wrap_OSHash_Get_Elem_ex(OSHash *self) {
     check_expected_ptr(self);
+    return mock();
+}
+
+int __wrap_OSHash_Set(OSHash *self, const char *key, void *data) {
+    check_expected_ptr(self);
+    check_expected_ptr(key);
+    check_expected_ptr(data);
     return mock();
 }

@@ -1,9 +1,6 @@
 ---
 test_name: GET /manager/status
 
-marks:
-  - base_tests
-
 stages:
 
   # GET /manager/status
@@ -763,7 +760,6 @@ stages:
                   ssl_ciphers: !anystr
                 logs:
                   level: !anystr
-                  path: !anystr
                 cors:
                   enabled: !anybool
                   source_route: !anystr

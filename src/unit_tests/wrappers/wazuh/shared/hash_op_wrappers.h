@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2021, Wazuh Inc.
+/* Copyright (C) 2015, Wazuh Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it
@@ -57,5 +57,7 @@ int __wrap_OSHash_Update(OSHash *self, const char *key, void *data);
 extern int OSHash_Add_ex_check_data;
 
 int __wrap_OSHash_Get_Elem_ex(OSHash *self);
+
+int __wrap_OSHash_Set(OSHash *self, const char *key, void *data);
 
 #endif

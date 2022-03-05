@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2021, Wazuh Inc.
+# Copyright (C) 2015, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is a free software; you can redistribute it and/or modify it under the terms of GPLv2
 
@@ -6,11 +6,11 @@ import re
 from copy import deepcopy
 from functools import lru_cache
 
-import api.configuration as configuration
+from api.authentication import get_security_conf
 from wazuh.core import common
 from wazuh.core.exception import WazuhError, WazuhResourceNotFound
 from wazuh.core.results import AffectedItemsWazuhResult, WazuhResult
-from wazuh.core.security import invalid_users_tokens, invalid_roles_tokens, invalid_run_as_tokens, revoke_tokens,\
+from wazuh.core.security import invalid_users_tokens, invalid_roles_tokens, invalid_run_as_tokens, revoke_tokens, \
     load_spec, sanitize_rbac_policy, update_security_conf, REQUIRED_FIELDS, SORT_FIELDS, SORT_FIELDS_GET_USERS
 from wazuh.core.utils import process_array
 from wazuh.rbac.decorators import expose_resources
@@ -65,7 +65,7 @@ def get_user_me(token):
 
 @expose_resources(actions=['security:read'], resources=['user:id:{user_ids}'],
                   post_proc_kwargs={'exclude_codes': [5001]})
-def get_users(user_ids: list = None, offset: int = 0, limit: int = common.database_limit, sort_by: dict = None,
+def get_users(user_ids: list = None, offset: int = 0, limit: int = common.DATABASE_LIMIT, sort_by: dict = None,
               sort_ascending: bool = True, search_text: str = None, select: str = None,
               complementary_search: bool = False, search_in_fields: list = None):
     """Get the information of a specified user
@@ -266,7 +266,7 @@ def remove_users(user_ids):
 
 @expose_resources(actions=['security:read'], resources=['role:id:{role_ids}'],
                   post_proc_kwargs={'exclude_codes': [4002]})
-def get_roles(role_ids=None, offset=0, limit=common.database_limit, sort_by=None, select=None,
+def get_roles(role_ids=None, offset=0, limit=common.DATABASE_LIMIT, sort_by=None, select=None,
               sort_ascending=True, search_text=None, complementary_search=False, search_in_fields=None):
     """Return information from all system roles, does not return information from its associated policies.
 
@@ -403,7 +403,7 @@ def update_role(role_id=None, name=None):
 
 @expose_resources(actions=['security:read'], resources=['policy:id:{policy_ids}'],
                   post_proc_kwargs={'exclude_codes': [4007]})
-def get_policies(policy_ids, offset=0, limit=common.database_limit, sort_by=None, select=None,
+def get_policies(policy_ids, offset=0, limit=common.DATABASE_LIMIT, sort_by=None, select=None,
                  sort_ascending=True, search_text=None, complementary_search=False, search_in_fields=None):
     """Return the information of a certain policy.
 
@@ -545,7 +545,7 @@ def update_policy(policy_id=None, name=None, policy=None):
 
 @expose_resources(actions=['security:read'], resources=['rule:id:{rule_ids}'],
                   post_proc_kwargs={'exclude_codes': [4022]})
-def get_rules(rule_ids=None, offset=0, limit=common.database_limit, sort_by=None, select=None,
+def get_rules(rule_ids=None, offset=0, limit=common.DATABASE_LIMIT, sort_by=None, select=None,
               sort_ascending=True, search_text=None, complementary_search=False, search_in_fields=None):
     """Return information from all the security rules. It does not return information from its associated roles.
 
@@ -760,10 +760,19 @@ def set_user_role(user_id, role_ids, position=None):
 @expose_resources(actions=['security:delete'], resources=['role:id:{role_ids}'],
                   post_proc_kwargs={'exclude_codes': [4002, 4016, 4008]})
 def remove_user_role(user_id, role_ids):
-    """Create a relationship between a user and a role
-    :param user_id: User id
-    :param role_ids: List of role ids
-    :return User-Roles information
+    """Remove a relationship between a user and a role.
+
+    Parameters
+    ----------
+    user_id : list
+        User ID
+    role_ids : list of int
+        List of role ids
+
+    Returns
+    -------
+    Dict
+        User-Roles information
     """
     username = get_username(user_id=user_id)
     if username == 'unknown':
@@ -1103,7 +1112,7 @@ def get_rbac_actions(endpoint: str = None):
 @expose_resources(actions=['security:read_config'], resources=['*:*:*'])
 def get_security_config():
     """Returns current security configuration."""
-    return WazuhResult({'data': configuration.security_conf})
+    return WazuhResult({'data': get_security_conf()})
 
 
 @expose_resources(actions=['security:update_config'], resources=['*:*:*'])

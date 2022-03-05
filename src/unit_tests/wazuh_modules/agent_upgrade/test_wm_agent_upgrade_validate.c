@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021, Wazuh Inc.
+ * Copyright (C) 2015, Wazuh Inc.
  *
  * This program is free software; you can redistribute it
  * and/or modify it under the terms of the GNU General Public
@@ -258,6 +258,32 @@ void test_wm_agent_upgrade_validate_system_invalid_arch(void **state)
     int ret = wm_agent_upgrade_validate_system(platform, os_major, os_minor, arch);
 
     assert_int_equal(ret, WM_UPGRADE_GLOBAL_DB_FAILURE);
+}
+
+void test_wm_agent_upgrade_validate_system_rolling_opensuse(void **state)
+{
+    (void) state;
+    char *platform = "opensuse-tumbleweed";
+    char *os_major = "";
+    char *os_minor = "";
+    char *arch = "x64";
+
+    int ret = wm_agent_upgrade_validate_system(platform, os_major, os_minor, arch);
+
+    assert_int_equal(ret, WM_UPGRADE_SUCCESS);
+}
+
+void test_wm_agent_upgrade_validate_system_rolling_archlinux(void **state)
+{
+    (void) state;
+    char *platform = "arch";
+    char *os_major = "";
+    char *os_minor = "";
+    char *arch = "x64";
+
+    int ret = wm_agent_upgrade_validate_system(platform, os_major, os_minor, arch);
+
+    assert_int_equal(ret, WM_UPGRADE_SUCCESS);
 }
 
 void test_wm_agent_upgrade_compare_versions_equal_patch(void **state)
@@ -1295,6 +1321,8 @@ int main(void) {
         cmocka_unit_test(test_wm_agent_upgrade_validate_system_invalid_platform_rhel),
         cmocka_unit_test(test_wm_agent_upgrade_validate_system_invalid_platform_centos),
         cmocka_unit_test(test_wm_agent_upgrade_validate_system_invalid_arch),
+        cmocka_unit_test(test_wm_agent_upgrade_validate_system_rolling_opensuse),
+        cmocka_unit_test(test_wm_agent_upgrade_validate_system_rolling_archlinux),
         // wm_agent_upgrade_compare_versions
         cmocka_unit_test(test_wm_agent_upgrade_compare_versions_equal_patch),
         cmocka_unit_test(test_wm_agent_upgrade_compare_versions_equal_minor),

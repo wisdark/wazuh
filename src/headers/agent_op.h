@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2021, Wazuh Inc.
+/* Copyright (C) 2015, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
@@ -63,14 +63,6 @@ int get_agent_group(const char *id, char *group, size_t size);
 
 /* Set agent group. Returns 0 on success or -1 on failure. */
 int set_agent_group(const char * id, const char * group);
-
-/* Create multigroup dir. Returns 0 on success or -1 on failure. */
-int create_multigroup_dir(const char * multigroup);
-
-int set_agent_multigroup(char * group);
-
-void w_remove_multigroup(const char *group);
-
 #endif
 
 /* Validates the group name
@@ -93,7 +85,7 @@ int auth_close(int sock);
  * @param ip IP of the agent to request the new key.
  * @param groups Groups list of the agent to request the new key.
  * @param key KEY of the newly generated key.
- * @param force Force option to be used during the registration. -1 means disabled. 0 or a positive value means enabled.
+ * @param force_options Force options to be used during the registration.
  * @param json_format Flag to identify if the response should be printed in JSON format.
  * @param agent_id ID of the agent when requesting a new key for a specific ID.
  * @param exit_on_error Flag to identify if the application should exit on any error.

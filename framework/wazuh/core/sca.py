@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2021, Wazuh Inc.
+# Copyright (C) 2015, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is free software; you can redistribute it and/or modify it under the terms of GP
 
@@ -6,7 +6,7 @@ import re
 from datetime import datetime
 
 from wazuh.core.agent import Agent
-from wazuh.core.common import maximum_database_limit
+from wazuh.core.common import MAXIMUM_DATABASE_LIMIT
 from wazuh.core.exception import WazuhError
 from wazuh.core.utils import WazuhDBQuery, WazuhDBBackend
 
@@ -96,7 +96,7 @@ class WazuhDBQuerySCACheck(WazuhDBQuerySCA):
 
     def _add_limit_to_query(self):
         if self.limit:
-            if self.limit > maximum_database_limit:
+            if self.limit > MAXIMUM_DATABASE_LIMIT:
                 raise WazuhError(1405, str(self.limit))
 
             # We add offset and limit only to the inner SELECT (subquery)

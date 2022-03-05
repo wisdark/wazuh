@@ -1,4 +1,4 @@
-/* Copyright (C) 2015-2021, Wazuh Inc.
+/* Copyright (C) 2015, Wazuh Inc.
  * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
@@ -52,7 +52,7 @@ typedef struct _keyentry {
     int net_protocol;                   ///< Client current protocol
     time_t time_added;
     pthread_mutex_t mutex;
-    struct sockaddr_in peer_info;
+    struct sockaddr_storage peer_info;
     FILE *fp;
     crypt_method crypto_method;
 
