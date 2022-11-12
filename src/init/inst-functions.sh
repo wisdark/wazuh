@@ -224,14 +224,10 @@ GenerateAuthCert()
         # Generation auto-signed certificate if not exists
         if [ ! -f "${INSTALLDIR}/etc/sslmanager.key" ] && [ ! -f "${INSTALLDIR}/etc/sslmanager.cert" ]; then
             if [ ! "X${USER_GENERATE_AUTHD_CERT}" = "Xn" ]; then
-                if type openssl >/dev/null 2>&1; then
                     echo "Generating self-signed certificate for wazuh-authd..."
-                    openssl req -x509 -batch -nodes -days 365 -newkey rsa:2048 -subj "/C=US/ST=California/CN=Wazuh/" -keyout ${INSTALLDIR}/etc/sslmanager.key -out ${INSTALLDIR}/etc/sslmanager.cert 2>/dev/null
+                    ${INSTALLDIR}/bin/wazuh-authd -C 365 -B 2048 -K ${INSTALLDIR}/etc/sslmanager.key -X ${INSTALLDIR}/etc/sslmanager.cert -S "/C=US/ST=California/CN=wazuh/"
                     chmod 640 ${INSTALLDIR}/etc/sslmanager.key
                     chmod 640 ${INSTALLDIR}/etc/sslmanager.cert
-                else
-                    echo "ERROR: OpenSSL not found. Cannot generate certificate for wazuh-authd."
-                fi
             fi
         fi
     fi
@@ -809,11 +805,22 @@ InstallCommon()
             chcon -t textrel_shlib_t ${INSTALLDIR}/lib/libsyscollector.so
         fi
     fi
-    if [ ${NUNAME} = 'SunOS' ]
+
+    if [ -f libstdc++.so.6 ]
     then
-        if [ ${VUNAME} = '5.10' ]
-        then
-            ${INSTALL} -m 0750 -o root -g 0 libgcc_s.so.1 ${INSTALLDIR}/lib
+        ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} libstdc++.so.6 ${INSTALLDIR}/lib
+
+        if ([ "X${DIST_NAME}" = "Xrhel" ] || [ "X${DIST_NAME}" = "Xcentos" ] || [ "X${DIST_NAME}" = "XCentOS" ]) && [ ${DIST_VER} -le 5 ]; then
+            chcon -t textrel_shlib_t ${INSTALLDIR}/lib/libstdc++.so.6
+        fi
+    fi
+
+    if [ -f libgcc_s.so.1 ]
+    then
+        ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} libgcc_s.so.1 ${INSTALLDIR}/lib
+
+        if ([ "X${DIST_NAME}" = "Xrhel" ] || [ "X${DIST_NAME}" = "Xcentos" ] || [ "X${DIST_NAME}" = "XCentOS" ]) && [ ${DIST_VER} -le 5 ]; then
+            chcon -t textrel_shlib_t ${INSTALLDIR}/lib/libgcc_s.so.1
         fi
     fi
 
@@ -1063,14 +1070,13 @@ InstallServer()
     ${INSTALL} -m 0750 -o root -g 0 wazuh-authd ${INSTALLDIR}/bin
 
     ${INSTALL} -d -m 0770 -o ${WAZUH_USER} -g ${WAZUH_GROUP} ${INSTALLDIR}/queue/rids
-    ${INSTALL} -d -m 0770 -o root -g ${WAZUH_GROUP} ${INSTALLDIR}/queue/agent-groups
 
     if [ ! -f ${INSTALLDIR}/queue/agents-timestamp ]; then
         ${INSTALL} -m 0600 -o root -g ${WAZUH_GROUP} /dev/null ${INSTALLDIR}/queue/agents-timestamp
     fi
 
     ${INSTALL} -d -m 0750 -o ${WAZUH_USER} -g ${WAZUH_GROUP} ${INSTALLDIR}/backup/agents
-    ${INSTALL} -d -m 0750 -o ${WAZUH_USER} -g ${WAZUH_GROUP} ${INSTALLDIR}/backup/groups
+    ${INSTALL} -d -m 0750 -o ${WAZUH_USER} -g ${WAZUH_GROUP} ${INSTALLDIR}/backup/db
 
     ${INSTALL} -m 0660 -o ${WAZUH_USER} -g ${WAZUH_GROUP} ../ruleset/rootcheck/db/*.txt ${INSTALLDIR}/etc/shared/default
 
@@ -1095,6 +1101,7 @@ InstallServer()
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/gcloud/gcloud.py ${INSTALLDIR}/wodles/gcloud/gcloud.py
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/gcloud/integration.py ${INSTALLDIR}/wodles/gcloud/integration.py
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/gcloud/tools.py ${INSTALLDIR}/wodles/gcloud/tools.py
+    ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/gcloud/exceptions.py ${INSTALLDIR}/wodles/gcloud/exceptions.py
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/gcloud/buckets/bucket.py ${INSTALLDIR}/wodles/gcloud/buckets/bucket.py
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/gcloud/buckets/access_logs.py ${INSTALLDIR}/wodles/gcloud/buckets/access_logs.py
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/gcloud/pubsub/subscriber.py ${INSTALLDIR}/wodles/gcloud/pubsub/subscriber.py
@@ -1107,6 +1114,7 @@ InstallServer()
     ${INSTALL} -d -m 0750 -o root -g ${WAZUH_GROUP} ${INSTALLDIR}/wodles/azure
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/azure/azure-logs.py ${INSTALLDIR}/wodles/azure/azure-logs.py
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../framework/wrappers/generic_wrapper.sh ${INSTALLDIR}/wodles/azure/azure-logs
+    ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/azure/orm.py ${INSTALLDIR}/wodles/azure/orm.py
 
     GenerateAuthCert
 
@@ -1147,6 +1155,7 @@ InstallAgent()
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/gcloud/gcloud.py ${INSTALLDIR}/wodles/gcloud/gcloud
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/gcloud/integration.py ${INSTALLDIR}/wodles/gcloud/integration.py
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/gcloud/tools.py ${INSTALLDIR}/wodles/gcloud/tools.py
+    ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/gcloud/exceptions.py ${INSTALLDIR}/wodles/gcloud/exceptions.py
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/gcloud/buckets/bucket.py ${INSTALLDIR}/wodles/gcloud/buckets/bucket.py
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/gcloud/buckets/access_logs.py ${INSTALLDIR}/wodles/gcloud/buckets/access_logs.py
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/gcloud/pubsub/subscriber.py ${INSTALLDIR}/wodles/gcloud/pubsub/subscriber.py
@@ -1156,6 +1165,7 @@ InstallAgent()
 
     ${INSTALL} -d -m 0750 -o root -g ${WAZUH_GROUP} ${INSTALLDIR}/wodles/azure
     ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/azure/azure-logs.py ${INSTALLDIR}/wodles/azure/azure-logs
+    ${INSTALL} -m 0750 -o root -g ${WAZUH_GROUP} ../wodles/azure/orm.py ${INSTALLDIR}/wodles/azure/orm.py
 }
 
 InstallWazuh()

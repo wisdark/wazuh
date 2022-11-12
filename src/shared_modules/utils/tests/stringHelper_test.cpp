@@ -59,6 +59,11 @@ TEST_F(StringUtilsTest, SplitIndex)
     EXPECT_EQ(splitTextVector, "hello");
 }
 
+TEST_F(StringUtilsTest, SplitIndexRuntimeError)
+{
+    EXPECT_THROW(Utils::splitIndex("hello.world", '.', 2), std::runtime_error);
+}
+
 TEST_F(StringUtilsTest, AsciiToHexString)
 {
     const std::vector<unsigned char> data{0x2d, 0x53, 0x3b, 0x9d, 0x9f, 0x0f, 0x06, 0xef, 0x4e, 0x3c, 0x23, 0xfd, 0x49, 0x6c, 0xfe, 0xb2, 0x78, 0x0e, 0xda, 0x7f};
@@ -205,4 +210,58 @@ TEST_F(StringUtilsTest, substrOnFirstOccurrenceCorrectEscapeCharacter)
 TEST_F(StringUtilsTest, substrOnFirstOccurrenceCorrectEscapeCharacterEmptyResult)
 {
     EXPECT_EQ(Utils::substrOnFirstOccurrence("\n", "\n"), "");
+}
+
+TEST_F(StringUtilsTest, findRegexInStringNotStartWith)
+{
+    std::string matchedValue;
+    const auto valueToCheck{"PREFIX Some random content"};
+    const auto regex{std::regex(R"(PREFIX Some random content)")};
+    EXPECT_FALSE(Utils::findRegexInString(valueToCheck, matchedValue, regex, 0, "OTHERPREFIX"));
+    EXPECT_TRUE(matchedValue.empty());
+}
+
+TEST_F(StringUtilsTest, findRegexInStringStartWith)
+{
+    std::string matchedValue;
+    const auto valueToCheck{"PREFIX Some random content"};
+    const auto regex{std::regex(R"(PREFIX Some random content)")};
+    EXPECT_TRUE(Utils::findRegexInString(valueToCheck, matchedValue, regex, 0, "PREFIX"));
+    EXPECT_EQ(matchedValue, valueToCheck);
+}
+
+TEST_F(StringUtilsTest, findRegexInStringMatchingRegexWithoutGroup)
+{
+    std::string matchedValue;
+    const auto valueToCheck{"This string should not be extracted"};
+    const auto regex{std::regex(R"(^This string should not be extracted$)")};
+    EXPECT_TRUE(Utils::findRegexInString(valueToCheck, matchedValue, regex));
+    EXPECT_EQ(matchedValue, valueToCheck);
+}
+
+TEST_F(StringUtilsTest, findRegexInStringNoExtractingFirstGroup)
+{
+    std::string matchedValue;
+    const auto valueToCheck{"This string should be extracted"};
+    const auto regex{std::regex(R"(^This (\S+) should be (\S+)$)")};
+    EXPECT_TRUE(Utils::findRegexInString(valueToCheck, matchedValue, regex));
+    EXPECT_EQ(matchedValue, valueToCheck);
+}
+
+TEST_F(StringUtilsTest, findRegexInStringExtractingFirstGroup)
+{
+    std::string matchedValue;
+    const auto valueToCheck{"This string should be extracted"};
+    const auto regex{std::regex(R"(^This (\S+) should be (\S+)$)")};
+    EXPECT_TRUE(Utils::findRegexInString(valueToCheck, matchedValue, regex, 1));
+    EXPECT_EQ(matchedValue, "string");
+}
+
+TEST_F(StringUtilsTest, findRegexInStringExtractingSecondGroup)
+{
+    std::string matchedValue;
+    const auto valueToCheck{"This string should be extracted"};
+    const auto regex{std::regex(R"(^This (\S+) should be (\S+)$)")};
+    EXPECT_TRUE(Utils::findRegexInString(valueToCheck, matchedValue, regex, 2));
+    EXPECT_EQ(matchedValue, "extracted");
 }

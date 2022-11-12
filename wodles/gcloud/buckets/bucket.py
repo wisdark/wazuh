@@ -7,30 +7,31 @@
 # it and/or modify it under the terms of GPLv2
 
 import logging
-import pytz
 import sqlite3
 from sys import exit, path
 from datetime import datetime, timezone
-from json import dumps
+from json import dumps, JSONDecodeError
 from os.path import join, dirname, realpath
-
-try:
-    from google.cloud import storage
-except ImportError:
-    print('ERROR: google-cloud-storage module is required.')
-    exit(1)
-from google.api_core import exceptions as google_exceptions
 
 path.append(join(dirname(realpath(__file__)), '..', '..'))  # noqa: E501
 import utils
+import exceptions
+import tools
 from integration import WazuhGCloudIntegration
+
+try:
+    from google.cloud import storage
+    from google.api_core import exceptions as google_exceptions
+    import pytz
+except ImportError as e:
+    raise exceptions.WazuhIntegrationException(errcode=1003, package=e.name)
 
 
 class WazuhGCloudBucket(WazuhGCloudIntegration):
     """Class for getting Google Cloud Storage Bucket logs"""
 
     def __init__(self, credentials_file: str, logger: logging.Logger, bucket_name: str, prefix: str = None,
-                 delete_file: bool = False, only_logs_after: datetime = None):
+            delete_file: bool = False, only_logs_after: datetime = None, reparse : bool = False):
         """Class constructor.
 
         Parameters
@@ -47,11 +48,24 @@ class WazuhGCloudBucket(WazuhGCloudIntegration):
             Indicate whether blobs should be deleted after being processed.
         only_logs_after : datetime
             Date after which obtain logs.
+        reparse : bool
+            Whether to parse already parsed logs or not
+
+        Raises
+        ------
+        exceptions.GCloudError
+            If the credentials file doesn't exist or doesn't have the required
+            structure.
         """
         super().__init__(logger)
         self.bucket_name = bucket_name
         self.bucket = None
-        self.client = storage.client.Client.from_service_account_json(credentials_file)
+        try:
+            self.client = storage.client.Client.from_service_account_json(credentials_file)
+        except JSONDecodeError as error:
+            raise exceptions.GCloudError(1000, credentials_file=credentials_file) from error
+        except FileNotFoundError as error:
+            raise exceptions.GCloudError(1001, credentials_file=credentials_file) from error
         self.project_id = self.client.project
         self.prefix = prefix if not prefix or prefix[-1] == '/' else f'{prefix}/'
         self.delete_file = delete_file
@@ -59,60 +73,62 @@ class WazuhGCloudBucket(WazuhGCloudIntegration):
         self.default_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         self.db_path = join(utils.find_wazuh_path(), "wodles/gcloud/gcloud.db")
         self.db_connector = None
+        self.db_table_name = None
         self.datetime_format = "%Y-%m-%d %H:%M:%S.%f%z"
+        self.reparse = reparse
 
         self.sql_create_table = """
-                            CREATE TABLE
-                                {table_name} (
-                                project_id 'text' NOT NULL,
-                                bucket_name 'text' NOT NULL,
-                                prefix 'text' NULL,
-                                blob_name 'text' NOT NULL,
-                                creation_time 'text' NOT NULL,
-                                PRIMARY KEY (project_id, bucket_name, prefix, blob_name));"""
+            CREATE TABLE
+                {table_name} (
+                project_id 'text' NOT NULL,
+                bucket_name 'text' NOT NULL,
+                prefix 'text' NULL,
+                blob_name 'text' NOT NULL,
+                creation_time 'text' NOT NULL,
+                PRIMARY KEY (project_id, bucket_name, prefix, blob_name));"""
         self.sql_delete_processed_files = """
-                                DELETE FROM
-                                    {table_name}
-                                WHERE 
-                                    project_id='{project_id}' AND
-                                    bucket_name='{bucket_name}' AND
-                                    prefix ='{prefix}';"""
+            DELETE FROM
+                {table_name}
+            WHERE
+                project_id=:project_id AND
+                bucket_name=:bucket_name AND
+                prefix=:prefix;"""
         self.sql_insert_processed_file = """
-                                        INSERT INTO {table_name} (
-                                            project_id,
-                                            bucket_name,
-                                            prefix,
-                                            blob_name,
-                                            creation_time)
-                                        VALUES
-                                            ('{project_id}',
-                                            '{bucket_name}',
-                                            '{prefix}',
-                                            '{blob_name}',
-                                            '{creation_time}');"""
+            INSERT INTO {table_name} (
+                project_id,
+                bucket_name,
+                prefix,
+                blob_name,
+                creation_time)
+            VALUES
+                (:project_id,
+                :bucket_name,
+                :prefix,
+                :blob_name,
+                :creation_time);"""
         self.sql_find_last_creation_time = """
-                                        SELECT
-                                            creation_time
-                                        FROM
-                                            {table_name}
-                                        WHERE
-                                            project_id='{project_id}' AND
-                                            bucket_name='{bucket_name}' AND
-                                            prefix ='{prefix}'
-                                        ORDER BY
-                                            creation_time DESC
-                                        LIMIT 1;"""
+            SELECT
+                creation_time
+            FROM
+                {table_name}
+            WHERE
+                project_id=:project_id AND
+                bucket_name=:bucket_name AND
+                prefix =:prefix
+            ORDER BY
+                creation_time DESC
+            LIMIT 1;"""
         self.sql_find_processed_files = """
-                                        SELECT
-                                            blob_name
-                                        FROM
-                                            {table_name}
-                                        WHERE
-                                            project_id='{project_id}' AND
-                                            bucket_name='{bucket_name}' AND
-                                            prefix ='{prefix}'
-                                        ORDER BY
-                                            blob_name;"""
+            SELECT
+                blob_name
+            FROM
+                {table_name}
+            WHERE
+                project_id=:project_id AND
+                bucket_name=:bucket_name AND
+                prefix =:prefix
+            ORDER BY
+                blob_name;"""
 
     def _get_last_processed_files(self):
         """Get the names of the blobs processed during the last execution.
@@ -123,16 +139,14 @@ class WazuhGCloudBucket(WazuhGCloudIntegration):
             List with the filenames of all the previously processed blobs.
         """
         processed_files = self.db_connector.execute(
-            self.sql_find_processed_files.format(table_name=self.db_table_name,
-                                                 project_id=self.project_id,
-                                                 bucket_name=self.bucket_name,
-                                                 prefix=self.prefix))
-        try:
-            return [p[0] for p in processed_files.fetchall()]
-        except (TypeError, IndexError):
-            return list()
+            self.sql_find_processed_files.format(table_name=self.db_table_name), {
+                'project_id': self.project_id,
+                'bucket_name': self.bucket_name,
+                'prefix': self.prefix
+            })
+        return [p[0] for p in processed_files.fetchall()]
 
-    def _update_last_processed_files(self, processed_files: list[storage.blob]):
+    def _update_last_processed_files(self, processed_files: list):
         """Remove the records for the previous execution and store the new values from the current one.
 
         Parameters
@@ -143,21 +157,23 @@ class WazuhGCloudBucket(WazuhGCloudIntegration):
         if processed_files:
             self.logger.info('Updating previously processed files.')
             try:
-                self.db_connector.execute(self.sql_delete_processed_files.format(table_name=self.db_table_name,
-                                                                                 project_id=self.project_id,
-                                                                                 bucket_name=self.bucket_name,
-                                                                                 prefix=self.prefix))
-            except sqlite3.IntegrityError:
+                self.db_connector.execute(self.sql_delete_processed_files.format(table_name=self.db_table_name), {
+                    'project_id': self.project_id,
+                    'bucket_name': self.bucket_name,
+                    'prefix': self.prefix
+                })
+            except sqlite3.OperationalError:
                 pass
 
             for blob in processed_files:
-                self.db_connector.execute(self.sql_insert_processed_file.format(table_name=self.db_table_name,
-                                                                                project_id=self.project_id,
-                                                                                bucket_name=self.bucket_name,
-                                                                                prefix=self.prefix,
-                                                                                blob_name=blob.name,
-                                                                                creation_time=blob.time_created))
-    processed_files = list()
+                creation_time = datetime.strftime(blob.time_created, self.datetime_format)
+                self.db_connector.execute(self.sql_insert_processed_file.format(table_name=self.db_table_name), {
+                    'project_id': self.project_id,
+                    'bucket_name': self.bucket_name,
+                    'prefix': self.prefix,
+                    'blob_name': blob.name,
+                    'creation_time': creation_time
+                })
 
     def _get_last_creation_time(self):
         """Get the latest creation time value stored in the database for the given project, bucket_name and
@@ -170,10 +186,11 @@ class WazuhGCloudBucket(WazuhGCloudIntegration):
         """
         creation_time = datetime.min.replace(tzinfo=pytz.UTC)
         query_creation_time = self.db_connector.execute(
-            self.sql_find_last_creation_time.format(table_name=self.db_table_name,
-                                                    project_id=self.project_id,
-                                                    bucket_name=self.bucket_name,
-                                                    prefix=self.prefix))
+            self.sql_find_last_creation_time.format(table_name=self.db_table_name), {
+                'project_id': self.project_id,
+                'bucket_name': self.bucket_name,
+                'prefix': self.prefix
+            })
         try:
             creation_time_result = query_creation_time.fetchone()[0]
             creation_time = datetime.strptime(creation_time_result, self.datetime_format)
@@ -182,24 +199,33 @@ class WazuhGCloudBucket(WazuhGCloudIntegration):
         return creation_time
 
     def check_permissions(self):
-        """Check if the Service Account has access to the bucket."""
+        """
+        Check if the Service Account has access to the bucket.
+
+        Raises
+        ------
+        exceptions.GCloudError
+            If the specified bucket doesn't exist or the client doesn't
+            have permissions to access it.
+        """
         try:
             self.bucket = self.client.get_bucket(self.bucket_name)
         except google_exceptions.NotFound:
-            raise Exception(f'The bucket "{self.bucket_name}" does not exist.')
+            raise exceptions.GCloudError(1100, bucket_name=self.bucket_name)
         except google_exceptions.Forbidden:
-            raise Exception(f'The Service Account provided does not have "storage.buckets.get" access to the '
-                            f'Google Cloud Storage bucket.')
+            raise exceptions.GCloudError(1101, permissions='storage.buckets.get',
+                                         resource_name=self.bucket_name)
 
     def init_db(self):
         """Connect to the database and try to access the table. The database file and the table will be created if they
          do not exist yet."""
         self.db_connector = sqlite3.connect(self.db_path)
         try:
-            self.db_connector.execute(self.sql_create_table.format(table_name=self.db_table_name,
-                                                                   project_id=self.project_id,
-                                                                   bucket_name=self.bucket_name,
-                                                                   prefix=self.prefix))
+            self.db_connector.execute(self.sql_create_table.format(table_name=self.db_table_name), {
+                    'project_id': self.project_id,
+                    'bucket_name': self.bucket_name,
+                    'prefix': self.prefix
+                })
         except sqlite3.OperationalError:
             # The table already exist
             pass
@@ -226,6 +252,9 @@ class WazuhGCloudBucket(WazuhGCloudIntegration):
             last_creation_time = self._get_last_creation_time()
             previous_processed_files = self._get_last_processed_files()
 
+            if self.reparse:
+                self.logger.info('Reparse Mode ON')
+
             for blob in bucket_contents:
                 # Skip folders
                 if blob.name.endswith('/'):
@@ -245,8 +274,14 @@ class WazuhGCloudBucket(WazuhGCloudIntegration):
                             new_creation_time = current_creation_time
 
                         processed_files.append(blob)
+
+                    elif self.reparse:
+                        processed_messages += self.process_blob(blob)
+                        processed_files.append(blob)
+
                     else:
                         self.logger.info(f'Skipping previously processed file: {blob.name}')
+
                 else:
                     self.logger.info(f'The creation time of {blob.name} is older than {comparison_date}. '
                                      f'Skipping it...')

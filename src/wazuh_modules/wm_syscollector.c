@@ -17,8 +17,12 @@
 #include "defs.h"
 #include "mq_op.h"
 
+#ifdef WIN32
+static DWORD WINAPI wm_sys_main(void *arg);         // Module main function. It won't return
+#else
 static void* wm_sys_main(wm_sys_t *sys);        // Module main function. It won't return
-static void wm_sys_destroy(wm_sys_t *sys);      // Destroy data
+#endif
+static void wm_sys_destroy(wm_sys_t *data);      // Destroy data
 static void wm_sys_stop(wm_sys_t *sys);         // Module stopper
 const char *WM_SYS_LOCATION = "syscollector";   // Location field for event sending
 cJSON *wm_sys_dump(const wm_sys_t *sys);
@@ -32,10 +36,10 @@ bool shutdown_process_started = false;
 const wm_context WM_SYS_CONTEXT = {
     "syscollector",
     (wm_routine)wm_sys_main,
-    (wm_routine)(void *)wm_sys_destroy,
+    (void(*)(void *))wm_sys_destroy,
     (cJSON * (*)(const void *))wm_sys_dump,
     (int(*)(const char*))wm_sync_message,
-    (wm_routine)(void *)wm_sys_stop
+    (void(*)(void *))wm_sys_stop
 };
 
 void *syscollector_module = NULL;
@@ -77,9 +81,7 @@ static void wm_sys_send_message(const void* data, const char queue_id) {
 }
 
 static void wm_sys_send_diff_message(const void* data) {
-    if (!os_iswait()) {
-        wm_sys_send_message(data, SYSCOLLECTOR_MQ);
-    }
+    wm_sys_send_message(data, SYSCOLLECTOR_MQ);
 }
 
 static void wm_sys_send_dbsync_message(const void* data) {
@@ -118,7 +120,12 @@ static void wm_sys_log_config(wm_sys_t *sys)
     }
 }
 
+#ifdef WIN32
+DWORD WINAPI wm_sys_main(void *arg) {
+    wm_sys_t *sys = (wm_sys_t *)arg;
+#else
 void* wm_sys_main(wm_sys_t *sys) {
+#endif
     w_cond_init(&sys_stop_condition, NULL);
     w_mutex_init(&sys_stop_mutex, NULL);
     w_mutex_init(&sys_reconnect_mutex, NULL);

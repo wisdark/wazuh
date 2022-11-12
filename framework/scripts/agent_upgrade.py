@@ -12,6 +12,7 @@ from os.path import dirname
 from signal import signal, SIGINT
 from sys import exit, path, argv
 from time import sleep
+from typing import Union
 
 # Set framework path
 path.append(dirname(argv[0]) + '/../framework')  # It is necessary to import Wazuh package
@@ -38,7 +39,34 @@ def signal_handler(n_signal, frame):
     exit(1)
 
 
+def get_script_arguments() -> argparse.Namespace:
+    """Get script arguments.
+
+    Returns
+    -------
+    argparse.Namespace
+        Arguments passed to the script.
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-a", "--agents", nargs='+', help="Agent IDs to upgrade.")
+    parser.add_argument("-r", "--repository", type=str, help="Specify a repository URL. [Default: {0}]".format(
+        common.WPK_REPO_URL_4_X))
+    parser.add_argument("-v", "--version", type=str, help="Version to upgrade. [Default: latest Wazuh version]")
+    parser.add_argument("-F", "--force", action="store_true",
+                        help="Allows reinstall same version and downgrade version.")
+    parser.add_argument("-s", "--silent", action="store_true", help="Do not show output.")
+    parser.add_argument("-l", "--list_outdated", action="store_true", help="Generates a list with all outdated agents.")
+    parser.add_argument("-f", "--file", type=str, help="Custom WPK filename.")
+    parser.add_argument("-d", "--debug", action="store_true", help="Debug mode.")
+    parser.add_argument("-x", "--execute", type=str,
+                        help="Executable filename in the WPK custom file. [Default: upgrade.sh]")
+    parser.add_argument("--http", action="store_true", help="Uses http protocol instead of https.")
+
+    return parser
+
+
 def list_outdated():
+    """Print outdated agents."""
     agents = wazuh.agent.get_outdated_agents()
     if agents.total_affected_items == 0:
         print("All agents are updated.")
@@ -49,17 +77,18 @@ def list_outdated():
         print("\nTotal outdated agents: {0}".format(agents.total_affected_items))
 
 
-def get_agents_versions(agents):
-    """Get the current versions of the specified agents
+def get_agents_versions(agents: list) -> dict:
+    """Get the current versions of the specified agents.
 
     Parameters
     ----------
     agents : list
-        List of agent's IDs
+        List of agent's IDs.
 
     Returns
     -------
-    Dictionary with the current version (prev_version)
+    dict
+        Dictionary with the current version (prev_version).
     """
     agents_versions = dict()
     for agent_id in agents:
@@ -74,12 +103,13 @@ def get_agents_versions(agents):
     return agents_versions
 
 
-def create_command():
-    """Create a custom command based on the CLI arguments
+def create_command() -> dict:
+    """Create a custom command based on the CLI arguments.
 
     Returns
     -------
-    Dictionary with upgrade command
+    dict
+        Dictionary with upgrade command.
     """
     if not args.file and not args.execute:
         f_kwargs = {'agent_list': args.agents, 'wpk_repo': args.repository, 'version': args.version,
@@ -91,22 +121,24 @@ def create_command():
     return f_kwargs
 
 
-def send_command(function, command, local_master=False):
+def send_command(function: callable, command: dict, local_master: bool = False) -> Union[object, None]:
     """Send the command to the specified function.
-    If local_master is True, the request type must be local_master (upgrade_result)
+
+    If local_master is True, the request type must be local_master (upgrade_result).
 
     Parameters
     ----------
-    function : func
-        Upgrade function
+    function : callable
+        Upgrade function.
     command : dict
-        Arguments for the specified function
+        Arguments for the specified function.
     local_master : bool
-        True for get the upgrade results, False for send upgrade command
+        Whether to use local_master or not (distributed_master) as request_type of the DistributedAPI object.
 
     Returns
     -------
-    Distributed API request result
+    object or None
+        Distributed API request result.
     """
     dapi = DistributedAPI(f=function, f_kwargs=command,
                           request_type='distributed_master' if not local_master else 'local_master',
@@ -115,15 +147,15 @@ def send_command(function, command, local_master=False):
     return raise_if_exc(pool.submit(run, dapi.distribute_function()).result())
 
 
-def print_result(agents_versions, failed_agents):
-    """Print the operation's result
+def print_result(agents_versions: dict, failed_agents: dict):
+    """Print the operation's result.
 
     Parameters
     ----------
     agents_versions : dict
-        Dictionary with the previous version an the new one
+        Dictionary with the previous version and the new one.
     failed_agents : dict
-        Contain the error's information
+        Contain the error's information.
     """
     len(agents_versions.keys()) > 0 and print('\nUpgraded agents:')
     for agent_id, versions in agents_versions.items():
@@ -134,19 +166,19 @@ def print_result(agents_versions, failed_agents):
         print(f"\tAgent {agent_id} status: {error}")
 
 
-def check_status(affected_agents, result_dict, failed_agents, silent):
-    """Check the agent's upgrade status
+def check_status(affected_agents: list, result_dict: dict, failed_agents: dict, silent: bool):
+    """Check the agent's upgrade status.
 
     Parameters
     ----------
     affected_agents : list
-        Result of the upgrade task check
+        Result of the upgrade task check.
     result_dict : dict
-        Dictionary with the previous version and the new one
+        Dictionary with the previous version and the new one.
     failed_agents : dict
-        Contain the error's information
+        Contain the error's information.
     silent : bool
-        Do not show output if it is True
+        Whether to show output or not.
     """
     affected_agents = set(affected_agents)
     len(affected_agents) and print('\nUpgrading...')
@@ -171,53 +203,33 @@ def check_status(affected_agents, result_dict, failed_agents, silent):
 
 
 def main():
-    # Capture Ctrl + C
-    signal(SIGINT, signal_handler)
-
-    # Check arguments
-    if args.list_outdated:
-        list_outdated()
-        exit(0)
-
-    if not args.agents:
-        arg_parser.print_help()
-        exit(0)
-
-    result = send_command(function=upgrade_agents, command=create_command())
-
-    not args.silent and len(result.failed_items.keys()) > 0 and print("Agents that cannot be upgraded:")
-    if not args.silent:
-        for agent_result, agent_ids in result.failed_items.items():
-            print(f"\tAgent {', '.join(agent_ids)} upgrade failed. Status: {agent_result}")
-
-    result.affected_items = [task["agent"] for task in result.affected_items]
-    agents_versions = get_agents_versions(agents=result.affected_items)
-
-    failed_agents = dict()
-    check_status(affected_agents=result.affected_items, result_dict=agents_versions,
-                 failed_agents=failed_agents, silent=args.silent)
-
-
-if __name__ == "__main__":
-
-    arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("-a", "--agents", nargs='+', help="Agent IDs to upgrade.")
-    arg_parser.add_argument("-r", "--repository", type=str, help="Specify a repository URL. [Default: {0}]".format(
-        common.WPK_REPO_URL_4_X))
-    arg_parser.add_argument("-v", "--version", type=str, help="Version to upgrade. [Default: latest Wazuh version]")
-    arg_parser.add_argument("-F", "--force", action="store_true",
-                            help="Allows reinstall same version and downgrade version.")
-    arg_parser.add_argument("-s", "--silent", action="store_true", help="Do not show output.")
-    arg_parser.add_argument("-l", "--list_outdated", action="store_true",
-                            help="Generates a list with all outdated agents.")
-    arg_parser.add_argument("-f", "--file", type=str, help="Custom WPK filename.")
-    arg_parser.add_argument("-x", "--execute", type=str,
-                            help="Executable filename in the WPK custom file. [Default: upgrade.sh]")
-    arg_parser.add_argument("--http", action="store_true", help="Uses http protocol instead of https.")
-    args = arg_parser.parse_args()
-
     try:
-        main()
+        # Capture Ctrl + C
+        signal(SIGINT, signal_handler)
+
+        # Check arguments
+        if args.list_outdated:
+            list_outdated()
+            exit(0)
+
+        if not args.agents:
+            arg_parser.print_help()
+            exit(0)
+
+        result = send_command(function=upgrade_agents, command=create_command())
+
+        not args.silent and len(result.failed_items.keys()) > 0 and print("Agents that cannot be upgraded:")
+        if not args.silent:
+            for agent_result, agent_ids in result.failed_items.items():
+                print(f"\tAgent {', '.join(agent_ids)} upgrade failed. Status: {agent_result}")
+
+        result.affected_items = [task["agent"] for task in result.affected_items]
+        agents_versions = get_agents_versions(agents=result.affected_items)
+
+        failed_agents = dict()
+        check_status(affected_agents=result.affected_items, result_dict=agents_versions,
+                     failed_agents=failed_agents, silent=args.silent)
+
     except WazuhError as e:
         print(f"Error {e.code}: {e.message}")
         if args.debug:
@@ -226,3 +238,9 @@ if __name__ == "__main__":
         print(f"Internal error: {str(e)}")
         if args.debug:
             raise
+
+
+if __name__ == "__main__":
+    arg_parser = get_script_arguments()
+    args = arg_parser.parse_args()
+    main()

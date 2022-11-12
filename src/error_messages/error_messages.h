@@ -107,6 +107,15 @@
 #define TCP_EPIPE       "(1248): Unable to send message. Connection has been closed by remote server."
 #define CONN_REF        "(1249): Unable to send message. Connection with remote server refused."
 #define ACCESS_ERROR    "(1250): Error trying to execute \"%s\": %s (%d)."
+#define MUTEX_INIT      "(1330) Cannot initialize mutex: %s (%d)."
+#define MUTEX_DESTROY   "(1331) Cannot destroy mutex: %s (%d)."
+#define MUTEX_LOCK      "(1332) Cannot lock mutex: %s (%d)."
+#define MUTEX_UNLOCK    "(1333) Cannot unlock mutex: %s (%d)."
+#define RWLOCK_INIT     "(1334) Cannot initialize rwlock: %s (%d)."
+#define RWLOCK_DESTROY  "(1335) Cannot destroy rwlock: %s (%d)."
+#define RWLOCK_LOCK_RD  "(1336) Cannot lock rwlock for reading: %s (%d)."
+#define RWLOCK_LOCK_WR  "(1337) Cannot lock rwlock for writing: %s (%d)."
+#define RWLOCK_UNLOCK   "(1338) Cannot unlock rwlock: %s (%d)."
 
 /* Mail errors */
 #define CHLDWAIT_ERROR  "(1261): Waiting for child process. (status: %d)."
@@ -179,6 +188,7 @@
 #define EXEC_INV_JSON   "(1315): Invalid JSON message: '%s'"
 #define EXEC_INV_CMD    "(1316): Invalid AR command: '%s'"
 #define EXEC_CMD_FAIL   "(1317): Could not launch command %s (%d)"
+#define EXEC_BAD_NAME   "(1318): Command name truncated %s"
 
 #define AR_NOAGENT_ERROR                "(1320): Agent '%s' not found."
 #define EXEC_QUEUE_CONNECTION_ERROR     "(1321): Error communicating with queue '%s'."
@@ -425,6 +435,8 @@
 #define VU_VER_READING_ERROR        "(5589): Couldn't read Wazuh version for agent '%.3d'"
 #define VU_OVAL_VULN_NOT_FOUND      "(5590): No vulnerabilities could be found in the OVAL for agent '%.3d'"
 #define VU_PKG_INVALID_VER          "(5591): Invalid version for package '%s' of the inventory: '%s'"
+#define VU_SUSE_VERSION_ERROR       "(5592): Invalid SUSE OS version."
+#define VU_INVALID_CPE_VERSION      "(5593): Couldn't get the version of the CPE for the %s package."
 
 /* File integrity monitoring error messages*/
 #define FIM_ERROR_ADD_FILE                          "(6600): Unable to add file to db: '%s'"
@@ -449,7 +461,7 @@
 #define FIM_ERROR_WHODATA_AUDIT_SUPPORT             "(6620): Audit support not built. Whodata is not available."
 #define FIM_ERROR_WHODATA_EVENTCHANNEL              "(6621): Event Channel subscription could not be made. Whodata scan is disabled."
 #define FIM_ERROR_WHODATA_RESTORE_POLICIES          "(6622): There is no backup of audit policies. Policies will not be restored."
-
+#define FIM_ERROR_WHODATA_UNINITIALIZED             "(6623): Trying to monitor '%s' in who-data mode, but who-data is not initialized."
 
 #define FIM_ERROR_WHODATA_NOTFIND_DIRPOS            "(6625): The '%s' file does not have an associated directory."
 #define FIM_ERROR_WHODATA_HANDLER_REMOVE            "(6626): The handler '%s' could not be removed from the whodata hash table."
@@ -668,7 +680,7 @@
 #define TOLERANCE_TIME  "Tolerance time set to Zero, defined flooding condition when buffer is full."
 
 /* OSSEC alert messages */
-#define OS_AD_STARTED   "ossec: Ossec started."
+#define OS_MG_STARTED   "ossec: Manager started."
 #define OS_AG_STARTED   "ossec: Agent started: '%s->%s'."
 #define OS_AG_STOPPED   "ossec: Agent stopped: '%s->%s'."
 #define OS_AG_DISCON    "ossec: Agent disconnected: '%s'."

@@ -10,23 +10,41 @@ import itertools
 import logging
 import operator
 import sys
-from datetime import datetime
 from os import path
+from typing import Union
 
 import wazuh.core.cluster.cluster
 import wazuh.core.cluster.utils
 from wazuh.core.cluster import control, local_client
 from wazuh.core.common import DECIMALS_DATE_FORMAT
+from wazuh.core.utils import get_utc_strptime
 
 
-def __print_table(data, headers, show_header=False):
+def __print_table(data: map, headers: dict, show_header: bool = False):
+    """Pretty print list of lists.
+
+    Paramaters
+    ----------
+    data : map
+        Data to be printed.
+    headers : dict
+        Table headers.
+    show_header : bool
+        Whether to show the table header or not.
     """
-    Pretty print list of lists
-    """
 
-    def get_max_size_cols(l):
-        """
-        For each column of the table, return the size of the biggest element
+    def get_max_size_cols(l: map) -> list:
+        """For each column of the table, return the size of the biggest element.
+
+        Parameters
+        ----------
+        l : map
+            Table.
+
+        Returns
+        -------
+        list
+            List containing the biggest element size of each column of the given table.
         """
         return list(map(lambda x: max(map(lambda y: len(y) + 2, x)), map(list, zip(*l))))
 
@@ -43,7 +61,16 @@ def __print_table(data, headers, show_header=False):
     print(table_str)
 
 
-async def print_agents(filter_status, filter_node):
+async def print_agents(filter_status: list, filter_node: list):
+    """Print table with the agents information.
+
+    Parameters
+    ----------
+    filter_node : list
+        Nodes to return.
+    filter_status : list
+        Agent connection statuses to filter by.
+    """
     lc = local_client.LocalClient()
     result = await control.get_agents(lc, filter_node=filter_node, filter_status=filter_status)
     headers = {'id': 'ID', 'name': 'Name', 'ip': 'IP', 'status': 'Status', 'version': 'Version',
@@ -52,7 +79,14 @@ async def print_agents(filter_status, filter_node):
     __print_table(data, list(headers.values()), True)
 
 
-async def print_nodes(filter_node):
+async def print_nodes(filter_node: list):
+    """Print table with the cluster nodes.
+
+    Parameters
+    ----------
+    filter_node : list
+        Nodes to return.
+    """
     lc = local_client.LocalClient()
     result = await control.get_nodes(lc, filter_node=filter_node)
     headers = ["Name", "Type", "Version", "Address"]
@@ -60,7 +94,7 @@ async def print_nodes(filter_node):
     __print_table(data, headers, True)
 
 
-async def print_health(config, more, filter_node):
+async def print_health(config: dict, more: bool, filter_node: Union[str, list]):
     """Print the current status of the cluster as well as additional information.
 
     Parameters
@@ -69,11 +103,11 @@ async def print_health(config, more, filter_node):
         Cluster current configuration.
     more : bool
         Indicate whether additional information is desired or not.
-    filter_node : str, list
+    filter_node : str or list
         Node to return.
     """
 
-    def calculate_seconds(start_time, end_time):
+    def calculate_seconds(start_time: str, end_time: str):
         """Calculate the time difference between two dates.
 
         Parameters
@@ -90,7 +124,7 @@ async def print_health(config, more, filter_node):
         """
         if end_time != 'n/a' and start_time != 'n/a':
             seconds = \
-                datetime.strptime(end_time, DECIMALS_DATE_FORMAT) - datetime.strptime(start_time, DECIMALS_DATE_FORMAT)
+                get_utc_strptime(end_time, DECIMALS_DATE_FORMAT) - get_utc_strptime(start_time, DECIMALS_DATE_FORMAT)
             total_seconds = f"{round(seconds.total_seconds(), 3) if seconds.total_seconds() >= 0.0005 else 0.001}s"
         else:
             total_seconds = 'n/a'
@@ -98,6 +132,9 @@ async def print_health(config, more, filter_node):
         return total_seconds
 
     lc = local_client.LocalClient()
+    if filter_node is None:
+        filter_node = await control.get_nodes(lc, filter_node=filter_node)
+        filter_node = [node['name'] for node in filter_node['items']]
     result = await control.get_health(lc, filter_node=filter_node)
     msg2 = ""
 
@@ -117,6 +154,7 @@ async def print_health(config, more, filter_node):
                         f"Integrity check: {node_info['status']['last_check_integrity']['date_end_master']} | " \
                         f"Integrity sync: {node_info['status']['last_sync_integrity']['date_end_master']} | " \
                         f"Agents-info: {node_info['status']['last_sync_agentinfo']['date_end_master']} | " \
+                        f"Agents-groups: {node_info['status']['last_sync_agentgroups']['date_end_master']} | " \
                         f"Last keep alive: {node_info['status']['last_keep_alive']}.\n"
 
             msg2 += "        Status:\n"
@@ -145,12 +183,8 @@ async def print_health(config, more, filter_node):
             n_shared = str(node_info['status']['last_sync_integrity']['total_files']["shared"])
             n_missing = str(node_info['status']['last_sync_integrity']['total_files']["missing"])
             n_extra = str(node_info['status']['last_sync_integrity']['total_files']["extra"])
-            n_extra_valid = str(node_info['status']['last_sync_integrity']['total_files']["extra_valid"])
             msg2 += f"                Synchronized files: Shared: {n_shared} | Missing: {n_missing} | " \
-                    f"Extra: {n_extra} | Extra valid: {n_extra_valid}.\n"
-
-            msg2 += f"                Extra valid files correctly updated in master: " \
-                    f"{node_info['status']['last_sync_integrity']['total_extra_valid']}.\n"
+                    f"Extra: {n_extra}.\n"
 
             # Agent info
             total = calculate_seconds(node_info['status']['last_sync_agentinfo']['date_start_master'],
@@ -163,6 +197,18 @@ async def print_health(config, more, filter_node):
                     f"{node_info['status']['last_sync_agentinfo']['n_synced_chunks']}.\n"
             msg2 += f"                Permission to synchronize agent-info: " \
                     f"{node_info['status']['sync_agent_info_free']}.\n"
+
+            # Agent groups
+            total = calculate_seconds(node_info['status']['last_sync_agentgroups']['date_start_master'],
+                                      node_info['status']['last_sync_agentgroups']['date_end_master'])
+            msg2 += "            Agent-groups:\n"
+            msg2 += f"                Last synchronization: {total} " \
+                    f"({node_info['status']['last_sync_agentgroups']['date_start_master']} - " \
+                    f"{node_info['status']['last_sync_agentgroups']['date_end_master']}).\n"
+            msg2 += f"                Number of synchronized chunks: " \
+                    f"{node_info['status']['last_sync_agentgroups']['n_synced_chunks']}.\n"
+            msg2 += f"                Permission to synchronize agent-groups: " \
+                    f"{node_info['status']['sync_agent_groups_free']}.\n"
 
     print(msg1)
     more and print(msg2)
@@ -181,7 +227,7 @@ def usage():
     \t-a -fn <node_name> <agent_status>     # List agents reporting to certain node and with certain status
     \t-i                                    # Check cluster health
     \t-i -fn <node_name>                    # Check certain node's health
-    
+
 
     Params:
     \t-l, --list
@@ -191,12 +237,12 @@ def usage():
     \t-fs, --filter-agent-status
     \t-a, --list-agents
     \t-i, --health
-    
+
     """.format(path.basename(sys.argv[0]))
     print(msg)
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--debug', action='store_true', dest='debug', help="Enable debug mode")
     parser.add_argument('-fn', '--filter-node', dest='filter_node', nargs='*', type=str, help="Filter by node name")
@@ -244,3 +290,7 @@ if __name__ == '__main__':
         logging.error(e)
         if args.debug:
             raise
+
+
+if __name__ == '__main__':
+    main()

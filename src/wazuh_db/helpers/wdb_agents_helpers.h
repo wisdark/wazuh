@@ -18,7 +18,6 @@ typedef enum agents_db_access {
     WDB_AGENTS_SYS_OSINFO_GET,
     WDB_AGENTS_SYS_OSINFO_SET_TRIAGGED,
     WDB_AGENTS_VULN_CVES_INSERT,
-    WDB_AGENTS_VULN_CVES_CLEAR,
     WDB_AGENTS_VULN_CVES_REMOVE,
     WDB_AGENTS_VULN_CVES_UPDATE_STATUS
 } agents_db_access;
@@ -58,6 +57,11 @@ int wdb_set_agent_sys_osinfo_triaged(int id,
  * @param[in] reference The package reference.
  * @param[in] type The package type.
  * @param[in] status The vulnerability status.
+ * @param[in] external_references The vulnerability external references.
+ * @param[in] condition The vulnerability condition.
+*  @param[in] title The vulnerability title.
+*  @param[in] published The vulnerability published date in the feed.
+*  @param[in] updated The vulnerability update date, if any.
  * @param[in] check_pkg_existence If TRUE, it enables a package existence verification in sys_programs table.
  * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
  * @return Returns cJSON object with 'action': 'INSERT' | 'UPDATE'.
@@ -79,32 +83,13 @@ cJSON* wdb_insert_vuln_cves(int id,
                             const char *reference,
                             const char *type,
                             const char *status,
+                            char **external_references,
+                            const char *condition,
+                            const char *title,
+                            const char *published,
+                            const char *updated,
                             bool check_pkg_existence,
                             int *sock);
-
-/**
- * @brief Removes all the entries from the vuln_cves table in the agents database.
- *
- * @param[in] id The agent ID.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns 0 on success or -1 on error.
- */
-int wdb_clear_vuln_cves(int id,
-                        int *sock);
-
-/**
- * @brief Removes an entry from the vuln_cves table in the agent's database.
- *
- * @param[in] id The agent ID.
- * @param[in] cve The cve of the vulnerability entry that should be removed.
- * @param[in] reference The reference of the vulnerability entry that should be removed.
- * @param[in] sock The Wazuh DB socket connection. If NULL, a new connection will be created and closed locally.
- * @return Returns 0 on success or -1 on error.
- */
-int wdb_remove_vuln_cves(int id,
-                         const char *cve,
-                         const char *reference,
-                         int *sock);
 
 /**
  * @brief Removes all the entries from the vuln_cves table in the agent's database that have the specified status.

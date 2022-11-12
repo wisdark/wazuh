@@ -199,7 +199,7 @@ CREATE TABLE IF NOT EXISTS sys_hotfixes (
     scan_time TEXT,
     hotfix TEXT,
     checksum TEXT NOT NULL CHECK (checksum <> ''),
-    PRIMARY KEY (scan_id, scan_time, hotfix)
+    PRIMARY KEY (scan_id, hotfix)
 );
 
 CREATE INDEX IF NOT EXISTS hotfix_id ON sys_hotfixes (scan_id);
@@ -378,12 +378,17 @@ CREATE TABLE IF NOT EXISTS vuln_cves (
     architecture TEXT,
     cve TEXT,
     detection_time TEXT DEFAULT '',
-    severity TEXT DEFAULT '-' CHECK (severity IN ('Critical', 'High', 'Medium', 'Low', 'None', '-')),
+    severity TEXT DEFAULT 'Untriaged' CHECK (severity IN ('Critical', 'High', 'Medium', 'Low', 'None', 'Untriaged')),
     cvss2_score REAL DEFAULT 0,
     cvss3_score REAL DEFAULT 0,
     reference TEXT DEFAULT '' NOT NULL,
     type TEXT DEFAULT '' NOT NULL CHECK (type IN ('OS', 'PACKAGE')),
     status TEXT DEFAULT 'PENDING' NOT NULL CHECK (status IN ('VALID', 'PENDING', 'OBSOLETE')),
+    external_references TEXT DEFAULT '',
+    condition TEXT DEFAULT '',
+    title TEXT DEFAULT '',
+    published TEXT '',
+    updated TEXT '',
     PRIMARY KEY (reference, cve)
 );
 CREATE INDEX IF NOT EXISTS packages_id ON vuln_cves (name);
@@ -393,7 +398,7 @@ CREATE INDEX IF NOT EXISTS cve_status ON vuln_cves (status);
 
 BEGIN;
 
-INSERT INTO metadata (key, value) VALUES ('db_version', '8');
+INSERT INTO metadata (key, value) VALUES ('db_version', '9');
 INSERT INTO scan_info (module) VALUES ('fim');
 INSERT INTO scan_info (module) VALUES ('syscollector');
 INSERT INTO sync_info (component) VALUES ('fim');

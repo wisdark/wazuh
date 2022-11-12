@@ -5,13 +5,11 @@
 import asyncio
 import logging
 import sys
-import threading
-import _thread
 import time
 from unittest.mock import MagicMock, patch, call
-from freezegun import freeze_time
 
 import pytest
+from freezegun import freeze_time
 
 with patch('wazuh.common.wazuh_uid'):
     with patch('wazuh.common.wazuh_gid'):
@@ -124,9 +122,10 @@ def test_acm_add_tasks():
 
 
 @pytest.mark.asyncio
+@patch('asyncio.sleep')
 @patch('itertools.starmap', return_value="")
 @patch('wazuh.core.cluster.client.AbstractClientManager.add_tasks', return_value=[])
-async def test_acm_start(add_tasks_mock, starmap_mock):
+async def test_acm_start(add_tasks_mock, starmap_mock, asyncio_sleep_mock):
     """Check that the 'start' method allow a connection to the server and wait until this connection is closed."""
 
     class ClientMock:
@@ -137,15 +136,10 @@ async def test_acm_start(add_tasks_mock, starmap_mock):
         def close(self):
             pass
 
-    async def middle_method():
-        await abstract_client_manager.start()
+    async def sleep_mock(connection_retry):
+        raise Exception()
 
-    def between_callback():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        loop.run_until_complete(middle_method())
-        loop.close()
+    asyncio_sleep_mock.side_effect = sleep_mock
 
     with patch.object(LoopMock, "create_connection",
                       return_value=(TransportMock(), ClientMock())) as create_connection_mock:
@@ -155,33 +149,26 @@ async def test_acm_start(add_tasks_mock, starmap_mock):
         with patch.object(logging.getLogger("wazuh"), "info") as logger_info_mock:
             with patch.object(logging.getLogger("wazuh"), "error") as logger_error_mock:
                 # Test the try
-                stop_while_thread = threading.Thread(target=between_callback)
-                # stop_while_thread.daemon = True
-                stop_while_thread.start()
-                time.sleep(5)
-                logger_info_mock.assert_called_with("The connection has been closed. Reconnecting in 10 seconds.")
+                try:
+                    await abstract_client_manager.start()
+                except Exception:
+                    logger_info_mock.assert_called_with("The connection has been closed. Reconnecting in 10 seconds.")
 
                 # Test the first exception
                 create_connection_mock.side_effect = ConnectionRefusedError
-                time.sleep(5)
-                logger_error_mock.assert_called_with("Could not connect to master. Trying again in 10 seconds.")
+                try:
+                    await abstract_client_manager.start()
+                except Exception:
+                    logger_error_mock.assert_called_with("Could not connect to master. Trying again in 10 seconds.")
 
                 # Test the second exception
                 create_connection_mock.side_effect = OSError
-                time.sleep(5)
-                logger_error_mock.assert_called_with("Could not connect to master: . Trying again in 10 seconds.")
-                add_tasks_mock.assert_called_with()
-                starmap_mock.assert_called()
-
-                # Stop the thread
-                print("The thread is about to be stopped, so an expected Exception will be raised.")
-                create_connection_mock.side_effect = Exception
-                time.sleep(5)
-
-                if not stop_while_thread.is_alive():
-                    print("The thread was correctly terminated.")
-                else:
-                    raise Exception("The thread could not be properly terminated.")
+                try:
+                    await abstract_client_manager.start()
+                except Exception:
+                    logger_error_mock.assert_called_with("Could not connect to master: . Trying again in 10 seconds.")
+                    add_tasks_mock.assert_called_with()
+                    starmap_mock.assert_called()
 
 
 # Test AbstractClient methods
@@ -189,7 +176,7 @@ async def test_acm_start(add_tasks_mock, starmap_mock):
 def test_ac_init():
     """Check the correct initialization of the AbstractClient object."""
 
-    assert abstract_client.manager is None
+    assert abstract_client.server is None
     assert abstract_client.client_data == b"name"
     assert abstract_client.connected is False
     assert isinstance(abstract_client.on_con_lost, FutureMock)
@@ -229,7 +216,7 @@ def test_ac_connection_result():
         abstract_client.transport = m_mock
 
         abstract_client.connection_result(m_mock)
-        logger_mock.assert_called_once_with("Sucessfully connected to master.")
+        logger_mock.assert_called_once_with("Successfully connected to master.")
         assert abstract_client.connected is True
 
 
@@ -274,7 +261,8 @@ def test_ac_connection_lost(cancel_tasks_mock):
     # Test the second condition
     with patch.object(logging.getLogger('wazuh'), "error") as logger_mock:
         abstract_client.connection_lost(exc=WazuhException(1001))
-        logger_mock.assert_called_once_with(f"Connection closed due to an unhandled error: {WazuhException(1001)}\n")
+        logger_mock.assert_called_once_with(f"Connection closed due to an unhandled error: {WazuhException(1001)}\n",
+                                            exc_info=False)
 
 
 def test_ac_cancel_all_tasks():
@@ -301,7 +289,7 @@ def test_ac_process_response():
 
     # Test the fist condition
     assert (abstract_client.process_response(command=b'ok-m',
-                                             payload=b"payload") == b"Sucessful response from master: " + b"payload")
+                                             payload=b"payload") == b"Successful response from master: " + b"payload")
 
     # Test the second condition
     with patch('wazuh.core.cluster.common.Handler.process_response', return_value=b'ok') as pr_mock:
@@ -330,9 +318,10 @@ def test_ac_echo_client():
 
 
 @pytest.mark.asyncio
+@patch('asyncio.sleep')
 @patch.object(FutureMock, "done", return_value=False)
 @patch('wazuh.core.cluster.client.AbstractClient.send_request', return_value=b"ok")
-async def test_ac_client_echo_ok(send_request_mock, done_mock):
+async def test_ac_client_echo_ok(send_request_mock, done_mock, asyncio_sleep_mock):
     """Test if a keepalive is being send to the server every couple of seconds until the connection is lost."""
 
     class TransportMock:
@@ -343,117 +332,128 @@ async def test_ac_client_echo_ok(send_request_mock, done_mock):
         def close(self):
             pass
 
+    async def sleep_mock(connection_retry):
+        raise Exception()
+
     def set_assignment():
         time.sleep(0.4)
         done_mock.return_value = True
 
     abstract_client.connected = True
+    asyncio_sleep_mock.side_effect = sleep_mock
 
     # Test try
     with patch.object(logging.getLogger("wazuh"), "info") as logger_mock:
         with patch('wazuh.core.cluster.common.Handler.setup_task_logger',
                    return_value=logging.getLogger("wazuh")) as setup_logger_mock:
-            stop_while_thread = threading.Thread(target=set_assignment)
-            stop_while_thread.start()
-            await abstract_client.client_echo()
-            send_request_mock.assert_called_once_with(b'echo-c', b'keepalive')
-            setup_logger_mock.assert_called_once_with("Keep Alive")
-            logger_mock.assert_called_with("ok")
+            try:
+                await abstract_client.client_echo()
+            except Exception:
+                send_request_mock.assert_called_once_with(b'echo-c', b'keepalive')
+                setup_logger_mock.assert_called_once_with("Keep Alive")
+                logger_mock.assert_called_with("ok")
 
     # Test except
     with patch.object(logging.getLogger("wazuh"), "error") as logger_mock:
         with patch('wazuh.core.cluster.common.Handler.setup_task_logger',
                    return_value=logging.getLogger("wazuh")) as setup_logger_mock:
-            abstract_client.transport = TransportMock()
-            done_mock.return_value = False
-            send_request_mock.side_effect = Exception()
-            stop_while_thread = threading.Thread(target=set_assignment)
-            stop_while_thread.start()
-
             with patch.object(TransportMock, "close") as close_mock:
-                await abstract_client.client_echo()
-                setup_logger_mock.assert_called_once_with("Keep Alive")
-                close_mock.assert_called_once()
-                logger_mock.assert_any_call("Error sending keep alive: ")
-                logger_mock.assert_called_with("Maximum number of failed keep alives reached. Disconnecting.")
+                abstract_client.transport = TransportMock()
+                done_mock.return_value = False
+                send_request_mock.side_effect = Exception()
+                try:
+                    await abstract_client.client_echo()
+                except Exception:
+                    setup_logger_mock.assert_called_once_with("Keep Alive")
+                    close_mock.assert_called_once()
+                    logger_mock.assert_any_call("Error sending keep alive: ")
+                    logger_mock.assert_called_with("Maximum number of failed keep alives reached. Disconnecting.")
 
 
 @pytest.mark.asyncio
 @freeze_time("2022-01-01")
-@patch('asyncio.sleep')
 @patch.object(FutureMock, "done", return_value=False)
+@patch('wazuh.core.cluster.client.perf_counter', return_value=0)
 @patch('wazuh.core.cluster.client.AbstractClient.send_request', return_value="ok")
-async def test_ac_performance_test_client(send_request_mock, done_mock, sleep_mock):
+async def test_ac_performance_test_client(send_request_mock, perf_counter_mock, done_mock):
     """Test is the master replies with aa payload of the same length as the one that was sent."""
 
-    def set_assignment():
-        time.sleep(5)
-        done_mock.return_value = True
+    async def asyncio_sleep_mock(delay, result=None, *, loop=None):
+        assert delay == 3
+        raise Exception()
 
-    with patch.object(logging.getLogger("wazuh"), "error") as logger_mock:
-        stop_while_thread = threading.Thread(target=set_assignment)
-        stop_while_thread.start()
-        await asyncio.create_task(abstract_client.performance_test_client(10))
-        logger_mock.assert_called_with("ok")
-        send_request_mock.assert_called_with(b'echo', b'a' * 10)
+    with patch('asyncio.sleep', asyncio_sleep_mock):
+        with patch.object(logging.getLogger("wazuh"), "error") as logger_mock:
+            try:
+                await asyncio.create_task(abstract_client.performance_test_client(10))
+            except Exception:
+                pass
 
-    with patch.object(logging.getLogger("wazuh"), "info") as logger_mock:
-        stop_while_thread = threading.Thread(target=set_assignment)
-        done_mock.return_value = False
-        stop_while_thread.start()
-        await asyncio.create_task(abstract_client.performance_test_client(2))
-        logger_mock.assert_called_with(f"Received size: {2} // Time: {0.0}")
-        send_request_mock.assert_called_with(b'echo', b'a' * 2)
+            logger_mock.assert_called_with("ok", exc_info=False)
+            send_request_mock.assert_called_with(b'echo', b'a' * 10)
 
-    done_mock.assert_any_call()
+        with patch.object(logging.getLogger("wazuh"), "info") as logger_mock:
+            done_mock.return_value = False
+            try:
+                await asyncio.create_task(abstract_client.performance_test_client(2))
+            except Exception:
+                pass
+            logger_mock.assert_called_with(f"Received size: {2} // Time: {0}")
+            send_request_mock.assert_called_with(b'echo', b'a' * 2)
+
+        done_mock.assert_any_call()
 
 
 @pytest.mark.asyncio
 @freeze_time("2022-01-01")
-@patch('asyncio.sleep')
 @patch.object(FutureMock, "done", return_value=False)
+@patch('wazuh.core.cluster.client.perf_counter', return_value=0)
 @patch('wazuh.core.cluster.client.AbstractClient.send_request', return_value="ok")
-async def test_ac_concurrency_test_client(send_request_mock, done_mock, sleep_mock):
+async def test_ac_concurrency_test_client(send_request_mock, perf_counter_mock, done_mock):
     """Check how the server reply to all requests until the connection is lost."""
 
     n_msgs = 5
 
-    def set_assignment():
-        time.sleep(1)
-        done_mock.return_value = True
+    async def asyncio_sleep_mock(delay, result=None, *, loop=None):
+        assert delay == 3
+        raise Exception()
 
-    with patch.object(logging.getLogger("wazuh"), "info") as logger_mock:
-        stop_while_thread = threading.Thread(target=set_assignment)
-        stop_while_thread.start()
-        await asyncio.create_task(abstract_client.concurrency_test_client(n_msgs))
+    with patch('asyncio.sleep', asyncio_sleep_mock):
+        with patch.object(logging.getLogger("wazuh"), "info") as logger_mock:
+            try:
+                await asyncio.create_task(abstract_client.concurrency_test_client(n_msgs))
+            except Exception:
+                pass
 
-        done_mock.assert_any_call()
-        for i in range(n_msgs):
-            send_request_mock.assert_has_calls([call(b'echo', f'concurrency {i}'.encode())], any_order=True)
-        logger_mock.assert_called_with(f"Time sending {n_msgs} messages: {0.0}")
+            done_mock.assert_any_call()
+            for i in range(n_msgs):
+                send_request_mock.assert_has_calls([call(b'echo', f'concurrency {i}'.encode())], any_order=True)
+            logger_mock.assert_called_with(f"Time sending {n_msgs} messages: {0}")
 
 
 @pytest.mark.asyncio
 @freeze_time("2022-01-01")
+@patch('wazuh.core.cluster.client.perf_counter', return_value=0)
 @patch('wazuh.core.cluster.client.AbstractClient.send_file', return_value="ok")
-async def test_ac_send_file_task(send_file_mock):
+async def test_ac_send_file_task(send_file_mock, perf_counter_mock):
     """Test the 'send_file' protocol."""
 
     with patch.object(logging.getLogger("wazuh"), "debug") as logger_mock:
         await abstract_client.send_file_task("filename")
         send_file_mock.assert_called_once_with("filename")
         logger_mock.assert_any_call("ok")
-        logger_mock.assert_called_with(f"Time: {0.0}")
+        logger_mock.assert_called_with(f"Time: {0}")
 
 
 @pytest.mark.asyncio
 @freeze_time("2022-01-01")
+@patch('wazuh.core.cluster.client.perf_counter', return_value=0)
 @patch('wazuh.core.cluster.client.AbstractClient.send_string', return_value="ok")
-async def test_ac_send_string_task(send_string_mock):
+async def test_ac_send_string_task(send_string_mock, perf_counter_mock):
     """Test the 'send_string' protocol."""
 
     with patch.object(logging.getLogger("wazuh"), "debug") as logger_mock:
         await abstract_client.send_string_task(10)
         send_string_mock.assert_called_once_with(my_str=b'a' * 10)
         logger_mock.assert_any_call("ok")
-        logger_mock.assert_called_with(f"Time: {0.0}")
+        logger_mock.assert_called_with(f"Time: {0}")

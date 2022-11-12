@@ -46,14 +46,14 @@ EXPORTED void rsync_teardown(void)
     RSyncImplementation::instance().release();
 }
 
-EXPORTED RSYNC_HANDLE rsync_create()
+EXPORTED RSYNC_HANDLE rsync_create(const unsigned int thread_pool_size, const size_t maxQueueSize)
 {
     RSYNC_HANDLE retVal{ nullptr };
     std::string errorMessage;
 
     try
     {
-        retVal = RSyncImplementation::instance().create();
+        retVal = RSyncImplementation::instance().create(thread_pool_size, maxQueueSize);
     }
     // LCOV_EXCL_START
     catch (...)
@@ -90,7 +90,7 @@ EXPORTED int rsync_start_sync(const RSYNC_HANDLE handle,
                     callback_data.callback(payload.c_str(), payload.size(), callback_data.user_data);
                 }
             };
-            const std::unique_ptr<char, CJsonDeleter> spJsonBytes{cJSON_PrintUnformatted(start_configuration)};
+            const std::unique_ptr<char, CJsonSmartFree> spJsonBytes{cJSON_PrintUnformatted(start_configuration)};
             RSyncImplementation::instance().startRSync(handle, std::make_shared<DBSyncWrapper>(dbsync_handle), nlohmann::json::parse(spJsonBytes.get()), callbackWrapper);
             retVal = 0;
         }
@@ -131,7 +131,7 @@ EXPORTED int rsync_register_sync_id(const RSYNC_HANDLE handle,
                     callback_data.callback(payload.c_str(), payload.size(), callback_data.user_data);
                 }
             };
-            const std::unique_ptr<char, CJsonDeleter> spJsonBytes{cJSON_Print(sync_configuration)};
+            const std::unique_ptr<char, CJsonSmartFree> spJsonBytes{cJSON_Print(sync_configuration)};
             RSyncImplementation::instance().registerSyncId(handle, message_header_id, std::make_shared<DBSyncWrapper>(dbsync_handle), nlohmann::json::parse(spJsonBytes.get()), callbackWrapper);
             retVal = 0;
         }
@@ -221,8 +221,8 @@ void RemoteSync::teardown()
     RSyncImplementation::instance().release();
 }
 
-RemoteSync::RemoteSync()
-    : m_handle { RSyncImplementation::instance().create() }
+RemoteSync::RemoteSync(const unsigned int threadPoolSize, const size_t maxQueueSize)
+    : m_handle { RSyncImplementation::instance().create(threadPoolSize, maxQueueSize) }
     , m_shouldBeRemoved{ true }
 
 { }

@@ -16,7 +16,8 @@ if(NOT ${TARGET} STREQUAL "winagent")
                             -Wl,--wrap,bzip2_uncompress,--wrap,lstat \
                             -Wl,--wrap,gzopen,--wrap,gzread,--wrap,gzclose,--wrap,fgetc \
                             -Wl,--wrap,gzeof,--wrap,gzerror,--wrap,gzwrite,--wrap,fgetpos \
-                            -Wl,--wrap,realpath,--wrap,getenv,--wrap,atexit ${DEBUG_OP_WRAPPERS}")
+                            -Wl,--wrap,realpath,--wrap,getenv,--wrap,atexit ${DEBUG_OP_WRAPPERS} \
+                            -Wl,--wrap,merror,--wrap,fseek")
     list(APPEND shared_tests_flags "${FILE_OP_BASE_FLAGS}")
 else()
     list(APPEND shared_tests_flags "-Wl,--wrap,get_windows_file_time_epoch,--wrap,mdebug2 ${DEBUG_OP_WRAPPERS}")
@@ -55,16 +56,8 @@ list(APPEND shared_tests_flags "-Wl,--wrap=pthread_mutex_lock,--wrap=pthread_mut
                                 -Wl,--wrap=pthread_cond_signal")
 
 list(APPEND shared_tests_names "test_agent_op")
-list(APPEND shared_tests_flags "${DEBUG_OP_WRAPPERS}")
-
-if(${TARGET} STREQUAL "server")
-list(APPEND shared_tests_names "test_set_agent_group")
-list(APPEND shared_tests_flags "-Wl,--wrap,_merror -Wl,--wrap,getpid \
-                                -Wl,--wrap,fopen -Wl,--wrap,fclose -Wl,--wrap,fflush -Wl,--wrap,fread \
-                                -Wl,--wrap,fseek -Wl,--wrap,fwrite -Wl,--wrap,remove -Wl,--wrap,fprintf -Wl,--wrap,fgets \
-                                -Wl,--wrap,fgetpos -Wl,--wrap=fgetc \
-                                -Wl,--wrap,fchmod,--wrap,stat,--wrap,fileno,--wrap,umask -Wl,--wrap,unlink")
-endif()
+list(APPEND shared_tests_flags "-Wl,--wrap,wdb_get_agent_info -Wl,--wrap,_mdebug1 -Wl,--wrap,getpid\
+                                ${DEBUG_OP_WRAPPERS}")
 
 list(APPEND shared_tests_names "test_enrollment_op")
 set(ENROLLMENT_OP_BASE_FLAGS "-Wl,--wrap=OS_IsValidIP,--wrap=_merror,--wrap=_mwarn,--wrap=check_x509_cert \
@@ -137,6 +130,15 @@ else()
 endif()
 
 if(NOT ${TARGET} STREQUAL "winagent")
+list(APPEND shared_tests_names "test_json_op")
+list(APPEND shared_tests_flags "-Wl,--wrap,w_get_file_content -Wl,--wrap,cJSON_ParseWithOpts \
+                                -Wl,--wrap,cJSON_PrintUnformatted -Wl,--wrap,fopen \
+                                -Wl,--wrap,fwrite -Wl,--wrap,fclose \
+                                -Wl,--wrap,fflush -Wl,--wrap,fgets \
+                                -Wl,--wrap,fgetpos -Wl,--wrap,fgetc \
+                                -Wl,--wrap,fread -Wl,--wrap,remove \
+                                -Wl,--wrap,fseek ${DEBUG_OP_WRAPPERS}")
+
 list(APPEND shared_tests_names "test_audit_op")
 list(APPEND shared_tests_flags "-Wl,--wrap,audit_send \
                                 -Wl,--wrap,select -Wl,--wrap,audit_get_reply -Wl,--wrap,wpopenv -Wl,--wrap,fgets \
@@ -151,8 +153,8 @@ list(APPEND shared_tests_names "test_privsep_op")
 list(APPEND shared_tests_flags "-Wl,--wrap=sysconf,--wrap=getpwnam_r,--wrap=getgrnam_r,--wrap=getpid")
 
 list(APPEND shared_tests_names "test_mq_op")
-list(APPEND shared_tests_flags "-Wl,--wrap,OS_BindUnixDomain -Wl,--wrap,OS_ConnectUnixDomain -Wl,--wrap,sleep \
-                                -Wl,--wrap,OS_getsocketsize ${DEBUG_OP_WRAPPERS}")
+list(APPEND shared_tests_flags "-Wl,--wrap,OS_BindUnixDomainWithPerms -Wl,--wrap,OS_ConnectUnixDomain -Wl,--wrap,sleep \
+                                -Wl,--wrap,OS_SendUnix -Wl,--wrap,OS_getsocketsize ${DEBUG_OP_WRAPPERS}")
 
 list(APPEND shared_tests_names "test_remoted_op")
 list(APPEND shared_tests_flags "${DEBUG_OP_WRAPPERS}")
@@ -163,7 +165,7 @@ list(APPEND shared_tests_names "test_json-queue")
 list(APPEND shared_tests_flags "${DEBUG_OP_WRAPPERS} -Wl,--wrap,fopen -Wl,--wrap,fclose \
                                 -Wl,--wrap,fflush -Wl,--wrap,fread -Wl,--wrap,fseek -Wl,--wrap,fwrite \
                                 -Wl,--wrap,remove -Wl,--wrap,fprintf -Wl,--wrap,fgets -Wl,--wrap,w_ftell \
-                                -Wl,--wrap,fgetpos -Wl,--wrap,fgetc")
+                                -Wl,--wrap,fgetpos -Wl,--wrap,fgetc,--wrap,stat,--wrap,sleep,--wrap,getpid,--wrap,clearerr")
 
 list(APPEND shared_tests_names "test_bqueue")
 list(APPEND shared_tests_flags "-Wl,--wrap,_merror -Wl,--wrap,_mdebug2")
@@ -194,6 +196,9 @@ else()
                                 -Wl,--wrap,sysinfo_os -Wl,--wrap,sysinfo_processes -Wl,--wrap,sysinfo_free_result \
                                 -Wl,--wrap,cJSON_GetObjectItem -Wl,--wrap,cJSON_GetStringValue")
 endif()
+
+list(APPEND shared_tests_names "test_rwlock_op")
+list(APPEND shared_tests_flags "${DEBUG_OP_WRAPPERS}")
 
 # Compiling tests
 list(LENGTH shared_tests_names count)

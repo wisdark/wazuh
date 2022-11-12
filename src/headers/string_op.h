@@ -100,10 +100,46 @@ char* filter_special_chars(const char *string);
 char * wstr_replace(const char * string, const char * search, const char * replace);
 
 // Locate first occurrence of non escaped character in string
-char * wstr_chr(char * str, int character);
+char * wstr_chr(const char * str, char character);
+
+/**
+ * @brief Locate first occurrence of non escaped character in string.
+ *
+ * @param str A valid pointer to a string where look for a non escaped character.
+ * @param character The non escaped character.
+ * @param escape The character used to escape.
+ * @return The position of the non escaped character, or NULL if fail.
+ */
+char * wstr_chr_escape(const char * str, char character, char escape);
+
+/**
+ * @brief Escape a specific character from a character string.
+ *
+ * @param dststr A valid pointer to a char buffer where escaped string will be stored.
+ * @param dst_size The dststr size to control buffer overflow.
+ * @param str A valid pointer to a string to escape.
+ * @param escape The character used to escape.
+ * @param match The value to escape.
+ * @return The size of the dststr if success, or OS_INVALID if fail.
+ */
+ssize_t wstr_escape(char *dststr, size_t dst_size, const char *str, char escape, char match);
+
+/**
+ * @brief Unescape a specific character from a character string.
+ *
+ * @param dststr A valid pointer to a char buffer where unescaped string will be stored.
+ * @param dst_size The dststr size to control buffer overflow.
+ * @param str A valid pointer to a string to unescape.
+ * @param escape The character used to unescape.
+ * @return The size of the dststr if success, or OS_INVALID if fail.
+ */
+ssize_t wstr_unescape(char *dststr, size_t dst_size, const char *str, char escape);
 
 // Free string array
 void free_strarray(char ** array);
+
+// Get the size of a string array
+size_t strarray_size(char ** array);
 
 // Delete last occurrence of duplicated string
 char * wstr_delete_repeated_groups(const char * string);
@@ -350,10 +386,11 @@ char** w_strtok(const char *string);
 
 /**
  * @brief Concatenate a NULL-terminated string list into a single string
- * 
+ *
  * @param list String list to concatenate
  * @param sep Optional separator. Set to 0 if unused.
  * @return Allocated string with list concatenation.
  */
 char* w_strcat_list(char ** list, char sep);
+
 #endif

@@ -18,6 +18,10 @@
 #include "sym_load.h"
 #include "../os_net/os_net.h"
 
+#ifdef WAZUH_UNIT_TESTING
+#include "unit_tests/wrappers/windows/libc/kernel32_wrappers.h"
+#endif
+
 HANDLE hMutex;
 int win_debug_level;
 
@@ -29,12 +33,19 @@ sysinfo_free_result_func sysinfo_free_result_ptr = NULL;
 int Start_win32_Syscheck();
 
 /* syscheck main thread */
+#ifdef WIN32
+DWORD WINAPI skthread(__attribute__((unused)) LPVOID arg)
+#else
 void *skthread()
+#endif
 {
 
     Start_win32_Syscheck();
-
+#ifdef WIN32
+    return 0;
+#else
     return (NULL);
+#endif
 }
 
 void stop_wmodules()
@@ -50,7 +61,6 @@ void stop_wmodules()
 /* Locally start (after service/win init) */
 int local_start()
 {
-    int rc;
     char *cfg = OSSECCONF;
     WSADATA wsaData;
     DWORD  threadID;
@@ -113,17 +123,6 @@ int local_start()
                w_seconds_to_time_value(agt->force_reconnect_interval), w_seconds_to_time_unit(agt->force_reconnect_interval, TRUE));
     }
 
-    // Resolve hostnames
-    rc = 0;
-    while (rc < agt->server_count) {
-        if (OS_IsValidIP(agt->server[rc].rip, NULL) != 1) {
-            mdebug2("Resolving server hostname: %s", agt->server[rc].rip);
-            resolve_hostname(&agt->server[rc].rip, 5);
-            mdebug2("Server hostname resolved: %s", agt->server[rc].rip);
-        }
-        rc++;
-    }
-
     /* Read logcollector config file */
     mdebug1("Reading logcollector configuration.");
 
@@ -176,7 +175,7 @@ int local_start()
     }
 
     /* Read execd config */
-    if (!WinExecd_Start()) {
+    if (!WinExecdStart()) {
         agt->execdq = -1;
     }
 
@@ -195,7 +194,7 @@ int local_start()
         buffer_init();
         w_create_thread(NULL,
                          0,
-                         (LPTHREAD_START_ROUTINE)dispatch_buffer,
+                         dispatch_buffer,
                          NULL,
                          0,
                          (LPDWORD)&threadID);
@@ -207,7 +206,7 @@ int local_start()
     w_agentd_state_init();
     w_create_thread(NULL,
                      0,
-                     (LPTHREAD_START_ROUTINE)state_main,
+                     state_main,
                      NULL,
                      0,
                      (LPDWORD)&threadID);
@@ -224,7 +223,7 @@ int local_start()
     /* Start syscheck thread */
     w_create_thread(NULL,
                      0,
-                     (LPTHREAD_START_ROUTINE)skthread,
+                     skthread,
                      NULL,
                      0,
                      (LPDWORD)&threadID);
@@ -234,7 +233,7 @@ int local_start()
     if (rotate_log) {
         w_create_thread(NULL,
                         0,
-                        (LPTHREAD_START_ROUTINE)w_rotate_log_thread,
+                        w_rotate_log_thread,
                         NULL,
                         0,
                         (LPDWORD)&threadID);
@@ -251,7 +250,7 @@ int local_start()
     /* Start receiver thread */
     w_create_thread(NULL,
                      0,
-                     (LPTHREAD_START_ROUTINE)receiver_thread,
+                     receiver_thread,
                      NULL,
                      0,
                      (LPDWORD)&threadID2);
@@ -259,7 +258,7 @@ int local_start()
     /* Start request receiver thread */
     w_create_thread(NULL,
                      0,
-                     (LPTHREAD_START_ROUTINE)req_receiver,
+                     req_receiver,
                      NULL,
                      0,
                      (LPDWORD)&threadID2);
@@ -272,7 +271,7 @@ int local_start()
         for (cur_module = wmodules; cur_module; cur_module = cur_module->next) {
             w_create_thread(NULL,
                             0,
-                            (LPTHREAD_START_ROUTINE)cur_module->context->start,
+                            cur_module->context->start,
                             cur_module->data,
                             0,
                             (LPDWORD)&threadID2);
@@ -296,7 +295,7 @@ int local_start()
 /* SendMSGAction for Windows */
 int SendMSGAction(__attribute__((unused)) int queue, const char *message, const char *locmsg, char loc)
 {
-    const char *pl;
+    char loc_buff[OS_SIZE_8192 + 1] = {0};
     char tmpstr[OS_MAXSTR + 2];
     DWORD dwWaitResult;
     int retval = -1;
@@ -325,16 +324,12 @@ int SendMSGAction(__attribute__((unused)) int queue, const char *message, const 
         }
     }   /* end - while for mutex... */
 
-    /* locmsg cannot have the C:, as we use it as delimiter */
-    pl = strchr(locmsg, ':');
-    if (pl) {
-        /* Set pl after the ":" if it exists */
-        pl++;
-    } else {
-        pl = locmsg;
+    if (OS_INVALID == wstr_escape(loc_buff, sizeof(loc_buff), (char *) locmsg, '|', ':')) {
+        merror(FORMAT_ERROR);
+        return retval;
     }
 
-    snprintf(tmpstr, OS_MAXSTR, "%c:%s:%s", loc, pl, message);
+    snprintf(tmpstr, OS_MAXSTR, "%c:%s:%s", loc, loc_buff, message);
 
     /* Send events to the manager across the buffer */
     if (!agt->buffer){
@@ -363,6 +358,17 @@ int SendMSG(__attribute__((unused)) int queue, const char *message, const char *
 int SendMSGPredicated(__attribute__((unused)) int queue, const char *message, const char *locmsg, char loc, bool (*fn_ptr)()) {
     os_wait_predicate(fn_ptr);
     return SendMSGAction(queue, message, locmsg, loc);
+}
+
+/* StartMQ for Windows */
+int StartMQWithSpecificOwnerAndPerms(__attribute__((unused)) const char *path
+                                     ,__attribute__((unused)) short int type
+                                     ,__attribute__((unused)) short int n_tries
+                                     ,__attribute__((unused)) uid_t uid
+                                     ,__attribute__((unused)) gid_t gid
+                                     ,__attribute__((unused)) mode_t perm)
+{
+    return (0);
 }
 
 /* StartMQ for Windows */

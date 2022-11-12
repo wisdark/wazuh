@@ -40,11 +40,17 @@
 #include "packages/packagesWindows.h"
 #include "packages/appxWindowsWrapper.h"
 
-constexpr int BASEBOARD_INFORMATION_TYPE { 2 };
 constexpr auto CENTRAL_PROCESSOR_REGISTRY {"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0"};
 const std::string UNINSTALL_REGISTRY{"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"};
 constexpr auto SYSTEM_IDLE_PROCESS_NAME {"System Idle Process"};
 constexpr auto SYSTEM_PROCESS_NAME {"System"};
+
+static const std::map<std::string, DWORD> gs_firmwareTableProviderSignature
+{
+    {"ACPI", 0x41435049},
+    {"FIRM", 0x4649524D},
+    {"RSMB", 0x52534D42}
+};
 
 class SysInfoProcess final
 {
@@ -54,7 +60,9 @@ class SysInfoProcess final
               m_hProcess{ processHandle },
               m_creationTime{},
               m_kernelModeTime{},
-              m_userModeTime{}
+              m_userModeTime{},
+              m_pageFileUsage{},
+              m_virtualSize{}
         {
             setProcessTimes();
             setProcessMemInfo();
@@ -249,77 +257,6 @@ class SysInfoProcess final
         DWORD           m_virtualSize;
 };
 
-typedef struct RawSMBIOSData
-{
-    BYTE    Used20CallingMethod;
-    BYTE    SMBIOSMajorVersion;
-    BYTE    SMBIOSMinorVersion;
-    BYTE    DmiRevision;
-    DWORD   Length;
-    BYTE    SMBIOSTableData[];
-} RawSMBIOSData, *PRawSMBIOSData;
-
-typedef struct SMBIOSStructureHeader
-{
-    BYTE Type;
-    BYTE FormattedAreaLength;
-    WORD Handle;
-} SMBIOSStructureHeader;
-
-typedef struct SMBIOSBasboardInfoStructure
-{
-    BYTE Type;
-    BYTE FormattedAreaLength;
-    WORD Handle;
-    BYTE Manufacturer;
-    BYTE Product;
-    BYTE Version;
-    BYTE SerialNumber;
-} SMBIOSBasboardInfoStructure;
-
-/* Reference: https://www.dmtf.org/sites/default/files/standards/documents/DSP0134_2.6.0.pdf */
-static std::string parseRawSmbios(const BYTE* rawData, const DWORD rawDataSize)
-{
-    std::string serialNumber;
-    DWORD offset{0};
-
-    while (offset < rawDataSize && serialNumber.empty())
-    {
-        SMBIOSStructureHeader header{};
-        memcpy(&header, rawData + offset, sizeof(SMBIOSStructureHeader));
-
-        if (BASEBOARD_INFORMATION_TYPE == header.Type)
-        {
-            SMBIOSBasboardInfoStructure info{};
-            memcpy(&info, rawData + offset, sizeof(SMBIOSBasboardInfoStructure));
-            offset += info.FormattedAreaLength;
-
-            for (BYTE i = 1; i < info.SerialNumber; ++i)
-            {
-                const char* tmp{reinterpret_cast<const char*>(rawData + offset)};
-                const auto len{ strlen(tmp) };
-                offset += len + sizeof(char);
-            }
-
-            serialNumber = reinterpret_cast<const char*>(rawData + offset);
-        }
-        else
-        {
-            offset += header.FormattedAreaLength;
-            bool end{false};
-
-            while (!end)
-            {
-                const char* tmp{reinterpret_cast<const char*>(rawData + offset)};
-                const auto len{strlen(tmp)};
-                offset += len + sizeof(char);
-                end = !len;
-            }
-        }
-    }
-
-    return serialNumber;
-}
 
 static bool isSystemProcess(const DWORD pid)
 {
@@ -496,7 +433,7 @@ std::string SysInfo::getSerialNumber() const
 
         if (pfnGetSystemFirmwareTable)
         {
-            const auto size {pfnGetSystemFirmwareTable('RSMB', 0, nullptr, 0)};
+            const auto size {pfnGetSystemFirmwareTable(gs_firmwareTableProviderSignature.at("RSMB"), 0, nullptr, 0)};
 
             if (size)
             {
@@ -505,11 +442,11 @@ std::string SysInfo::getSerialNumber() const
                 if (spBuff)
                 {
                     // Get raw SMBIOS firmware table
-                    if (pfnGetSystemFirmwareTable('RSMB', 0, spBuff.get(), size) == size)
+                    if (pfnGetSystemFirmwareTable(gs_firmwareTableProviderSignature.at("RSMB"), 0, spBuff.get(), size) == size)
                     {
                         PRawSMBIOSData smbios{reinterpret_cast<PRawSMBIOSData>(spBuff.get())};
                         // Parse SMBIOS structures
-                        ret = parseRawSmbios(smbios->SMBIOSTableData, size);
+                        ret = Utils::getSerialNumberFromSmbios(smbios->SMBIOSTableData, size);
                     }
                 }
             }

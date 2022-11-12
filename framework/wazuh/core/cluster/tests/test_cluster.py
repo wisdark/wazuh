@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, mock_open, patch, call, ANY
 
 import pytest
 from wazuh.core import common
+from wazuh.core.utils import get_date_from_timestamp
 
 with patch('wazuh.common.wazuh_uid'):
     with patch('wazuh.common.wazuh_gid'):
@@ -85,7 +86,6 @@ def test_check_cluster_config_ko(read_config, message):
     with patch('wazuh.core.cluster.utils.get_ossec_conf', return_value=read_config) as m:
         with pytest.raises(WazuhException, match=rf'.* 3004 .* {message}'):
             configuration = wazuh.core.cluster.utils.read_config()
-
             for key in m.return_value["cluster"]:
                 if key in configuration:
                     configuration[key] = m.return_value["cluster"][key]
@@ -112,13 +112,13 @@ def test_check_cluster_status():
 
 
 @patch('os.path.getmtime', return_value=45)
-@patch('wazuh.core.cluster.cluster.md5', return_value="hash")
+@patch('wazuh.core.cluster.cluster.blake2b', return_value="hash")
 @patch("wazuh.core.cluster.cluster.path.join", return_value="/mock/foo/bar")
 @patch('wazuh.core.cluster.cluster.walk', return_value=[('/foo/bar', (), ('spam', 'eggs', '.merged'))])
-def test_walk_dir(walk_mock, path_join_mock, md5_mock, getmtime_mock):
+def test_walk_dir(walk_mock, path_join_mock, blake2b_mock, getmtime_mock):
     """Check the different outputs of the walk_files function."""
 
-    all_mocks = [walk_mock, path_join_mock, md5_mock, getmtime_mock]
+    all_mocks = [walk_mock, path_join_mock, blake2b_mock, getmtime_mock]
 
     def reset_mocks(mocks):
         """Auxiliary function to reset the necessary mocks."""
@@ -130,7 +130,7 @@ def test_walk_dir(walk_mock, path_join_mock, md5_mock, getmtime_mock):
                             excluded_extensions=[".xml", ".txt"], get_cluster_item_key="") == {}
     walk_mock.assert_called_once_with(path_join_mock.return_value, topdown=True)
     path_join_mock.assert_called_once_with(common.WAZUH_PATH, '/foo/bar')
-    md5_mock.assert_not_called()
+    blake2b_mock.assert_not_called()
     getmtime_mock.assert_not_called()
 
     reset_mocks(all_mocks)
@@ -146,7 +146,7 @@ def test_walk_dir(walk_mock, path_join_mock, md5_mock, getmtime_mock):
                                      call('/mock/foo/bar', 'eggs'), call('/foo/bar', 'eggs'),
                                      call('/mock/foo/bar', '.merged'),
                                      call('/foo/bar', '.merged')], any_order=True)
-    md5_mock.assert_not_called()
+    blake2b_mock.assert_not_called()
     getmtime_mock.assert_has_calls([call(path_join_mock.return_value), call(path_join_mock.return_value)])
 
     reset_mocks(all_mocks)
@@ -154,15 +154,16 @@ def test_walk_dir(walk_mock, path_join_mock, md5_mock, getmtime_mock):
     assert cluster.walk_dir(dirname="/foo/bar", recursive=True, files=['all'], excluded_files=['ar.conf', 'spam'],
                             excluded_extensions=[".xml", ".txt"], get_cluster_item_key="",
                             previous_status={path_join_mock.return_value: {'mod_time': 35}}) == {
-               '/mock/foo/bar': {'mod_time': 45, 'cluster_item_key': '', 'merged': True, 'merge_type': 'agent-groups',
-                                 'merge_name': '/mock/foo/bar', 'md5': 'hash'}}
+
+               '/mock/foo/bar': {'mod_time': 45, 'cluster_item_key': '', 'merged': True, 'merge_type': 'TYPE',
+                                 'merge_name': '/mock/foo/bar', 'hash': 'hash'}}
 
     walk_mock.assert_called_once_with(path_join_mock.return_value, topdown=True)
     path_join_mock.assert_has_calls([call(common.WAZUH_PATH, '/foo/bar'),
                                      call('/mock/foo/bar', 'eggs'), call('/foo/bar', 'eggs'),
                                      call('/mock/foo/bar', '.merged'),
                                      call('/foo/bar', '.merged')], any_order=True)
-    md5_mock.assert_has_calls([call(path_join_mock.return_value), call(path_join_mock.return_value)])
+    blake2b_mock.assert_has_calls([call(path_join_mock.return_value), call(path_join_mock.return_value)])
     getmtime_mock.assert_has_calls([call(path_join_mock.return_value), call(path_join_mock.return_value)])
 
     reset_mocks(all_mocks)
@@ -171,15 +172,16 @@ def test_walk_dir(walk_mock, path_join_mock, md5_mock, getmtime_mock):
     assert cluster.walk_dir(dirname="/foo/bar", recursive=True, files=['all'], excluded_files=['ar.conf', 'spam'],
                             excluded_extensions=[".xml", ".txt"], get_cluster_item_key="",
                             previous_status={path_join_mock.return_value: {'mod_mock_time': 35}}) == {
-               '/mock/foo/bar': {'mod_time': 45, 'cluster_item_key': '', 'merged': True, 'merge_type': 'agent-groups',
-                                 'merge_name': '/mock/foo/bar', 'md5': 'hash'}}
+
+               '/mock/foo/bar': {'mod_time': 45, 'cluster_item_key': '', 'merged': True, 'merge_type': 'TYPE',
+                                 'merge_name': '/mock/foo/bar', 'hash': 'hash'}}
 
     walk_mock.assert_called_once_with(path_join_mock.return_value, topdown=True)
     path_join_mock.assert_has_calls([call(common.WAZUH_PATH, '/foo/bar'),
                                      call('/mock/foo/bar', 'eggs'), call('/foo/bar', 'eggs'),
                                      call('/mock/foo/bar', '.merged'),
                                      call('/foo/bar', '.merged')], any_order=True)
-    md5_mock.assert_has_calls([call(path_join_mock.return_value), call(path_join_mock.return_value)])
+    blake2b_mock.assert_has_calls([call(path_join_mock.return_value), call(path_join_mock.return_value)])
     getmtime_mock.assert_has_calls([call(path_join_mock.return_value), call(path_join_mock.return_value)])
 
 
@@ -250,6 +252,49 @@ def test_get_files_status(mock_get_cluster_items):
             logger_mock.assert_called_once_with(f"Error getting file status: .")
 
 
+@patch('wazuh.core.cluster.cluster.get_cluster_items', return_value={
+    'files': {
+        'etc/': {'permissions': 416, 'source': 'master', 'files': ['client.keys'], 'recursive': False, 'restart': False,
+                 'remove_subdirs_if_empty': False, 'extra_valid': False, 'description': 'client keys file database'},
+        'etc/shared/': {'permissions': 432, 'source': 'master', 'files': ['all'], 'recursive': True, 'restart': False,
+                        'remove_subdirs_if_empty': True, 'extra_valid': False,
+                        'description': 'shared configuration files'},
+        'var/multigroups/': {'permissions': 432, 'source': 'master', 'files': ['merged.mg'], 'recursive': True,
+                             'restart': False, 'remove_subdirs_if_empty': True, 'extra_valid': False,
+                             'description': 'shared configuration files'},
+        'etc/rules/': {'permissions': 432, 'source': 'master', 'files': ['all'], 'recursive': True, 'restart': True,
+                       'remove_subdirs_if_empty': False, 'extra_valid': False, 'description': 'user rules'},
+        'etc/decoders/': {'permissions': 432, 'source': 'master', 'files': ['all'], 'recursive': True, 'restart': True,
+                          'remove_subdirs_if_empty': False, 'extra_valid': False, 'description': 'user decoders'},
+        'etc/lists/': {'permissions': 432, 'source': 'master', 'files': ['all'], 'recursive': True, 'restart': True,
+                       'remove_subdirs_if_empty': False, 'extra_valid': False, 'description': 'user CDB lists'},
+        'excluded_files': ['ar.conf', 'ossec.conf'], 'excluded_extensions': ['~', '.tmp', '.lock', '.swp']}
+})
+def test_get_ruleset_status(mock_get_cluster_items):
+    """Verify that walk_dir is called only for custom ruleset folders."""
+
+    test_dict = {"path": {"hash": "test"}}
+    expected_calls = [
+        call('etc/rules/', True, ['all'], ['ar.conf', 'ossec.conf'],
+             ['~', '.tmp', '.lock', '.swp'], 'etc/rules/', {}, True),
+        call('etc/decoders/', True, ['all'], ['ar.conf', 'ossec.conf'],
+             ['~', '.tmp', '.lock', '.swp'], 'etc/decoders/', {}, True),
+        call('etc/lists/', True, ['all'], ['ar.conf', 'ossec.conf'],
+             ['~', '.tmp', '.lock', '.swp'], 'etc/lists/', {}, True)
+    ]
+
+    with patch("wazuh.core.cluster.cluster.walk_dir", return_value=test_dict) as walk_dir_mock:
+        result = cluster.get_ruleset_status({})
+        assert isinstance(result, dict)
+        assert result["path"] == test_dict["path"]["hash"]
+        assert walk_dir_mock.call_args_list == expected_calls
+
+    with patch("wazuh.core.cluster.cluster.walk_dir", side_effect=Exception):
+        with patch.object(wazuh.core.cluster.cluster.logger, "warning") as logger_mock:
+            cluster.get_ruleset_status({})
+            logger_mock.assert_has_calls([call('Error getting file status: .')]*3)
+
+
 @pytest.mark.parametrize('failed_item, exists, expected_result', [
     ('/test_file0', False, {'missing': {'/test_file3': 'ok'}, 'shared': {'/test_file1': 'test'},
                             'extra': {'/test_file2': 'test'}}),
@@ -274,7 +319,6 @@ def test_update_cluster_control(failed_item, exists, expected_result):
     }
     cluster.update_cluster_control(failed_item, ko_files, exists=exists)
     assert ko_files == expected_result
-
 
 
 @patch('zlib.compress', return_value=b'compressed_test_content')
@@ -343,6 +387,7 @@ async def test_async_decompress_files(decompress_files_mock):
     decompress_files_mock.assert_called_once_with(zip_path, 'files_metadata.json')
 
 
+@pytest.mark.asyncio
 @patch('zlib.decompress')
 @patch('os.makedirs')
 @patch('os.path.exists', side_effect=[False, True, True])
@@ -371,11 +416,12 @@ async def test_decompress_files_ok(json_loads_mock, mkdir_with_mode_mock, remove
                                             call('/foo/bar/dir/path2', 'wb'), call('/foo/bar/dir/files_metadata.json')]
 
 
+@pytest.mark.asyncio
 @patch('shutil.rmtree')
 @patch('zlib.decompress', return_value=Exception)
 @patch('wazuh.core.cluster.cluster.mkdir_with_mode')
 async def test_decompress_files_ko(mkdir_with_mode_mock, zlib_mock, rmtree_mock):
-    """Check if the decompressing function raising the necessary exceptions."""
+    """Check if the decompressing function is raising the necessary exceptions."""
 
     # Raising the expected Exception
     zip_dir = '/foo/bar/'
@@ -388,60 +434,54 @@ async def test_decompress_files_ko(mkdir_with_mode_mock, zlib_mock, rmtree_mock)
             os_path_exists_mock.assert_called_once()
             rmtree_mock.assert_called_once()
 
-    with pytest.raises(Exception):
+    with pytest.raises(OSError):
         with patch('builtins.open', mock_open(read_data=f'path{cluster.PATH_SEP}content'.encode())):
             with patch('os.path.exists', return_value=False):
-                cluster.decompress_files(zip_dir)
+                with patch('os.makedirs', side_effect=PermissionError) as mock_makedirs:
+                    with patch('wazuh.core.cluster.cluster.remove'):
+                        mock_makedirs.errno = 13  # Errno 13: Permission denied
+                        cluster.decompress_files(zip_dir)
 
 
 @patch('wazuh.core.cluster.cluster.get_cluster_items')
-@patch('wazuh.core.cluster.cluster.WazuhDBQueryAgents')
-def test_compare_files(wazuh_db_query_mock, mock_get_cluster_items):
+def test_compare_files(mock_get_cluster_items):
     """Check the different outputs of the compare_files function."""
     mock_get_cluster_items.return_value = {'files': {'key': {'extra_valid': True}}}
 
-    seq = {'some/path3/': {'cluster_item_key': 'key', 'md5': 'md5 value'},
-           'some/path2/': {'cluster_item_key': "key", 'md5': 'md5 value'}}
-    condition = {'some/path2/': {'cluster_item_key': 'key', 'md5': 'md5 def value'},
-                 'some/path4/': {'cluster_item_key': "key", 'md5': 'md5 value'}}
+    seq = {'some/path3/': {'cluster_item_key': 'key', 'hash': 'blake2_hash value'},
+           'some/path2/': {'cluster_item_key': "key", 'hash': 'blake2_hash value'}}
+    condition = {'some/path2/': {'cluster_item_key': 'key', 'hash': 'blake2_hash def value'},
+                 'some/path4/': {'cluster_item_key': "key", 'hash': 'blake2_hash value'}}
 
     # First condition
     with patch('wazuh.core.cluster.cluster.merge_info', return_values=[1, "random/path/"]):
-        files, count = cluster.compare_files(seq, condition, 'worker1')
-        assert count["missing"] == 1
-        assert count["extra"] == 0
-        assert count["extra_valid"] == 1
-        assert count["shared"] == 1
+        files = cluster.compare_files(seq, condition, 'worker1')
+        assert len(files["missing"]) == 1
+        assert len(files["extra"]) == 0
+        assert len(files["shared"]) == 1
 
     # Second condition
-    condition = {'some/path5/': {'cluster_item_key': 'key', 'md5': 'md5 def value'},
-                 'some/path4/': {'cluster_item_key': "key", 'md5': 'md5 value'},
-                 os.path.relpath(common.GROUPS_PATH, common.WAZUH_PATH): {'cluster_item_key': "key",
-                                                                          'md5': 'md5 value'}}
+    condition = {'some/path5/': {'cluster_item_key': 'key', 'hash': 'blake2_hash def value'},
+                 'some/path4/': {'cluster_item_key': "key", 'hash': 'blake2_hash value'},
+                 'PATH': {'cluster_item_key': "key", 'hash': 'blake2_hash value'}}
 
-    files, count = cluster.compare_files(seq, condition, 'worker1')
-    assert count["missing"] == 2
-    assert count["extra"] == 0
-    assert count["extra_valid"] == 3
-    assert count["shared"] == 0
-    wazuh_db_query_mock.assert_called_once_with(select=['id'], limit=None,
-                                                filters={'rbac_ids': ['agent-groups']},
-                                                rbac_negate=False)
+    files = cluster.compare_files(seq, condition, 'worker1')
+    assert len(files["missing"]) == 2
+    assert len(files["extra"]) == 0
+    assert len(files["shared"]) == 0
 
 
 @patch('wazuh.core.cluster.cluster.get_cluster_items')
 @patch.object(wazuh.core.cluster.cluster.logger, "error")
-@patch('wazuh.core.cluster.cluster.WazuhDBQueryAgents', side_effect=Exception())
-def test_compare_files_ko(wazuh_db_query_mock, logger_mock, mock_get_cluster_items):
+def test_compare_files_ko(logger_mock, mock_get_cluster_items):
     """Check the different outputs of the compare_files function."""
     mock_get_cluster_items.return_value = {'files': {'key': {'extra_valid': True}}}
 
-    seq = {'some/path3/': {'cluster_item_key': 'key', 'md5': 'md5 value'},
-           'some/path2/': {'cluster_item_key': "key", 'md5': 'md5 value'}}
-    condition = {'some/path2/': {'cluster_item_key': 'key', 'md5': 'md5 def value'},
-                 'some/path4/': {'cluster_item_key': "key", 'md5': 'md5 value'},
-                 os.path.relpath(common.GROUPS_PATH, common.WAZUH_PATH): {'cluster_item_key': "key",
-                                                                          'md5': 'md5 value'}}
+    seq = {'some/path3/': {'cluster_item_key': 'key', 'blake_hash': 'blake_hash value'},
+           'some/path2/': {'cluster_item_key': "key", 'blake_hash': 'blake_hash value'}}
+    condition = {'some/path2/': {'cluster_item_key': 'key', 'blake_hash': 'blake_hash def value'},
+                 'some/path4/': {'cluster_item_key': "key", 'blake_hash': 'blake_hash value'},
+                 'PATH': {'cluster_item_key': "key", 'blake_hash': 'blake_hash value'}}
 
     # Test the exception
     with pytest.raises(Exception):
@@ -511,20 +551,15 @@ def test_merge_info(stat_mock, listdir_mock):
     stat_mock.return_value.st_size = len(agent_groups)
 
     with patch('builtins.open', mock_open(read_data=agent_groups)) as open_mock:
-        files_to_send, output_file = cluster.merge_info('agent-groups', 'worker1', file_type='-shared')
-        open_mock.assert_any_call(common.WAZUH_PATH + '/queue/cluster/worker1/agent-groups-shared.merged', 'wb')
-        open_mock.assert_any_call(common.WAZUH_PATH + '/queue/agent-groups/005', 'rb')
-        open_mock.assert_any_call(common.WAZUH_PATH + '/queue/agent-groups/006', 'rb')
+        files_to_send, output_file = cluster.merge_info('testing', 'worker1', file_type='-shared')
+        open_mock.assert_any_call(common.WAZUH_PATH + '/queue/cluster/worker1/testing-shared.merged', 'wb')
+        open_mock.assert_any_call(common.WAZUH_PATH + '/queue/testing/005', 'rb')
+        open_mock.assert_any_call(common.WAZUH_PATH + '/queue/testing/006', 'rb')
 
         assert files_to_send == 2
-        assert output_file == "queue/cluster/worker1/agent-groups-shared.merged"
+        assert output_file == "queue/cluster/worker1/testing-shared.merged"
 
-        handle = open_mock()
-        expected = f'{len(agent_groups)} 005 ' \
-                   f'{datetime.utcfromtimestamp(stat_mock.return_value.st_mtime)}\n'.encode() + agent_groups
-        handle.write.assert_any_call(expected)
-
-        files_to_send, output_file = cluster.merge_info('agent-groups', 'worker1', files=["one", "two"],
+        files_to_send, output_file = cluster.merge_info('testing', 'worker1', files=["one", "two"],
                                                         file_type='-shared')
 
         assert files_to_send == 0

@@ -18,11 +18,10 @@ static const char *agents_db_commands[] = {
     [WDB_AGENTS_VULN_CVES_INSERT] = "agent %d vuln_cves insert %s",
     [WDB_AGENTS_VULN_CVES_UPDATE_STATUS] = "agent %d vuln_cves update_status %s",
     [WDB_AGENTS_VULN_CVES_REMOVE] = "agent %d vuln_cves remove %s",
-    [WDB_AGENTS_VULN_CVES_CLEAR] = "agent %d vuln_cves clear"
 };
 
 cJSON* wdb_get_agent_sys_osinfo(int id,
-                          int *sock) {
+                                int *sock) {
     char *wdbquery = NULL;
     char *wdboutput = NULL;
     int aux_sock = -1;
@@ -34,7 +33,6 @@ cJSON* wdb_get_agent_sys_osinfo(int id,
     cJSON* result = wdbc_query_parse_json(sock?sock:&aux_sock, wdbquery, wdboutput, WDBOUTPUT_SIZE);
 
     if (!result || !result->child) {
-        minfo("Agents DB (%d): No OS information available.", id);
         cJSON_Delete(result);
         result = NULL;
     }
@@ -50,7 +48,7 @@ cJSON* wdb_get_agent_sys_osinfo(int id,
 }
 
 int wdb_set_agent_sys_osinfo_triaged(int id,
-                               int *sock) {
+                                     int *sock) {
     int result = 0;
     char *wdbquery = NULL;
     char *wdboutput = NULL;
@@ -102,6 +100,11 @@ cJSON* wdb_insert_vuln_cves(int id,
                             const char *reference,
                             const char *type,
                             const char *status,
+                            char **external_references,
+                            const char *condition,
+                            const char *title,
+                            const char *published,
+                            const char *updated,
                             bool check_pkg_existence,
                             int *sock) {
     cJSON *data_in = NULL;
@@ -126,11 +129,37 @@ cJSON* wdb_insert_vuln_cves(int id,
     cJSON_AddStringToObject(data_in, "reference", reference);
     cJSON_AddStringToObject(data_in, "type", type);
     cJSON_AddStringToObject(data_in, "status", status);
+    cJSON_AddStringToObject(data_in, "condition", condition);
+    cJSON_AddStringToObject(data_in, "title", title);
+    cJSON_AddStringToObject(data_in, "published", published);
+    cJSON_AddStringToObject(data_in, "updated", updated);
     cJSON_AddBoolToObject(data_in, "check_pkg_existence", check_pkg_existence);
 
+    // Limiting references just in case there are too many or the links are too long
+    if (external_references) {
+        char* str_cvs_references = NULL;
+        os_calloc(WDB_MAX_QUERY_SIZE, sizeof(char), str_cvs_references);
+        cJSON *j_cvs_references = cJSON_CreateArray();
+        int refcount;
+        for (refcount = 0; external_references[refcount]; ++refcount)
+        {
+            cJSON *j_ref_item = cJSON_CreateString(external_references[refcount]);
+            cJSON_AddItemToArray(j_cvs_references, j_ref_item);
+
+            cJSON_PrintPreallocated(j_cvs_references, str_cvs_references, WDB_MAX_QUERY_SIZE, FALSE);
+            if (strlen(str_cvs_references) >= VULN_CVES_MAX_REFERENCES) {
+                cJSON_DeleteItemFromArray(j_cvs_references, refcount);
+                mdebug2("External references truncated before inserting in inventory.");
+                break;
+            }
+        }
+        cJSON_AddItemToObject(data_in, "external_references", j_cvs_references);
+        os_free(str_cvs_references);
+    }
+
     data_in_str = cJSON_PrintUnformatted(data_in);
-    os_malloc(WDBQUERY_SIZE, wdbquery);
-    snprintf(wdbquery, WDBQUERY_SIZE, agents_db_commands[WDB_AGENTS_VULN_CVES_INSERT], id, data_in_str);
+    os_malloc(WDB_MAX_QUERY_SIZE, wdbquery);
+    snprintf(wdbquery, WDB_MAX_QUERY_SIZE, agents_db_commands[WDB_AGENTS_VULN_CVES_INSERT], id, data_in_str);
 
     os_malloc(WDBOUTPUT_SIZE, wdboutput);
     cJSON* result = wdbc_query_parse_json(sock?sock:&aux_sock, wdbquery, wdboutput, WDBOUTPUT_SIZE);
@@ -269,65 +298,6 @@ int wdb_update_vuln_cves_status_by_type(int id,
     return result;
 }
 
-int wdb_remove_vuln_cves(int id,
-                         const char *cve,
-                         const char *reference,
-                         int *sock) {
-    int result = 0;
-    cJSON *data_in = NULL;
-    char *data_in_str = NULL;
-    char *wdbquery = NULL;
-    char *wdboutput = NULL;
-    char *payload = NULL;
-    int aux_sock = -1;
-
-    data_in = cJSON_CreateObject();
-
-    if (!data_in) {
-        mdebug1("Error creating data JSON for Wazuh DB.");
-        return OS_INVALID;
-    }
-
-    cJSON_AddStringToObject(data_in, "cve", cve);
-    cJSON_AddStringToObject(data_in, "reference", reference);
-
-    data_in_str = cJSON_PrintUnformatted(data_in);
-    os_malloc(WDBQUERY_SIZE, wdbquery);
-    snprintf(wdbquery, WDBQUERY_SIZE, agents_db_commands[WDB_AGENTS_VULN_CVES_REMOVE], id, data_in_str);
-
-    os_malloc(WDBOUTPUT_SIZE, wdboutput);
-    result = wdbc_query_ex(sock?sock:&aux_sock, wdbquery, wdboutput, WDBOUTPUT_SIZE);
-
-    switch (result) {
-        case OS_SUCCESS:
-            if (WDBC_OK != wdbc_parse_result(wdboutput, &payload)) {
-                mdebug1("Agents DB (%d) Error reported in the result of the query", id);
-                result = OS_INVALID;
-            }
-            break;
-        case OS_INVALID:
-            mdebug1("Agents DB (%d) Error in the response from socket", id);
-            mdebug2("Agents DB (%d) SQL query: %s", id, wdbquery);
-            result = OS_INVALID;
-            break;
-        default:
-            mdebug1("Agents DB (%d) Cannot execute SQL query", id);
-            mdebug2("Agents DB (%d) SQL query: %s", id, wdbquery);
-            result = OS_INVALID;
-    }
-
-    if (!sock) {
-        wdbc_close(&aux_sock);
-    }
-
-    cJSON_Delete(data_in);
-    os_free(data_in_str);
-    os_free(wdbquery);
-    os_free(wdboutput);
-
-    return result;
-}
-
 cJSON* wdb_remove_vuln_cves_by_status(int id,
                                       const char *status,
                                       int *sock) {
@@ -409,46 +379,4 @@ cJSON* wdb_remove_vuln_cves_by_status(int id,
     os_free(wdboutput);
 
     return data_out;
-}
-
-int wdb_clear_vuln_cves(int id,
-                        int *sock) {
-    int result = 0;
-    char *wdbquery = NULL;
-    char *wdboutput = NULL;
-    char *payload = NULL;
-    int aux_sock = -1;
-
-    os_malloc(WDBQUERY_SIZE, wdbquery);
-    snprintf(wdbquery, WDBQUERY_SIZE, agents_db_commands[WDB_AGENTS_VULN_CVES_CLEAR], id);
-
-    os_malloc(WDBOUTPUT_SIZE, wdboutput);
-    result = wdbc_query_ex(sock?sock:&aux_sock, wdbquery, wdboutput, WDBOUTPUT_SIZE);
-
-    switch (result) {
-        case OS_SUCCESS:
-            if (WDBC_OK != wdbc_parse_result(wdboutput, &payload)) {
-                mdebug1("Agents DB (%d) Error reported in the result of the query", id);
-                result = OS_INVALID;
-            }
-            break;
-        case OS_INVALID:
-            mdebug1("Agents DB (%d) Error in the response from socket", id);
-            mdebug2("Agents DB (%d) SQL query: %s", id, wdbquery);
-            result = OS_INVALID;
-            break;
-        default:
-            mdebug1("Agents DB (%d) Cannot execute SQL query", id);
-            mdebug2("Agents DB (%d) SQL query: %s", id, wdbquery);
-            result = OS_INVALID;
-    }
-
-    if (!sock) {
-        wdbc_close(&aux_sock);
-    }
-
-    os_free(wdbquery);
-    os_free(wdboutput);
-
-    return result;
 }

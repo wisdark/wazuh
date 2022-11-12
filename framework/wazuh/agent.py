@@ -10,7 +10,7 @@ from typing import Union
 from wazuh.core import common, configuration
 from wazuh.core.InputValidator import InputValidator
 from wazuh.core.agent import WazuhDBQueryAgents, WazuhDBQueryGroupByAgents, WazuhDBQueryMultigroups, Agent, \
-    WazuhDBQueryGroup, get_agents_info, get_groups, core_upgrade_agents, get_rbac_filters, send_restart_command
+    WazuhDBQueryGroup, create_upgrade_tasks, get_agents_info, get_groups, get_rbac_filters, send_restart_command
 from wazuh.core.cluster.cluster import get_node
 from wazuh.core.cluster.utils import read_cluster_config
 from wazuh.core.exception import WazuhError, WazuhInternalError, WazuhException, WazuhResourceNotFound
@@ -22,6 +22,9 @@ from wazuh.rbac.decorators import expose_resources
 
 cluster_enabled = not read_cluster_config(from_import=True)['disabled']
 node_id = get_node().get('node') if cluster_enabled else None
+
+UPGRADE_CHUNK_SIZE = 500
+UPGRADE_RESULT_CHUNK_SIZE = 97
 
 # Error codes generated from upgrade socket error codes that should be excluded in upgrade functions
 # 1819 -> The WPK for this platform is not available
@@ -41,8 +44,8 @@ ERROR_CODES_UPGRADE_SOCKET_GET_UPGRADE_RESULT = [1813]
 
 
 @expose_resources(actions=["agent:read"], resources=["agent:id:{agent_list}"], post_proc_func=None)
-def get_distinct_agents(agent_list: list = None, offset: int = 0, limit: int = common.DATABASE_LIMIT, sort: str = None,
-                        search: str = None, fields: str = None, q: str = None) -> AffectedItemsWazuhResult:
+def get_distinct_agents(agent_list: list = None, offset: int = 0, limit: int = common.DATABASE_LIMIT, sort: dict = None,
+                        search: dict = None, fields: list = None, q: str = None) -> AffectedItemsWazuhResult:
     """Get all the different combinations that all system agents have for the selected fields. It also indicates the
     total number of agents that have each combination.
 
@@ -50,15 +53,15 @@ def get_distinct_agents(agent_list: list = None, offset: int = 0, limit: int = c
     ----------
     agent_list : list
         List of agents ID's.
-    fields : str
+    fields : list
         List of fields to group by.
     offset : int
         First item to return.
     limit : int
         Maximum number of items to return.
-    sort : str
+    sort : dict
         Sorts the items. Format: {"fields":["field1","field2"],"order":"asc|desc"}.
-    search : str
+    search : dict
         Looks for items with the specified string. Format: {"fields": ["field1","field2"]}.
     q : str
         Query to filter results by. For example q&#x3D;&amp;quot;status&#x3D;active&amp;quot;
@@ -66,6 +69,7 @@ def get_distinct_agents(agent_list: list = None, offset: int = 0, limit: int = c
     Returns
     -------
     AffectedItemsWazuhResult
+        Affected items.
     """
 
     result = AffectedItemsWazuhResult(all_msg='All selected agents information was returned',
@@ -88,8 +92,8 @@ def get_distinct_agents(agent_list: list = None, offset: int = 0, limit: int = c
 
 
 @expose_resources(actions=["agent:read"], resources=["agent:id:{agent_list}"], post_proc_func=None)
-def get_agents_summary_status(agent_list=None):
-    """Count the number of agents by status.
+def get_agents_summary_status(agent_list: list[str] = None) -> WazuhResult:
+    """Count the number of agents by connection and groups configuration synchronization statuses.
 
     Parameters
     ----------
@@ -99,24 +103,31 @@ def get_agents_summary_status(agent_list=None):
     Returns
     -------
     WazuhResult
+        WazuhResult object.
     """
-    summary = {'active': 0, 'disconnected': 0, 'never_connected': 0, 'pending': 0, 'total': 0}
+    connection = {'active': 0, 'disconnected': 0, 'never_connected': 0, 'pending': 0, 'total': 0}
+    sync_configuration = {'synced': 0, 'not synced': 0, 'total': 0}
     if agent_list:
         rbac_filters = get_rbac_filters(system_resources=get_agents_info(), permitted_resources=agent_list)
 
         # We don't consider agent 000 in order to get the summary
-        with WazuhDBQueryAgents(limit=None, select=['status'], query="id!=000", **rbac_filters) as db_query:
+        with WazuhDBQueryAgents(limit=None, select=['status', 'group_config_status'], query="id!=000",
+                                **rbac_filters) as db_query:
             data = db_query.run()
 
-        for agent in data['items']:
-            summary[agent['status']] += 1
-            summary['total'] += 1
+        items = data['items']
+        for agent in items:
+            connection[agent['status']] += 1
+            sync_configuration[agent['group_config_status']] += 1
 
-    return WazuhResult({'data': summary})
+        connection['total'] = sync_configuration['total'] = len(items)
+
+    sync_configuration['not_synced'] = sync_configuration.pop('not synced')
+    return WazuhResult({'data': {'connection': connection, 'configuration': sync_configuration}})
 
 
 @expose_resources(actions=["agent:read"], resources=["agent:id:{agent_list}"], post_proc_func=None)
-def get_agents_summary_os(agent_list=None):
+def get_agents_summary_os(agent_list: list[str] = None) -> AffectedItemsWazuhResult:
     """Get a list of available OS.
 
     Parameters
@@ -126,7 +137,8 @@ def get_agents_summary_os(agent_list=None):
 
     Returns
     -------
-    WazuhResult
+    AffectedItemsWazuhResult
+        Affected items.
     """
     result = AffectedItemsWazuhResult(none_msg='Could not get the operative system of the agents',
                                       all_msg='Showing the operative system of all specified agents',
@@ -153,12 +165,13 @@ def reconnect_agents(agent_list: Union[list, str] = None) -> AffectedItemsWazuhR
 
     Parameters
     ----------
-    agent_list : Union[list, str]
+    list or str
         List of agent IDs. All possible values from 000 onwards. Default `*`
 
     Returns
     -------
     AffectedItemsWazuhResult
+        Affected items.
     """
     result = AffectedItemsWazuhResult(all_msg='Force reconnect command was sent to all agents',
                                       some_msg='Force reconnect command was not sent to some agents',
@@ -194,18 +207,10 @@ def restart_agents(agent_list: list = None) -> AffectedItemsWazuhResult:
     agent_list : list
         List of agents IDs.
 
-    Raises
-    ------
-    WazuhError(1703)
-        If the agent to be restarted is 000.
-    WazuhError(1701)
-        If the agent to be restarted is not in the system.
-     WazuhError(1707)
-            If the agent to be restarted is not active.
-
     Returns
     -------
     AffectedItemsWazuhResult
+        Affected items.
     """
     result = AffectedItemsWazuhResult(all_msg='Restart command was sent to all agents',
                                       some_msg='Restart command was not sent to some agents',
@@ -254,7 +259,7 @@ def restart_agents(agent_list: list = None) -> AffectedItemsWazuhResult:
 
 @expose_resources(actions=['cluster:read'], resources=[f'node:id:{node_id}'],
                   post_proc_kwargs={'exclude_codes': [1701, 1703, 1707], 'force': True})
-def restart_agents_by_node(agent_list=None):
+def restart_agents_by_node(agent_list: list = None) -> AffectedItemsWazuhResult:
     """Restart all agents belonging to a node.
 
     Parameters
@@ -265,6 +270,7 @@ def restart_agents_by_node(agent_list=None):
     Returns
     -------
     AffectedItemsWazuhResult
+        Affected items.
     """
     '000' in agent_list and agent_list.remove('000')
     return restart_agents(agent_list=agent_list)
@@ -272,7 +278,7 @@ def restart_agents_by_node(agent_list=None):
 
 @expose_resources(actions=["agent:read"], resources=["agent:id:{agent_list}"],
                   post_proc_kwargs={'exclude_codes': [1701, 1703, 1707], 'force': True})
-def restart_agents_by_group(agent_list=None):
+def restart_agents_by_group(agent_list: list = None) -> AffectedItemsWazuhResult:
     """Restart all agents belonging to a group.
 
     Parameters
@@ -283,25 +289,41 @@ def restart_agents_by_group(agent_list=None):
     Returns
     -------
     AffectedItemsWazuhResult
+        Affected items.
     """
     return restart_agents(agent_list=agent_list)
 
 
 @expose_resources(actions=["agent:read"], resources=["agent:id:{agent_list}"],
                   post_proc_kwargs={'exclude_codes': [1701]})
-def get_agents(agent_list=None, offset=0, limit=common.DATABASE_LIMIT, sort=None, search=None, select=None,
-               filters=None, q=None):
+def get_agents(agent_list: list = None, offset: int = 0, limit: int = common.DATABASE_LIMIT, sort: dict = None,
+               search: dict = None, select: dict = None, filters: dict = None,
+               q: str = None) -> AffectedItemsWazuhResult:
     """Gets a list of available agents with basic attributes.
 
-    :param agent_list: List of agents ID's.
-    :param offset: First item to return.
-    :param limit: Maximum number of items to return.
-    :param sort: Sorts the items. Format: {"fields":["field1","field2"],"order":"asc|desc"}.
-    :param select: Select fields to return. Format: {"fields":["field1","field2"]}.
-    :param search: Looks for items with the specified string. Format: {"fields": ["field1","field2"]}
-    :param filters: Defines required field filters. Format: {"field1":"value1", "field2":["value2","value3"]}
-    :param q: Defines query to filter in DB.
-    :return: AffectedItemsWazuhResult.
+    Parameters
+    ----------
+    agent_list : list
+        List of agents IDs.
+    offset : int
+        First element to return in the collection.
+    limit : int
+        Maximum number of elements to return. Default: common.DATABASE_LIMIT
+    select : dict
+        Select fields to return. Format: {"fields":["field1","field2"]}.
+    sort : dict
+        Sorts the items. Format: {"fields":["field1","field2"],"order":"asc|desc"}.
+    search : dict
+        Look for elements with the specified string. Format: {"fields": ["field1","field2"]}
+    filters : dict
+        Defines required field filters. Format: {"field1":"value1", "field2":["value2","value3"]}
+    q : str
+        Query to filter results by.
+
+    Returns
+    -------
+    AffectedItemsWazuhResult
+        Affected items.
     """
     result = AffectedItemsWazuhResult(all_msg='All selected agents information was returned',
                                       some_msg='Some agents information was not returned',
@@ -330,19 +352,39 @@ def get_agents(agent_list=None, offset=0, limit=common.DATABASE_LIMIT, sort=None
 
 
 @expose_resources(actions=["group:read"], resources=["group:id:{group_list}"], post_proc_func=None)
-def get_agents_in_group(group_list, offset=0, limit=common.DATABASE_LIMIT, sort=None, search=None, select=None,
-                        filters=None, q=None):
+def get_agents_in_group(group_list: list, offset: int = 0, limit: int = common.DATABASE_LIMIT, sort: dict = None,
+                        search: dict = None, select: dict = None, filters: dict = None,
+                        q: str = None) -> AffectedItemsWazuhResult:
     """Gets a list of available agents with basic attributes.
 
-    :param group_list: Group ID.
-    :param offset: First item to return.
-    :param limit: Maximum number of items to return.
-    :param sort: Sorts the items. Format: {"fields":["field1","field2"],"order":"asc|desc"}.
-    :param select: Select fields to return. Format: {"fields":["field1","field2"]}.
-    :param search: Looks for items with the specified string. Format: {"fields": ["field1","field2"]}.
-    :param filters: Defines required field filters. Format: {"field1":"value1", "field2":["value2","value3"]}.
-    :param q: Defines query to filter in DB.
-    :return: AffectedItemsWazuhResult.
+    Parameters
+    ----------
+    group_list : list
+        List containing the group ID.
+    offset : int
+        First element to return in the collection.
+    limit : int
+        Maximum number of elements to return. Default: common.DATABASE_LIMIT
+    select : dict
+        Select fields to return. Format: {"fields":["field1","field2"]}.
+    sort : dict
+        Sorts the items. Format: {"fields":["field1","field2"],"order":"asc|desc"}.
+    search : dict
+        Look for elements with the specified string. Format: {"fields": ["field1","field2"]}
+    filters : dict
+        Defines required field filters. Format: {"field1":"value1", "field2":["value2","value3"]}
+    q : str
+        Query to filter results by.
+
+    Raises
+    ------
+    WazuhResourceNotFound(1710)
+        If the group does not exist.
+
+    Returns
+    -------
+    AffectedItemsWazuhResult
+        Affected items.
     """
     system_groups = get_groups()
 
@@ -356,11 +398,18 @@ def get_agents_in_group(group_list, offset=0, limit=common.DATABASE_LIMIT, sort=
 
 @expose_resources(actions=["agent:read"], resources=["agent:id:{agent_list}"],
                   post_proc_kwargs={'exclude_codes': [1701]})
-def get_agents_keys(agent_list=None):
+def get_agents_keys(agent_list: list = None) -> AffectedItemsWazuhResult:
     """Get the key of existing agents.
 
-    :param agent_list: List of agents ID's.
-    :return: AffectedItemsWazuhResult.
+    Parameters
+    ----------
+    agent_list : list
+        List of agents ID's.
+
+    Returns
+    -------
+    AffectedItemsWazuhResult
+        Affected items.
     """
     result = AffectedItemsWazuhResult(all_msg='Obtained keys for all selected agents',
                                       some_msg='Some agent keys were not obtained',
@@ -382,8 +431,8 @@ def get_agents_keys(agent_list=None):
 
 @expose_resources(actions=["agent:delete"], resources=["agent:id:{agent_list}"],
                   post_proc_kwargs={'exclude_codes': [1701, 1703, 1731]})
-def delete_agents(agent_list: list = None, purge: bool = False, filters: dict = None, q: str = None) \
-        -> AffectedItemsWazuhResult:
+def delete_agents(agent_list: list = None, purge: bool = False, filters: dict = None,
+                  q: str = None) -> AffectedItemsWazuhResult:
     """Delete a list of agents.
 
     Parameters
@@ -404,7 +453,7 @@ def delete_agents(agent_list: list = None, purge: bool = False, filters: dict = 
 
     Returns
     -------
-    result : AffectedItemsWazuhResult
+    AffectedItemsWazuhResult
         Result with affected agents.
     """
     result = AffectedItemsWazuhResult(all_msg='All selected agents were deleted',
@@ -463,7 +512,8 @@ def delete_agents(agent_list: list = None, purge: bool = False, filters: dict = 
 
 
 @expose_resources(actions=["agent:create"], resources=["*:*:*"], post_proc_func=None)
-def add_agent(name=None, agent_id=None, key=None, ip='any', force=None):
+def add_agent(name: str = None, agent_id: str = None, key: str = None, ip: str = 'any',
+              force: dict = None) -> WazuhResult:
     """Add a new Wazuh agent.
 
     Parameters
@@ -500,16 +550,29 @@ def add_agent(name=None, agent_id=None, key=None, ip='any', force=None):
 
 @expose_resources(actions=["group:read"], resources=["group:id:{group_list}"],
                   post_proc_kwargs={'exclude_codes': [1710]})
-def get_agent_groups(group_list=None, offset=0, limit=None, sort=None, search=None, hash_algorithm='md5'):
+def get_agent_groups(group_list: list = None, offset: int = 0, limit: int = None, sort: dict = None,
+                     search: dict = None, hash_algorithm: str = 'md5') -> AffectedItemsWazuhResult:
     """Gets the existing groups.
 
-    :param group_list: List of Group names.
-    :param offset: First item to return.
-    :param limit: Maximum number of items to return.
-    :param sort: Fields to sort the items by.
-    :param search: Text to search.
-    :param hash_algorithm: hash algorithm used to get mergedsum and configsum.
-    :return: AffectedItemsWazuhResult.
+    Parameters
+    ----------
+    group_list : list
+        List of group names.
+    offset : int
+        First element to return in the collection.
+    limit : int
+        Maximum number of elements to return. Default: common.DATABASE_LIMIT
+    sort : dict
+        Sorts the items. Format: {"fields":["field1","field2"],"order":"asc|desc"}.
+    search : dict
+        Look for elements with the specified string. Format: {"fields": ["field1","field2"]}
+    hash_algorithm : str
+        hash algorithm used to get mergedsum and configsum. Default: 'md5'
+
+    Returns
+    -------
+    AffectedItemsWazuhResult
+        Affected items.
     """
     affected_groups = list()
     result = AffectedItemsWazuhResult(all_msg='All selected groups information was returned',
@@ -549,20 +612,43 @@ def get_agent_groups(group_list=None, offset=0, limit=None, sort=None, search=No
 
 
 @expose_resources(actions=["group:read"], resources=["group:id:{group_list}"], post_proc_func=None)
-def get_group_files(group_list=None, offset=0, limit=None, search_text=None, search_in_fields=None,
-                    complementary_search=False, sort_by=None, sort_ascending=True, hash_algorithm='md5'):
+def get_group_files(group_list: list = None, offset: int = 0, limit: int = None, search_text: str = None,
+                    search_in_fields: list = None, complementary_search: bool = False, sort_by: list = None,
+                    sort_ascending: bool = True, hash_algorithm: str = 'md5') -> WazuhResult:
     """Gets the group files.
 
-    :param group_list: List of Group names.
-    :param offset: First item to return.
-    :param limit: Maximum number of items to return.
-    :param sort_by: Fields to sort the items by.
-    :param sort_ascending: Sort in ascending (true) or descending (false) order.
-    :param search_text: Text to search.
-    :param complementary_search: Find items without the text to search.
-    :param search_in_fields: Fields to search in.
-    :param hash_algorithm: hash algorithm used to get mergedsum and configsum.
-    :return: WazuhResult.
+    Parameters
+    ----------
+    group_list : list
+        List of Group names.
+    search_text : str
+        Text to search.
+    complementary_search : bool
+        Find items without the text to search. Default: False
+    search_in_fields : list
+        Fields to search in.
+    sort_by : list
+        Fields to sort the items by.
+    sort_ascending : bool
+        Sort in ascending (true) or descending (false) order. Default: True
+    hash_algorithm : str
+        Hash algorithm used to get mergedsum and configsum. Default: 'md5'
+    offset : int
+        First element to return.
+    limit : int
+        Maximum number of elements to return
+
+    Raises
+    ------
+    WazuhInternalError(1727)
+        If there was an error listing group files.
+    WazuhError
+        Generic error.
+
+    Returns
+    -------
+    WazuhResult
+        WazuhResult object with the groups files.
     """
     # We access unique group_id from list, this may change if and when we decide to add option to get files for
     # a list of groups
@@ -608,11 +694,29 @@ def get_group_files(group_list=None, offset=0, limit=None, search_text=None, sea
 
 
 @expose_resources(actions=["group:create"], resources=["*:*:*"], post_proc_func=None)
-def create_group(group_id):
+def create_group(group_id: str) -> WazuhResult:
     """Creates a group.
 
-    :param group_id: Group ID.
-    :return: Confirmation message.
+    Parameters
+    ----------
+    group_id : str
+        Group ID.
+
+    Raises
+    ------
+    WazuhError(1722)
+        If there was a validation error.
+    WazuhError(1711)
+        If the group already exists.
+    WazuhError(1713)
+        If the group ID is not valid.
+    WazuhInternalError(1005)
+        If there was an error reading a file.
+
+    Returns
+    -------
+    WazuhResult
+        WazuhResult object with a operation message.
     """
     # Input Validation of group_id
     if not InputValidator().group(group_id):
@@ -621,7 +725,10 @@ def create_group(group_id):
     group_path = path.join(common.SHARED_PATH, group_id)
 
     if group_id.lower() == "default" or path.exists(group_path):
-        raise WazuhError(1711, extra_message=group_id)
+        if not path.isfile(group_path):
+            raise WazuhError(1711, extra_message=group_id)
+        else:
+            raise WazuhError(1713, extra_message=group_id)
 
     # Create group in /etc/shared
     agent_conf_template = path.join(common.SHARED_PATH, 'agent-template.conf')
@@ -641,11 +748,18 @@ def create_group(group_id):
 
 @expose_resources(actions=["group:delete"], resources=["group:id:{group_list}"],
                   post_proc_kwargs={'exclude_codes': [1710, 1712]})
-def delete_groups(group_list=None):
-    """Delete a list of groups and remove it from every agent assignments.
+def delete_groups(group_list: list = None) -> AffectedItemsWazuhResult:
+    """Delete a list of groups and remove it from every agent assignations.
 
-    :param group_list: List of Group names.
-    :return: AffectedItemsWazuhResult.
+    Parameters
+    ----------
+    group_list : list
+        List of Group names.
+
+    Returns
+    -------
+    AffectedItemsWazuhResult
+        Affected items.
     """
     result = AffectedItemsWazuhResult(all_msg='All selected groups were deleted',
                                       some_msg='Some groups were not deleted',
@@ -683,15 +797,32 @@ def delete_groups(group_list=None):
 @expose_resources(actions=["group:modify_assignments"], resources=['group:id:{replace_list}'], post_proc_func=None)
 @expose_resources(actions=["group:modify_assignments"], resources=['group:id:{group_list}'], post_proc_func=None)
 @expose_resources(actions=["agent:modify_group"], resources=["agent:id:{agent_list}"],
-                  post_proc_kwargs={'exclude_codes': [1701, 1703, 1751, 1752, 1753]})
-def assign_agents_to_group(group_list=None, agent_list=None, replace=False, replace_list=None):
+                  post_proc_kwargs={'exclude_codes': [1701, 1703, 1751, 1752]})
+def assign_agents_to_group(group_list: list = None, agent_list: list = None, replace: bool = False,
+                           replace_list: list = None) -> AffectedItemsWazuhResult:
     """Assign a list of agents to a group.
 
-    :param group_list: List of Group names.
-    :param agent_list: List of Agent IDs.
-    :param replace: Whether to append new group to current agent's group or replace it.
-    :param replace_list: List of Group names that can be replaced.
-    :return: AffectedItemsWazuhResult.
+    Parameters
+    ----------
+    group_list : list
+        List with the group ID.
+    agent_list : list
+        List of Agent IDs.
+    replace :  bool
+        Whether to append new group to current agent's group or replace it.
+    replace_list : list
+        List of Group names that can be replaced.
+
+    Raises
+    ------
+    WazuhResourceNotFound(1710)
+        If the group was not found.
+
+
+    Returns
+    -------
+    AffectedItemsWazuhResult
+        Affected items.
     """
     group_id = group_list[0]
     result = AffectedItemsWazuhResult(all_msg=f'All selected agents were assigned to {group_id}'
@@ -703,14 +834,26 @@ def assign_agents_to_group(group_list=None, agent_list=None, replace=False, repl
     # Check if the group exists
     if not Agent.group_exists(group_id):
         raise WazuhResourceNotFound(1710)
+
     system_agents = get_agents_info()
+
+    # Check agent '000'
+    if '000' in agent_list:
+        agent_list.remove('000')
+        result.add_failed_item(id_='000', error=WazuhError(1703))
+
+    agent_list = set(agent_list)
+
+    # Check for non-existing agents
+    not_found_agents = agent_list - system_agents
+    for agent_id in not_found_agents:
+        result.add_failed_item(id_=agent_id, error=WazuhResourceNotFound(1701))
+
+    agent_list -= not_found_agents
+
     for agent_id in agent_list:
         try:
-            if agent_id not in system_agents:
-                raise WazuhResourceNotFound(1701)
-            if agent_id == "000":
-                raise WazuhError(1703)
-            Agent.add_group_to_agent(group_id, agent_id, force=True, replace=replace, replace_list=replace_list)
+            Agent.add_group_to_agent(group_id, agent_id, replace=replace, replace_list=replace_list)
             result.affected_items.append(agent_id)
         except WazuhException as e:
             result.add_failed_item(id_=agent_id, error=e)
@@ -723,12 +866,29 @@ def assign_agents_to_group(group_list=None, agent_list=None, replace=False, repl
 
 @expose_resources(actions=["group:modify_assignments"], resources=['group:id:{group_list}'], post_proc_func=None)
 @expose_resources(actions=["agent:modify_group"], resources=['agent:id:{agent_list}'], post_proc_func=None)
-def remove_agent_from_group(group_list=None, agent_list=None):
-    """Removes an agent assignment from a specified group.
+def remove_agent_from_group(group_list: list = None, agent_list: list = None) -> WazuhResult:
+    """Removes an agent assignation with a specified group.
 
-    :param group_list: List of Group names.
-    :param agent_list: List of Agent IDs.
-    :return: Confirmation message.
+    Parameters
+    ----------
+    group_list : list
+        List with the group ID.
+    agent_list : list
+        List with the agent ID.
+
+    Raises
+    ------
+    WazuhResourceNotFound(1701)
+        Agent was not found.
+    WazuhError(1703)
+        Agent ID is 000.
+    WazuhResourceNotFound(1710)
+        Group was not found.
+
+    Returns
+    -------
+    WazuhResult
+        Confirmation message.
     """
     group_id = group_list[0]
     agent_id = agent_list[0]
@@ -747,12 +907,27 @@ def remove_agent_from_group(group_list=None, agent_list=None):
 @expose_resources(actions=["agent:modify_group"], resources=["agent:id:{agent_list}"], post_proc_func=None)
 @expose_resources(actions=["group:modify_assignments"], resources=["group:id:{group_list}"],
                   post_proc_kwargs={'exclude_codes': [1710, 1734, 1745]})
-def remove_agent_from_groups(agent_list=None, group_list=None):
-    """Removes an agent assigment from a list of groups.
+def remove_agent_from_groups(agent_list: list = None, group_list: list = None) -> AffectedItemsWazuhResult:
+    """Removes an agent assignation with a list of groups.
 
-    :param agent_list: List of agents ID's.
-    :param group_list: List of Group names.
-    :return: AffectedItemsWazuhResult.
+    Parameters
+    ----------
+    group_list : list
+        List of groups IDs.
+    agent_list : list
+        List with the agent ID.
+
+    Raises
+    ------
+    WazuhResourceNotFound(1701)
+        Agent was not found.
+    WazuhError(1703)
+        Agent ID is 000.
+
+    Returns
+    -------
+    AffectedItemsWazuhResult
+        Affected items.
     """
     agent_id = agent_list[0]
     result = AffectedItemsWazuhResult(all_msg='Specified agent was removed from returned groups',
@@ -791,12 +966,25 @@ def remove_agent_from_groups(agent_list=None, group_list=None):
 @expose_resources(actions=["group:modify_assignments"], resources=["group:id:{group_list}"], post_proc_func=None)
 @expose_resources(actions=["agent:modify_group"], resources=["agent:id:{agent_list}"],
                   post_proc_kwargs={'exclude_codes': [1701, 1703, 1734]})
-def remove_agents_from_group(agent_list=None, group_list=None):
-    """Remove a list of agents assignment from a specified group.
+def remove_agents_from_group(agent_list: list = None, group_list: list = None) -> AffectedItemsWazuhResult:
+    """Remove the assignations of a list of agents with a specified group.
 
-    :param agent_list: List of agents ID's.
-    :param group_list: List of Group names.
-    :return: AffectedItemsWazuhResult.
+    Parameters
+    ----------
+    group_list : list
+        List with the group ID.
+    agent_list : list
+        List of Agent IDs.
+
+    Raises
+    ------
+    WazuhResourceNotFound(1710)
+        Group was not found.
+
+    Returns
+    -------
+    AffectedItemsWazuhResult
+        Affected items.
     """
     group_id = group_list[0]
     result = AffectedItemsWazuhResult(all_msg=f'All selected agents were removed from group {group_id}',
@@ -827,18 +1015,31 @@ def remove_agents_from_group(agent_list=None, group_list=None):
 
 
 @expose_resources(actions=["agent:read"], resources=["agent:id:{agent_list}"], post_proc_func=None)
-def get_outdated_agents(agent_list=None, offset=0, limit=common.DATABASE_LIMIT, sort=None, search=None, select=None,
-                        q=None):
+def get_outdated_agents(agent_list: list = None, offset: int = 0, limit: int = common.DATABASE_LIMIT, sort: dict = None,
+                        search: dict = None, select: dict = None, q: str = None) -> AffectedItemsWazuhResult:
     """Gets the outdated agents.
 
-    :param agent_list: List of agents ID's.
-    :param offset: First item to return.
-    :param limit: Maximum number of items to return.
-    :param sort: Sorts the items. Format: {"fields":["field1","field2"],"order":"asc|desc"}.
-    :param search: Looks for items with the specified string.
-    :param select: Select fields to return. Format: {"fields":["field1","field2"]}.
-    :param q: Defines query to filter in DB.
-    :return: AffectedItemsWazuhResult.
+    Parameters
+    ----------
+    agent_list : list
+        List of agents ID's.
+    offset : int
+        First item to return.
+    limit : int
+        Maximum number of items to return. Default: common.DATABASE_LIMIT
+    sort : dict
+        Sorts the items. Format: {"fields":["field1","field2"],"order":"asc|desc"}.
+    search : dict
+        Looks for items with the specified string. Format: {"fields": ["field1","field2"]}.
+    select : dict
+        Select fields to return. Format: {"fields":["field1","field2"]}.
+    q : str
+        Query to filter results by. For example q&#x3D;&amp;quot;status&#x3D;active&amp;quot;
+
+    Returns
+    -------
+    AffectedItemsWazuhResult
+        Affected items.
     """
 
     result = AffectedItemsWazuhResult(all_msg='All selected agents information was returned',
@@ -892,6 +1093,13 @@ def upgrade_agents(agent_list: list = None, wpk_repo: str = None, version: str =
     q : str
         Define query to filter in DB.
 
+    Raises
+    ------
+    WazuhError(1823)
+        If the target version is higher than the manager's.
+    WazuhInternalError
+        Generic internal server error.
+
     Returns
     -------
     AffectedItemsWazuhResult
@@ -925,8 +1133,7 @@ def upgrade_agents(agent_list: list = None, wpk_repo: str = None, version: str =
 
         # Add non active agents to failed_items
         non_active_agents = [agent['id'] for agent in data['items'] if agent['status'] != 'active']
-        [result.add_failed_item(id_=agent, error=WazuhError(1707))
-         for agent in non_active_agents]
+        [result.add_failed_item(id_=agent, error=WazuhError(1707)) for agent in non_active_agents]
         non_active_agents = set(non_active_agents)
 
         # Add non eligible agents to failed_items
@@ -939,24 +1146,17 @@ def upgrade_agents(agent_list: list = None, wpk_repo: str = None, version: str =
             )
         )) for ag in non_eligible_agents]
 
-        if version and not version.startswith('v'):
-            version = f'v{version}'
-
         eligible_agents = agent_list - not_found_agents - non_active_agents - non_eligible_agents
 
         # Transform the format of the agent ids to the general format
-        eligible_agents = sorted([int(agent) for agent in eligible_agents])
+        eligible_agents = [int(agent) for agent in eligible_agents]
 
-        agents_result_chunks = [eligible_agents[x:x + 500] for x in range(0, len(eligible_agents), 500)]
+        tasks_results = create_upgrade_tasks(eligible_agents=eligible_agents, chunk_size=UPGRADE_CHUNK_SIZE,
+                                             command='upgrade' if not installer or file_path else 'upgrade_custom',
+                                             wpk_repo=wpk_repo, version=version, force=force, use_http=use_http,
+                                             file_path=file_path, installer=installer)
 
-        agent_results = list()
-        for agents_chunk in agents_result_chunks:
-            agent_results.append(
-                core_upgrade_agents(command='upgrade' if not (installer or file_path) else 'upgrade_custom',
-                                    agents_chunk=agents_chunk, wpk_repo=wpk_repo, version=version, force=force,
-                                    use_http=use_http, file_path=file_path, installer=installer))
-
-        for agent_result_chunk in agent_results:
+        for agent_result_chunk in tasks_results:
             for agent_result in agent_result_chunk['data']:
                 socket_error = agent_result['error']
                 # Success, return agent and task IDs
@@ -981,6 +1181,8 @@ def upgrade_agents(agent_list: list = None, wpk_repo: str = None, version: str =
                 else:
                     raise WazuhInternalError(error_code, cmd_error=True, extra_message=agent_result['message'])
 
+    result.affected_items.sort(key=operator.itemgetter('agent'))
+
     return result
 
 
@@ -998,6 +1200,11 @@ def get_upgrade_result(agent_list: list = None, filters: dict = None, q: str = N
         Define required field filters. Format: {"field1":"value1", "field2":["value2","value3"]}
     q : str
         Define query to filter in DB.
+
+    Raises
+    ------
+    WazuhInternalError
+        Generic internal server error.
 
     Returns
     -------
@@ -1031,8 +1238,7 @@ def get_upgrade_result(agent_list: list = None, filters: dict = None, q: str = N
 
         # Add non active agents to failed_items
         non_active_agents = [agent['id'] for agent in data['items'] if agent['status'] != 'active']
-        [result.add_failed_item(id_=agent, error=WazuhError(1707))
-         for agent in non_active_agents]
+        [result.add_failed_item(id_=agent, error=WazuhError(1707)) for agent in non_active_agents]
         non_active_agents = set(non_active_agents)
 
         # Add non eligible agents to failed_items
@@ -1048,13 +1254,10 @@ def get_upgrade_result(agent_list: list = None, filters: dict = None, q: str = N
         eligible_agents = agent_list - not_found_agents - non_active_agents - non_eligible_agents
 
         # Transform the format of the agent ids to the general format
-        eligible_agents = sorted([int(agent) for agent in eligible_agents])
+        eligible_agents = [int(agent) for agent in eligible_agents]
 
-        agents_result_chunks = [eligible_agents[x:x + 500] for x in range(0, len(eligible_agents), 500)]
-
-        task_results = list()
-        for agents_chunk in agents_result_chunks:
-            task_results.append(core_upgrade_agents(agents_chunk=agents_chunk, get_result=True))
+        task_results = create_upgrade_tasks(eligible_agents=eligible_agents, chunk_size=UPGRADE_RESULT_CHUNK_SIZE,
+                                            command='upgrade_result', get_result=True)
 
         for task_result_chunk in task_results:
             for task_result in task_result_chunk['data']:
@@ -1074,17 +1277,33 @@ def get_upgrade_result(agent_list: list = None, filters: dict = None, q: str = N
                 else:
                     raise WazuhInternalError(error_code, cmd_error=True, extra_message=task_result['message'])
 
+    result.affected_items.sort(key=operator.itemgetter('agent'))
+
     return result
 
 
 @expose_resources(actions=["agent:read"], resources=["agent:id:{agent_list}"], post_proc_func=None)
-def get_agent_config(agent_list=None, component=None, config=None):
+def get_agent_config(agent_list: list = None, component: str = None, config: str = None) -> WazuhResult:
     """Read selected configuration from agent.
 
-    :param agent_list: List of agents ID's.
-    :param component: Selected component.
-    :param config: Configuration to get, written on disk.
-    :return: WazuhResult(Loaded configuration in JSON).
+    Parameters
+    ----------
+    agent_list : list
+        List of agents ID's.
+    component : str
+        Selected component.
+    config : str
+        Configuration to get, written on disk.
+
+    Raises
+    ------
+    WazuhError(1740)
+        If the agent is not active.
+
+    Returns
+    -------
+    WazuhResult
+        Loaded configuration in JSON.
     """
     # We access unique agent_id from list, this may change if and when we decide a final way to handle get responses
     # with failed ids and a list of agents
@@ -1095,16 +1314,28 @@ def get_agent_config(agent_list=None, component=None, config=None):
     if my_agent.status != "active":
         raise WazuhError(1740)
 
-    return WazuhResult({'data': my_agent.getconfig(component=component, config=config, agent_version=my_agent.version)})
+    return WazuhResult(
+        {'data': my_agent.get_config(component=component, config=config, agent_version=my_agent.version)})
 
 
 @expose_resources(actions=["agent:read"], resources=["agent:id:{agent_list}"],
                   post_proc_kwargs={'exclude_codes': [1701, 1703]})
-def get_agents_sync_group(agent_list=None):
+def get_agents_sync_group(agent_list: list = None) -> AffectedItemsWazuhResult:
     """Get agents configuration sync status.
 
-    :param agent_list: List of agents ID's.
-    :return AffectedItemsWazuhResult.
+    Notes
+    -----
+    To be deprecated in v5.0.
+
+    Parameters
+    ----------
+    agent_list : list
+        List of agent IDs.
+
+    Returns
+    -------
+    AffectedItemsWazuhResult
+        Agent group sync status information.
     """
     result = AffectedItemsWazuhResult(all_msg='Sync info was returned for all selected agents',
                                       some_msg='Sync info was not returned for some selected agents',
@@ -1143,14 +1374,25 @@ def get_agents_sync_group(agent_list=None):
 
 
 @expose_resources(actions=["group:read"], resources=["group:id:{group_list}"], post_proc_func=None)
-def get_file_conf(group_list=None, type_conf=None, return_format=None, filename=None):
-    """ Reads configuration file for specified group.
+def get_file_conf(group_list: list = None, type_conf: str = None, return_format: str = None,
+                  filename: str = None) -> WazuhResult:
+    """Read configuration file for a specified group.
 
-    :param group_list: List of Group names.
-    :param type_conf: Type of file.
-    :param return_format: Format of the answer (xml or json).
-    :param filename: Filename to read config from.
-    :return: WazuhResult.
+    Parameters
+    ----------
+    group_list : list
+        List with the group ID.
+    type_conf : str
+        Type of file.
+    return_format : str
+        Format of the answer (xml or json).
+    filename : str
+        Filename to read config from.
+
+    Returns
+    -------
+    WazuhResult
+        WazuhResult object with the configuration.
     """
     # We access unique group_id from list, this may change if and when we decide to add option to get configuration
     # files for a list of groups
@@ -1161,14 +1403,25 @@ def get_file_conf(group_list=None, type_conf=None, return_format=None, filename=
 
 
 @expose_resources(actions=["group:read"], resources=["group:id:{group_list}"], post_proc_func=None)
-def get_agent_conf(group_list=None, filename='agent.conf', offset=0, limit=common.DATABASE_LIMIT):
-    """ Reads agent conf for specified group.
+def get_agent_conf(group_list: list = None, filename: str = 'agent.conf', offset: int = 0,
+                   limit: int = common.DATABASE_LIMIT) -> WazuhResult:
+    """Read agent conf for a specified group.
 
-    :param group_list: List of Group names.
-    :param filename: Filename to read config from.
-    :param offset: First item to return.
-    :param limit: Maximum number of items to return.
-    :return: WazuhResult.
+    Parameters
+    ----------
+    group_list : list
+        List with the group ID.
+    filename : str
+        Filename to read config from. Default: 'agent.conf'
+    offset : int
+        First item to return.
+    limit : int
+        Maximum number of items to return. Default: common.DATABASE_LIMIT
+
+    Returns
+    -------
+    WazuhResult
+        WazuhResult object with the configuration.
     """
     # We access unique group_id from list, this may change if and when we decide to add option to get agent conf for
     # a list of groups
@@ -1179,13 +1432,22 @@ def get_agent_conf(group_list=None, filename='agent.conf', offset=0, limit=commo
 
 
 @expose_resources(actions=["group:update_config"], resources=["group:id:{group_list}"], post_proc_func=None)
-def upload_group_file(group_list=None, file_data=None, file_name='agent.conf'):
-    """Updates a group file.
+def upload_group_file(group_list: list = None, file_data: str = None, file_name: str = 'agent.conf') -> WazuhResult:
+    """Update a group file.
 
-    :param group_list: List of Group names.
-    :param file_data: Relative path of temporary file to upload.
-    :param file_name: File name to update.
-    :return: Confirmation message.
+    Parameters
+    ----------
+    group_list : list
+        List with the group ID.
+    file_data : str
+        Relative path of temporary file to upload.
+    file_name : str
+        Name of the file to update. Default: 'agent.conf'
+
+    Returns
+    -------
+    WazuhResult
+        WazuhResult object with the confirmation message.
     """
     # We access unique group_id from list, this may change if and when we decide to add option to update files for
     # a list of groups
@@ -1199,7 +1461,8 @@ def get_full_overview() -> WazuhResult:
 
     Returns
     -------
-    Dictionary with information about agents
+    WazuhResult
+        WazuhResult object with information about agents.
     """
     # We don't consider agent 000 in order to get the summary
     q = "id!=000"

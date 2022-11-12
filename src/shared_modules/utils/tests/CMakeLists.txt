@@ -8,16 +8,21 @@ if(COVERITY)
   add_definitions(-D__GNUC__=8)
 endif(COVERITY)
 
+# Enable testing
+enable_testing()
+
 set(CMAKE_CXX_FLAGS "-Wall -Wextra -std=c++14")
 set(CMAKE_CXX_FLAGS_DEBUG "-g --coverage")
 
 include_directories(${SRC_FOLDER}/)
 include_directories(${SRC_FOLDER}/headers/)
+include_directories(${SRC_FOLDER}/shared_modules/common/)
 include_directories(${SRC_FOLDER}/shared_modules/utils/)
 include_directories(${SRC_FOLDER}/external/googletest/googletest/include/)
 include_directories(${SRC_FOLDER}/external/googletest/googlemock/include/)
 include_directories(${SRC_FOLDER}/external/openssl/include/)
 include_directories(${SRC_FOLDER}/external/nlohmann/)
+include_directories(${SRC_FOLDER}/external/cJSON/)
 
 file(GLOB UTIL_CXX_UNITTEST_WINDOWS_SRC
     "windowsHelper_test.cpp"

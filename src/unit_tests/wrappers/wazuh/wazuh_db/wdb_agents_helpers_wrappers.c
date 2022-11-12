@@ -25,6 +25,11 @@ cJSON* __wrap_wdb_insert_vuln_cves(int id,
                                    const char *reference,
                                    const char *type,
                                    const char *status,
+                                   char **external_references,
+                                   const char *condition,
+                                   const char *title,
+                                   const char *published,
+                                   const char *updated,
                                    bool check_pkg_existence,
                                    __attribute__((unused)) int *sock) {
     check_expected(id);
@@ -38,14 +43,17 @@ cJSON* __wrap_wdb_insert_vuln_cves(int id,
     check_expected(reference);
     check_expected(type);
     check_expected(status);
+
+    char* external_references_concatenated = w_strcat_list(external_references, ',');
+    check_expected(external_references_concatenated);
+    os_free(external_references_concatenated);
+
+    check_expected(condition);
+    check_expected(title);
+    check_expected(published);
+    check_expected(updated);
     check_expected(check_pkg_existence);
     return mock_ptr_type(cJSON*);
-}
-
-int __wrap_wdb_clear_vuln_cves(int id,
-                               __attribute__((unused)) int *sock) {
-    check_expected(id);
-    return mock_type(int);
 }
 
 cJSON* __wrap_wdb_remove_vuln_cves_by_status(int id,

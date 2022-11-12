@@ -11,6 +11,9 @@
 #ifndef INFO_MESSAGES_H
 #define INFO_MESSAGES_H
 
+/* Vulnerability-Detector info messages*/
+#define VU_NO_OSINFO_AG       "(5700): Unable to get the OS information for agent '%.3d'. Inventory data may not yet be synchronized."
+
 /* File integrity monitoring info messages*/
 #define FIM_DAEMON_STARTED                  "(6000): Starting daemon..."
 #define FIM_DISABLED                        "(6001): File integrity monitoring disabled."
@@ -71,5 +74,6 @@
 
 /* Logcollector info messages */
 #define LOGCOLLECTOR_INVALID_HANDLE_VALUE   "(9200): File '%s' can not be handled."
+#define LOGCOLLECTOR_ONLY_MACOS             "(9201): 'macos' log format is only supported on macOS."
 
 #endif /* INFO_MESSAGES_H */

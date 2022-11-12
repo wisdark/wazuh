@@ -9,7 +9,6 @@ import os.path
 import shutil
 import zlib
 from asyncio import wait_for
-from datetime import datetime
 from functools import partial
 from operator import eq
 from os import listdir, path, remove, stat, walk
@@ -18,16 +17,15 @@ from uuid import uuid4
 from wazuh import WazuhError, WazuhException, WazuhInternalError
 from wazuh.core import common
 from wazuh.core.InputValidator import InputValidator
-from wazuh.core.agent import WazuhDBQueryAgents
 from wazuh.core.cluster.utils import get_cluster_items, read_config
-from wazuh.core.utils import md5, mkdir_with_mode
+from wazuh.core.utils import blake2b, mkdir_with_mode, get_utc_now, get_date_from_timestamp, to_relative_path
 
 logger = logging.getLogger('wazuh')
-agent_groups_path = os.path.relpath(common.GROUPS_PATH, common.WAZUH_PATH)
 
 # Separators used in compression/decompression functions to delimit files.
-FILE_SEP = '|@!@|'
-PATH_SEP = '|!@!|'
+FILE_SEP = '|@@//@@|'
+PATH_SEP = '|//@@//|'
+
 
 #
 # Cluster
@@ -119,7 +117,7 @@ def check_cluster_status():
 #
 
 def walk_dir(dirname, recursive, files, excluded_files, excluded_extensions, get_cluster_item_key, previous_status=None,
-             get_md5=True):
+             get_hash=True):
     """Iterate recursively inside a directory, save the path of each found file and obtain its metadata.
 
     Parameters
@@ -139,8 +137,8 @@ def walk_dir(dirname, recursive, files, excluded_files, excluded_extensions, get
         after sending a file from one node to another, depending on the directory the file belongs to.
     previous_status : dict
         Information collected in the previous integration process.
-    get_md5 : bool
-        Whether to calculate and save the MD5 hash of the found file.
+    get_hash : bool
+        Whether to calculate and save the BLAKE2b hash of the found file.
 
     Returns
     -------
@@ -175,15 +173,16 @@ def walk_dir(dirname, recursive, files, excluded_files, excluded_extensions, get
                             except KeyError:
                                 pass
                             # Create dict with metadata for the current file.
+                            # The TYPE string is a placeholder to define the type of merge performed.
                             file_metadata = {"mod_time": file_mod_time, 'cluster_item_key': get_cluster_item_key}
-                            if '.merged' in file_:
-                                file_metadata['merged'] = True
-                                file_metadata['merge_type'] = 'agent-groups'
-                                file_metadata['merge_name'] = abs_file_path
-                            else:
+                            if '.merged' not in file_:
                                 file_metadata['merged'] = False
-                            if get_md5:
-                                file_metadata['md5'] = md5(abs_file_path)
+                            else:
+                                file_metadata['merged'] = True
+                                file_metadata['merge_type'] = 'TYPE'
+                                file_metadata['merge_name'] = abs_file_path
+                            if get_hash:
+                                file_metadata['hash'] = blake2b(abs_file_path)
                             # Use the relative file path as a key to save its metadata dictionary.
                             walk_files[relative_file_path] = file_metadata
                     except FileNotFoundError as e:
@@ -197,15 +196,15 @@ def walk_dir(dirname, recursive, files, excluded_files, excluded_extensions, get
     return walk_files
 
 
-def get_files_status(previous_status=None, get_md5=True):
+def get_files_status(previous_status=None, get_hash=True):
     """Get all files and metadata inside the directories listed in cluster.json['files'].
 
     Parameters
     ----------
     previous_status : dict
         Information collected in the previous integration process.
-    get_md5 : bool
-        Whether to calculate and save the MD5 hash of the found file.
+    get_hash : bool
+        Whether to calculate and save the BLAKE2b hash of the found file.
 
     Returns
     -------
@@ -224,11 +223,43 @@ def get_files_status(previous_status=None, get_md5=True):
         try:
             final_items.update(
                 walk_dir(file_path, item['recursive'], item['files'], cluster_items['files']['excluded_files'],
-                         cluster_items['files']['excluded_extensions'], file_path, previous_status, get_md5))
+                         cluster_items['files']['excluded_extensions'], file_path, previous_status, get_hash))
         except Exception as e:
             logger.warning(f"Error getting file status: {e}.")
 
     return final_items
+
+
+def get_ruleset_status(previous_status):
+    """Get hash of custom ruleset files.
+
+    Parameters
+    ----------
+    previous_status : dict
+        Integrity information of local files.
+
+    Returns
+    -------
+    Dict
+        Relative path and hash of local ruleset files.
+    """
+    final_items = {}
+    cluster_items = get_cluster_items()
+    user_ruleset = [os.path.join(to_relative_path(user_path), '') for user_path in [common.USER_DECODERS_PATH,
+                                                                                    common.USER_RULES_PATH,
+                                                                                    common.USER_LISTS_PATH]]
+
+    for file_path, item in cluster_items['files'].items():
+        if file_path == "excluded_files" or file_path == "excluded_extensions" or file_path not in user_ruleset:
+            continue
+        try:
+            final_items.update(
+                walk_dir(file_path, item['recursive'], item['files'], cluster_items['files']['excluded_files'],
+                         cluster_items['files']['excluded_extensions'], file_path, previous_status, True))
+        except Exception as e:
+            logger.warning(f"Error getting file status: {e}.")
+
+    return {file_path: file_data['hash'] for file_path, file_data in final_items.items()}
 
 
 def update_cluster_control(failed_file, ko_files, exists=True):
@@ -291,7 +322,7 @@ def compress_files(name, list_path, cluster_control_json=None, max_zip_size=None
     if max_zip_size is None:
         max_zip_size = get_cluster_items()['intervals']['communication']['max_zip_size']
     zip_file_path = path.join(common.WAZUH_PATH, 'queue', 'cluster', name,
-                              f'{name}-{datetime.utcnow().timestamp()}-{uuid4().hex}.zip')
+                              f'{name}-{get_utc_now().timestamp()}-{uuid4().hex}.zip')
 
     if not path.exists(path.dirname(zip_file_path)):
         mkdir_with_mode(path.dirname(zip_file_path))
@@ -380,7 +411,7 @@ def decompress_files(compress_path, ko_files_name="files_metadata.json"):
     """
     ko_files = ''
     compressed_data = b''
-    window_size = 1024*1024*10   # 10 MiB
+    window_size = 1024 * 1024 * 10  # 10 MiB
     decompress_dir = compress_path + 'dir'
 
     try:
@@ -430,7 +461,7 @@ def compare_files(good_files, check_files, node_name):
 
     Compare the integrity information of each file of the master node against those in the worker node (listed in
     cluster.json), calculated in get_files_status(). The files are classified in four groups depending on the
-    information of cluster.json: missing, extra, extra_valid and shared.
+    information of cluster.json: missing, extra, and shared.
 
     Parameters
     ----------
@@ -445,8 +476,6 @@ def compare_files(good_files, check_files, node_name):
     -------
     files : dict
         Paths (keys) and metadata (values) of the files classified into four groups.
-    count : int
-        Number of files inside each classification.
     """
 
     def split_on_condition(seq, condition):
@@ -476,31 +505,21 @@ def compare_files(good_files, check_files, node_name):
     # Missing files will be the ones that are present in good files (master) but not in the check files (worker).
     missing_files = {key: good_files[key] for key in good_files.keys() - check_files.keys()}
 
-    # Extra files are the ones present in check files (worker) but not in good files (master) and aren't extra valid.
-    extra_valid, extra = split_on_condition(check_files.keys() - good_files.keys(),
-                                            lambda x: cluster_items[check_files[x]['cluster_item_key']]['extra_valid'])
+    # Extra files are the ones present in check files (worker) but not in good files (master). The underscore is used
+    # to not change the function, as previously it returned an iterator for the 'extra_valid' files as well, but these
+    # are no longer in use.
+    _extra_valid, extra = split_on_condition(check_files.keys() - good_files.keys(),
+                                  lambda x: cluster_items[check_files[x]['cluster_item_key']]['extra_valid'])
     extra_files = {key: check_files[key] for key in extra}
-    extra_valid_files = {key: check_files[key] for key in extra_valid}
-    if extra_valid_files:
-        # Check if extra-valid agent-groups files correspond to existing agents.
-        try:
-            agent_groups = [os.path.basename(file) for file in extra_valid_files if file.startswith(agent_groups_path)]
-            db_agents = []
-            # Each query can have at most 7500 agents to prevent it from being larger than the wazuh-db socket.
-            # 7 digits in the worst case per ID + comma -> 8 * 7500 = 60000 (wazuh-db socket is ~64000)
-            for i in range(0, len(agent_groups), chunk_size := 7500):
-                with WazuhDBQueryAgents(select=['id'], limit=None, filters={'rbac_ids': agent_groups[i:i + chunk_size]},
-                                        rbac_negate=False) as db_query:
-                    db_agents.extend(db_query.run()['items'])
-            db_agents = {agent['id'] for agent in db_agents}
+    # extra_valid_files = {key: check_files[key] for key in _extra_valid}
 
-            for leftover in set(agent_groups) - db_agents:
-                extra_valid_files.pop(os.path.join(agent_groups_path, leftover), None)
-        except Exception as e:
-            logger.error(f"Error getting agent IDs while verifying which extra-valid files are required: {e}")
+    # This condition should never take place. The 'PATH' string is a placeholder to indicate the type of variable that
+    # we should place.
+    # if extra_valid_files:
+    #     extra_valid_function()
 
-    # 'all_shared' files are the ones present in both sets but with different MD5 checksum.
-    all_shared = [x for x in check_files.keys() & good_files.keys() if check_files[x]['md5'] != good_files[x]['md5']]
+    # 'all_shared' files are the ones present in both sets but with different BLAKE2b checksum.
+    all_shared = [x for x in check_files.keys() & good_files.keys() if check_files[x]['hash'] != good_files[x]['hash']]
 
     # 'shared_e_v' are files present in both nodes but need to be merged before sending them to the worker. Only
     # 'agent-groups' files fit into this category.
@@ -510,20 +529,17 @@ def compare_files(good_files, check_files, node_name):
     shared_e_v = list(shared_e_v)
     if shared_e_v:
         # Merge all shared extra valid files into a single one. Create a tuple (merged_filepath, {metadata_dict}).
-        shared_merged = [(merge_info(merge_type='agent-groups', files=shared_e_v, file_type='-shared',
+        # The TYPE and ITEM_KEY strings are placeholders for the merge type and the cluster item key.
+        shared_merged = [(merge_info(merge_type='TYPE', files=shared_e_v, file_type='-shared',
                                      node_name=node_name)[1],
-                          {'cluster_item_key': 'queue/agent-groups/', 'merged': True, 'merge-type': 'agent-groups'})]
+                          {'cluster_item_key': 'ITEM_KEY', 'merged': True, 'merge-type': 'TYPE'})]
 
         # Dict merging all 'shared' filepaths (keys) and the merged_filepath (key) created above.
         shared_files = dict(itertools.chain(shared_merged, ((key, good_files[key]) for key in shared)))
     else:
         shared_files = {key: good_files[key] for key in shared}
 
-    files = {'missing': missing_files, 'extra': extra_files, 'shared': shared_files, 'extra_valid': extra_valid_files}
-    count = {'missing': len(missing_files), 'extra': len(extra_files), 'extra_valid': len(extra_valid_files),
-             'shared': len(all_shared)}
-
-    return files, count
+    return {'missing': missing_files, 'extra': extra_files, 'shared': shared_files}
 
 
 def clean_up(node_name=""):
@@ -583,7 +599,7 @@ def merge_info(merge_type, node_name, files=None, file_type=""):
     Parameters
     ----------
     merge_type : str
-        Directory inside {wazuh_path}/queue where the files to merge can be found.
+        Directory inside {wazuh_path}/PATH where the files to merge can be found.
     node_name : str
         Name of the node to which the files will be sent.
     files : list
@@ -615,7 +631,7 @@ def merge_info(merge_type, node_name, files=None, file_type=""):
             with open(full_path, 'rb') as f:
                 data = f.read()
 
-            header = f"{len(data)} {filename} {datetime.utcfromtimestamp(stat_data.st_mtime)}"
+            header = f"{len(data)} {filename} {get_date_from_timestamp(stat_data.st_mtime)}"
 
             o_f.write((header + '\n').encode() + data)
 
@@ -637,10 +653,10 @@ def unmerge_info(merge_type, path_file, filename):
     Parameters
     ----------
     merge_type : str
-        Name of the destination directory inside queue. I.e: {wazuh_path}/queue/{merge_type}/<unmerge_files>.
+        Name of the destination directory inside queue. I.e: {wazuh_path}/PATH/{merge_type}/<unmerge_files>.
     path_file : str
         Path to the unzipped merged file.
-    filename
+    filename : str
         Filename of the merged file.
 
     Yields

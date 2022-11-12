@@ -906,7 +906,7 @@ char* ParseRuleComment(Eventinfo *lf) {
         if (n + (z = strlen(str)) >= OS_COMMENT_MAX)
             return strdup(lf->generated_rule->comment);
 
-        strncpy(&final[n], str, z);
+        strncat(final, str, OS_COMMENT_MAX - n);
         n += z;
 
         if (!(end = strchr(var, ')'))) {
@@ -972,7 +972,7 @@ char* ParseRuleComment(Eventinfo *lf) {
             if (n + (z = strlen(field)) >= OS_COMMENT_MAX)
                 return strdup(lf->generated_rule->comment);
 
-            strncpy(&final[n], field, z);
+            strncat(final, field, OS_COMMENT_MAX - n);
             n += z;
         }
     }
@@ -980,7 +980,7 @@ char* ParseRuleComment(Eventinfo *lf) {
     if (n + (z = strlen(str)) >= OS_COMMENT_MAX)
         return strdup(lf->generated_rule->comment);
 
-    strncpy(&final[n], str, z);
+    strncat(final, str, OS_COMMENT_MAX - n);
     final[n + z] = '\0';
     return strdup(final);
 }
@@ -1174,17 +1174,4 @@ void w_free_event_info(Eventinfo *lf) {
     if (force_remove) {
         Free_Eventinfo(lf);
     }
-}
-
-const char *extract_module_from_location(const char *location){
-    assert(location);
-
-    const char *module_name = strstr(location, "->");
-    if (module_name == NULL) {
-        module_name = location;
-    } else {
-        module_name += 2;
-    }
-
-    return module_name;
 }

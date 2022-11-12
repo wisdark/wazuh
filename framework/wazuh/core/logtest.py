@@ -3,11 +3,14 @@
 # This program is a free software; you can redistribute it and/or modify it under the terms of GPLv2
 
 from datetime import datetime
+
+import pytz
+
 from wazuh.core.common import LOGTEST_SOCKET, DECIMALS_DATE_FORMAT, origin_module
 from wazuh.core.wazuh_socket import WazuhSocketJSON, create_wazuh_socket_message
 
 
-def send_logtest_msg(command: str = None, parameters: dict = None):
+def send_logtest_msg(command: str = None, parameters: dict = None) -> dict:
     """Connect and send a message to the logtest socket.
 
     Parameters
@@ -31,7 +34,8 @@ def send_logtest_msg(command: str = None, parameters: dict = None):
     logtest_socket.close()
     try:
         response['data']['output']['timestamp'] = datetime.strptime(
-            response['data']['output']['timestamp'], "%Y-%m-%dT%H:%M:%S.%f+0000").strftime(DECIMALS_DATE_FORMAT)
+            response['data']['output']['timestamp'], "%Y-%m-%dT%H:%M:%S.%f%z").astimezone(pytz.utc).strftime(
+            DECIMALS_DATE_FORMAT)
     except KeyError:
         pass
 

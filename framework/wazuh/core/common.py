@@ -16,8 +16,7 @@ from typing import Any, Dict
 # ===================================================== Functions ======================================================
 @lru_cache(maxsize=None)
 def find_wazuh_path() -> str:
-    """
-    Get the Wazuh installation path.
+    """Get the Wazuh installation path.
 
     Returns
     -------
@@ -48,7 +47,7 @@ def find_wazuh_path() -> str:
     return wazuh_path
 
 
-def wazuh_uid():
+def wazuh_uid() -> int:
     """Retrieve the numerical user ID for the wazuh user.
 
     Returns
@@ -59,7 +58,7 @@ def wazuh_uid():
     return getpwnam(USER_NAME).pw_uid if globals()['_WAZUH_UID'] is None else globals()['_WAZUH_UID']
 
 
-def wazuh_gid():
+def wazuh_gid() -> int:
     """Retrieve the numerical group ID for the wazuh group.
 
     Returns
@@ -194,7 +193,7 @@ MAX_QUERY_FILTERS_RESERVED_SIZE = MAX_SOCKET_BUFFER_SIZE - 4 * 1024  # MAX_BUFFE
 AGENT_NAME_LEN_LIMIT = 128
 DATABASE_LIMIT = 500
 MAXIMUM_DATABASE_LIMIT = 100000
-MAX_GROUPS_PER_MULTIGROUP = 256
+MAX_GROUPS_PER_MULTIGROUP = 128
 
 
 # ============================================= Wazuh constants - Version ==============================================
@@ -227,19 +226,20 @@ OSSEC_TMP_PATH = os.path.join(WAZUH_PATH, 'tmp')
 OSSEC_PIDFILE_PATH = os.path.join(WAZUH_PATH, 'var', 'run')
 OS_PIDFILE_PATH = os.path.join('var', 'run')
 WDB_PATH = os.path.join(WAZUH_PATH, 'queue', 'db')
-GROUPS_PATH = os.path.join(WAZUH_PATH, 'queue', 'agent-groups')
 STATS_PATH = os.path.join(WAZUH_PATH, 'stats')
 BACKUP_PATH = os.path.join(WAZUH_PATH, 'backup')
 MULTI_GROUPS_PATH = os.path.join(WAZUH_PATH, 'var', 'multigroups')
 
 
 # ================================================ Wazuh path - Sockets ================================================
+ANALYSISD_SOCKET = os.path.join(WAZUH_PATH, 'queue', 'sockets', 'analysis')
 AR_SOCKET = os.path.join(WAZUH_PATH, 'queue', 'alerts', 'ar')
 EXECQ_SOCKET = os.path.join(WAZUH_PATH, 'queue', 'alerts', 'execq')
 AUTHD_SOCKET = os.path.join(WAZUH_PATH, 'queue', 'sockets', 'auth')
 WCOM_SOCKET = os.path.join(WAZUH_PATH, 'queue', 'sockets', 'com')
 LOGTEST_SOCKET = os.path.join(WAZUH_PATH, 'queue', 'sockets', 'logtest')
 UPGRADE_SOCKET = os.path.join(WAZUH_PATH, 'queue', 'tasks', 'upgrade')
+REMOTED_SOCKET = os.path.join(WAZUH_PATH, 'queue', 'sockets', 'remote')
 TASKS_SOCKET = os.path.join(WAZUH_PATH, 'queue', 'tasks', 'task')
 WDB_SOCKET = os.path.join(WAZUH_PATH, 'queue', 'db', 'wdb')
 

@@ -37,9 +37,9 @@ static int w_enrollment_connect(w_enrollment_ctx *cfg, const char * server_addre
 static int w_enrollment_send_message(w_enrollment_ctx *cfg);
 static int w_enrollment_process_response(SSL *ssl);
 /* Auxiliary */
-static void w_enrollment_verify_ca_certificate(const SSL *ssl, const char *ca_cert, const char *hostname);
+static int w_enrollment_verify_ca_certificate(const SSL *ssl, const char *ca_cert, const char *hostname);
 static void w_enrollment_concat_group(char *buff, const char* centralized_group);
-static int w_enrollment_concat_src_ip(char *buff, const char* sender_ip, const int use_src_ip);
+static int w_enrollment_concat_src_ip(char *buff, const size_t remain_size, const char* sender_ip, const int use_src_ip);
 static void w_enrollment_concat_key(char *buff, keyentry* key);
 static int w_enrollment_process_agent_key(char *buffer);
 static int w_enrollment_store_key_entry(const char* keys);
@@ -242,7 +242,12 @@ static int w_enrollment_connect(w_enrollment_ctx *cfg, const char * server_addre
 
     mdebug1(ENROLL_CONNECTED, ip_address, cfg->target_cfg->port);
 
-    w_enrollment_verify_ca_certificate(cfg->ssl, cfg->cert_cfg->ca_cert, server_address);
+    if (w_enrollment_verify_ca_certificate(cfg->ssl, cfg->cert_cfg->ca_cert, server_address) == 1) {
+        os_free(ip_address);
+        SSL_CTX_free(ctx);
+        OS_CloseSocket(sock);
+        return ENROLLMENT_CONNECTION_FAILURE;
+    }
 
     os_free(ip_address);
     SSL_CTX_free(ctx);
@@ -281,7 +286,7 @@ static int w_enrollment_send_message(w_enrollment_ctx *cfg) {
         w_enrollment_concat_group(buf, cfg->target_cfg->centralized_group);
     }
 
-    if (w_enrollment_concat_src_ip(buf, cfg->target_cfg->sender_ip, cfg->target_cfg->use_src_ip)) {
+    if (w_enrollment_concat_src_ip(buf, OS_SIZE_65536 + OS_SIZE_4096 - strlen(buf), cfg->target_cfg->sender_ip, cfg->target_cfg->use_src_ip)) {
         os_free(buf);
         if(lhostname != cfg->target_cfg->agent_name)
             os_free(lhostname);
@@ -470,20 +475,22 @@ static int w_enrollment_process_agent_key(char *buffer) {
  * @param ca_cert certificate to verify
  * @param hostname
  * */
-static void w_enrollment_verify_ca_certificate(const SSL *ssl, const char *ca_cert, const char *hostname) {
+static int w_enrollment_verify_ca_certificate(const SSL *ssl, const char *ca_cert, const char *hostname) {
     assert(ssl != NULL);
-
-    if (ca_cert) {
-        minfo("Verifying manager's certificate");
-        if (check_x509_cert(ssl, hostname) != VERIFY_TRUE) {
-            merror("Unable to verify server certificate");
-        } else {
-            minfo("Manager has been verified successfully");
-        }
-    }
-    else {
+    if (ca_cert == NULL) {
         mdebug1("Registering agent to unverified manager");
+        return 0;
     }
+
+    minfo("Verifying manager's certificate");
+
+    if (check_x509_cert(ssl, hostname) != VERIFY_TRUE) {
+        merror("Unable to verify server certificate");
+        return 1;
+    }
+
+    minfo("Manager has been verified successfully");
+    return 0;
 }
 
 /**
@@ -531,11 +538,12 @@ static void w_enrollment_concat_group(char *buff, const char* centralized_group)
  *
  * @param buff buffer where the IP section will be concatenated
  * @param sender_ip Sender IP, if null it will be filled with "src"
+ * @param remain_size Remain size of buffer. It is buffer_size - strlen(buffer)
  * @return return code
  * @retval 0 on success
  * @retval -1 if ip is invalid
  */
-static int w_enrollment_concat_src_ip(char *buff, const char* sender_ip, const int use_src_ip) {
+static int w_enrollment_concat_src_ip(char *buff, const size_t remain_size, const char* sender_ip, const int use_src_ip) {
     assert(buff != NULL); // buff should not be NULL.
 
     if(sender_ip && !use_src_ip) { // Force an IP
@@ -543,7 +551,7 @@ static int w_enrollment_concat_src_ip(char *buff, const char* sender_ip, const i
         if (OS_IsValidIP(sender_ip, NULL)) {
             char opt_buf[256] = {0};
             snprintf(opt_buf,254," IP:'%s'",sender_ip);
-            strncat(buff,opt_buf,254);
+            strncat(buff,opt_buf, remain_size - 1);
         } else {
             merror("Invalid IP address provided for sender IP.");
             return -1;

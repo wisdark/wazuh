@@ -323,16 +323,16 @@ void fim_checker(const char *path, event_data_t *evt_data, const directory_t *pa
         return;
     }
 
+    if (fim_check_ignore(path) == 1) {
+        return;
+    }
+
     switch (evt_data->statbuf.st_mode & S_IFMT) {
 #ifndef WIN32
     case FIM_LINK:
         // Fallthrough
 #endif
     case FIM_REGULAR:
-        if (fim_check_ignore(path) == 1) {
-            return;
-        }
-
         if (fim_check_restrict(path, configuration->filerestrict) == 1) {
             return;
         }
@@ -394,7 +394,8 @@ int fim_directory(const char *dir, event_data_t *evt_data, const directory_t *co
             *s_name++ = PATH_SEP;
         }
         *(s_name) = '\0';
-        strncpy(s_name, entry->d_name, PATH_MAX - path_size - 2);
+        path_size = strlen(f_name);
+        snprintf(s_name, PATH_MAX + 2 - path_size, "%s", entry->d_name);
 
 #ifdef WIN32
         str_lowercase(f_name);
@@ -841,8 +842,8 @@ fim_file_data *fim_get_data(const char *file, const directory_t *configuration, 
     // We won't calculate hash for symbolic links, empty or large files
     if (S_ISREG(statbuf->st_mode) && (statbuf->st_size > 0 && (size_t)statbuf->st_size < syscheck.file_max_size) &&
         (configuration->options & (CHECK_MD5SUM | CHECK_SHA1SUM | CHECK_SHA256SUM))) {
-        if (OS_MD5_SHA1_SHA256_File(file, syscheck.prefilter_cmd, data->hash_md5, data->hash_sha1, data->hash_sha256,
-                                    OS_BINARY, syscheck.file_max_size) < 0) {
+        if (OS_MD5_SHA1_SHA256_File(file, syscheck.prefilter_cmd, data->hash_md5,
+                                    data->hash_sha1, data->hash_sha256, OS_BINARY, syscheck.file_max_size) < 0) {
             mdebug1(FIM_HASHES_FAIL, file);
             free_file_data(data);
             return NULL;
@@ -1191,7 +1192,7 @@ int fim_check_ignore (const char *file_name) {
         int i = 0;
         while (syscheck.ignore[i] != NULL) {
             if (strncasecmp(syscheck.ignore[i], file_name, strlen(syscheck.ignore[i])) == 0) {
-                mdebug2(FIM_IGNORE_ENTRY, "file", file_name, syscheck.ignore[i]);
+                mdebug2(FIM_IGNORE_ENTRY, file_name, syscheck.ignore[i]);
                 return 1;
             }
             i++;
@@ -1203,7 +1204,7 @@ int fim_check_ignore (const char *file_name) {
         int i = 0;
         while (syscheck.ignore_regex[i] != NULL) {
             if (OSMatch_Execute(file_name, strlen(file_name), syscheck.ignore_regex[i])) {
-                mdebug2(FIM_IGNORE_SREGEX, "file", file_name, syscheck.ignore_regex[i]->raw);
+                mdebug2(FIM_IGNORE_SREGEX, file_name, syscheck.ignore_regex[i]->raw);
                 return 1;
             }
             i++;

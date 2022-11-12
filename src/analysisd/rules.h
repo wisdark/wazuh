@@ -220,6 +220,9 @@ typedef struct _RuleInfo {
     char ** mitre_technique_id;
 
     bool internal_saving;      ///< Used to free RuleInfo structure in wazuh-logtest
+
+    /* Pointers to the rules which this one overwrites if it exists */
+    OSList * rule_overwrite;
 } RuleInfo;
 
 typedef struct _rules_tmp_params_t {
@@ -326,8 +329,17 @@ int OS_AddRule(RuleInfo *read_rule, RuleNode **r_node);
  */
 int OS_AddChild(RuleInfo *read_rule, RuleNode **r_node, OSList* log_msg);
 
-/* Add an overwrite rule */
-int OS_AddRuleInfo(RuleNode *r_node, RuleInfo *newrule, int sid);
+/**
+ * @brief Add an overwrite rule.
+ * @param r_node node to look for the original rule and replace it
+ * @param newrule overwritet rule information
+ * @param sid ID of the rule to be overwritten
+ * @param log_msg List to save log messages.
+ * @retval -1 Critical error.
+ * @retval  0 Not overwritten.
+ * @retval  1 Overwritten.
+ */
+int OS_AddRuleInfo(RuleNode *r_node, RuleInfo *newrule, int sid, OSList* log_msg);
 
 /* Mark groups (if_matched_group) */
 int OS_MarkGroup(RuleNode *r_node, RuleInfo *orig_rule);
@@ -383,7 +395,7 @@ void Rules_OP_CreateRules(void);
  * @param log_msg List to save log messages.
  * @return 0 on success, otherwise -1
  */
-int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_node, 
+int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_node,
                        EventList **last_event_list, OSStore **decoder_list, OSList* log_msg);
 
 int AddHash_Rule(RuleNode *node);

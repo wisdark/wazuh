@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../wrappers/externals/cJSON/cJSON_wrappers.h"
 #include "../wrappers/wazuh/shared/debug_op_wrappers.h"
 #include "../wrappers/wazuh/wazuh_db/wdb_syscollector_wrappers.h"
 #include "../wrappers/wazuh/wazuh_db/wdb_wrappers.h"
@@ -14,7 +15,6 @@
 #include "os_err.h"
 #include "wazuh_db/wdb.h"
 
-extern const char* SYSCOLLECTOR_LEGACY_CHECKSUM_VALUE;
 typedef struct test_struct {
     wdb_t *wdb;
     wdb_t *wdb_global;
@@ -30,6 +30,7 @@ static int test_setup(void **state) {
     init_data->wdb->id = strdup("000");
     init_data->output = calloc(256, sizeof(char));
     init_data->wdb->peer = 1234;
+    init_data->wdb->enabled = true;
 
     *state = init_data;
 
@@ -1355,6 +1356,7 @@ void test_vuln_cves_insert_command_error(void **state) {
     expect_value(__wrap_wdb_agents_insert_vuln_cves, severity, NULL);
     expect_value(__wrap_wdb_agents_insert_vuln_cves, cvss2_score, 0);
     expect_value(__wrap_wdb_agents_insert_vuln_cves, cvss3_score, 0);
+    will_return(__wrap_cJSON_PrintUnformatted, NULL);
 
     will_return(__wrap_wdb_agents_insert_vuln_cves, NULL);
 
@@ -1376,7 +1378,9 @@ void test_vuln_cves_insert_command_success(void **state) {
     os_strdup("[{\"test\":\"TEST\"}]", result);
     os_strdup("insert {\"name\":\"package\",\"version\":\"2.2\",\"architecture\":\"x86\",\"cve\":\"CVE-2021-1500\","
               "\"reference\":\"8549fd9faf9b124635298e9311ccf672c2ad05d1\",\"type\":\"PACKAGE\",\"status\":\"VALID\","
-              "\"check_pkg_existence\":true,\"severity\":\"MEDIUM\",\"cvss2_score\":5.2,\"cvss3_score\":6}", query);
+              "\"check_pkg_existence\":true,\"severity\":\"MEDIUM\",\"cvss2_score\":5.2,\"cvss3_score\":6,"
+              "\"external_references\":[\"https.//refs.com/refs1\",\"https.//refs.com/refs1\"],\"condition\":\"Package unfixes\","
+              "\"title\":\"CVE-2021-1500 affects package\",\"published\":\"01-01-2020\",\"updated\":\"02-01-2020\"}", query);
 
     cJSON *test =  cJSON_CreateObject();
 
@@ -1393,6 +1397,8 @@ void test_vuln_cves_insert_command_success(void **state) {
     expect_value(__wrap_wdb_agents_insert_vuln_cves, cvss2_score, 5.2);
     expect_value(__wrap_wdb_agents_insert_vuln_cves, cvss3_score, 6);
     will_return(__wrap_wdb_agents_insert_vuln_cves, test);
+    will_return(__wrap_cJSON_PrintUnformatted, strdup("[\"https.//refs.com/refs1\",\"https.//refs.com/refs1\"]"));
+
     will_return(__wrap_cJSON_PrintUnformatted, result);
 
     ret = wdb_parse_vuln_cves(data->wdb, query, data->output);
@@ -1580,87 +1586,6 @@ void test_vuln_cves_remove_by_status_success(void **state){
     ret = wdb_parse_vuln_cves(data->wdb, query, data->output);
 
     assert_string_equal(data->output, "ok {\"cve\":\"cve-xxxx-yyyy\"}");
-    assert_int_equal(ret, OS_SUCCESS);
-
-    os_free(query);
-}
-
-void test_vuln_cves_remove_entry_error(void **state){
-    int ret = -1;
-    test_struct_t *data  = (test_struct_t *)*state;
-    char *query = NULL;
-
-    os_strdup("remove {\"cve\":\"cve-xxxx-yyyy\",\"reference\":\"ref-cve-xxxx-yyyy\"}", query);
-
-    // wdb_agents_remove_vuln_cves
-    expect_string(__wrap_wdb_agents_remove_vuln_cves, cve, "cve-xxxx-yyyy");
-    expect_string(__wrap_wdb_agents_remove_vuln_cves, reference, "ref-cve-xxxx-yyyy");
-    will_return(__wrap_wdb_agents_remove_vuln_cves, OS_INVALID);
-
-    will_return_count(__wrap_sqlite3_errmsg, "ERROR MESSAGE", -1);
-    expect_string(__wrap__mdebug1, formatted_msg, "DB(000) Cannot execute vuln_cves remove command; SQL err: ERROR MESSAGE");
-
-    ret = wdb_parse_vuln_cves(data->wdb, query, data->output);
-
-    assert_string_equal(data->output, "err Cannot execute vuln_cves remove command; SQL err: ERROR MESSAGE");
-    assert_int_equal(ret, OS_INVALID);
-
-    os_free(query);
-}
-
-void test_vuln_cves_remove_entry_success(void **state){
-    int ret = -1;
-    test_struct_t *data  = (test_struct_t *)*state;
-    char *query = NULL;
-
-    os_strdup("remove {\"cve\":\"cve-xxxx-yyyy\",\"reference\":\"ref-cve-xxxx-yyyy\"}", query);
-
-    // wdb_agents_remove_vuln_cves
-    expect_string(__wrap_wdb_agents_remove_vuln_cves, cve, "cve-xxxx-yyyy");
-    expect_string(__wrap_wdb_agents_remove_vuln_cves, reference, "ref-cve-xxxx-yyyy");
-    will_return(__wrap_wdb_agents_remove_vuln_cves, OS_SUCCESS);
-
-    ret = wdb_parse_vuln_cves(data->wdb, query, data->output);
-
-    assert_string_equal(data->output, "ok");
-    assert_int_equal(ret, OS_SUCCESS);
-
-    os_free(query);
-}
-
-void test_vuln_cves_clear_command_error(void **state) {
-    int ret = -1;
-    test_struct_t *data  = (test_struct_t *)*state;
-    char *query = NULL;
-
-    os_strdup("clear", query);
-
-    // wdb_parse_agents_clear_vuln_cves
-    will_return(__wrap_wdb_agents_clear_vuln_cves, OS_INVALID);
-    will_return_count(__wrap_sqlite3_errmsg, "ERROR MESSAGE", -1);
-    expect_string(__wrap__mdebug1, formatted_msg, "DB(000) Cannot execute vuln_cves clear command; SQL err: ERROR MESSAGE");
-
-    ret = wdb_parse_vuln_cves(data->wdb, query, data->output);
-
-    assert_string_equal(data->output, "err Cannot execute vuln_cves clear command; SQL err: ERROR MESSAGE");
-    assert_int_equal(ret, OS_INVALID);
-
-    os_free(query);
-}
-
-void test_vuln_cves_clear_command_success(void **state) {
-    int ret = -1;
-    test_struct_t *data  = (test_struct_t *)*state;
-    char *query = NULL;
-
-    os_strdup("clear", query);
-
-    // wdb_parse_agents_clear_vuln_cves
-    will_return(__wrap_wdb_agents_clear_vuln_cves, OS_SUCCESS);
-
-    ret = wdb_parse_vuln_cves(data->wdb, query, data->output);
-
-    assert_string_equal(data->output, "ok");
     assert_int_equal(ret, OS_SUCCESS);
 
     os_free(query);
@@ -2797,8 +2722,8 @@ void test_dbsync_modify_type_exists_data_text_null_value(void ** state) {
 
     expect_value(__wrap_sqlite3_bind_text, pos, 1);
     expect_string(__wrap_sqlite3_bind_text, buffer, "data1");
-    expect_value(__wrap_sqlite3_bind_text, pos, 2);
-    expect_string(__wrap_sqlite3_bind_text, buffer, "");
+    expect_value(__wrap_sqlite3_bind_null, index, 2);
+    will_return(__wrap_sqlite3_bind_null, SQLITE_OK);
     expect_value(__wrap_sqlite3_bind_text, pos, 3);
     expect_string(__wrap_sqlite3_bind_text, buffer, "data2");
 
@@ -3255,7 +3180,8 @@ void test_dbsync_insert_type_exists_data_return_values(void **state) {
 
     will_return_always(__wrap_sqlite3_bind_int, SQLITE_ERROR);
     will_return_always(__wrap_sqlite3_bind_text, SQLITE_ERROR);
-    will_return_always(__wrap_sqlite3_bind_int64, SQLITE_ERROR);
+    will_return_always(__wrap_sqlite3_bind_null, SQLITE_ERROR);
+
 
     expect_value(__wrap_sqlite3_bind_int, index, 1);
     expect_value(__wrap_sqlite3_bind_int, value, 0);
@@ -3272,35 +3198,25 @@ void test_dbsync_insert_type_exists_data_return_values(void **state) {
     expect_value(__wrap_sqlite3_bind_int, index, 5);
     expect_value(__wrap_sqlite3_bind_int, value, 4);
 
-    expect_value(__wrap_sqlite3_bind_text, pos, 6);
-    expect_string(__wrap_sqlite3_bind_text, buffer, "");
+    expect_value(__wrap_sqlite3_bind_null, index, 6);
 
-    expect_value(__wrap_sqlite3_bind_int, index, 7);
-    expect_value(__wrap_sqlite3_bind_int, value, 0);
+    expect_value(__wrap_sqlite3_bind_null, index, 7);
 
-    expect_value(__wrap_sqlite3_bind_int, index, 8);
-    expect_value(__wrap_sqlite3_bind_int, value, 0);
+    expect_value(__wrap_sqlite3_bind_null, index, 8);
 
-    expect_value(__wrap_sqlite3_bind_int, index, 9);
-    expect_value(__wrap_sqlite3_bind_int, value, 0);
+    expect_value(__wrap_sqlite3_bind_null, index, 9);
 
-    expect_value(__wrap_sqlite3_bind_int64, index, 10);
-    expect_value(__wrap_sqlite3_bind_int64, value, 0);
+    expect_value(__wrap_sqlite3_bind_null, index, 10);
 
-    expect_value(__wrap_sqlite3_bind_text, pos, 11);
-    expect_string(__wrap_sqlite3_bind_text, buffer, "");
+    expect_value(__wrap_sqlite3_bind_null, index, 11);
 
-    expect_value(__wrap_sqlite3_bind_int, index, 12);
-    expect_value(__wrap_sqlite3_bind_int, value, 0);
+    expect_value(__wrap_sqlite3_bind_null, index, 12);
 
-    expect_value(__wrap_sqlite3_bind_text, pos, 13);
-    expect_string(__wrap_sqlite3_bind_text, buffer, "");
+    expect_value(__wrap_sqlite3_bind_null, index, 13);
 
-    expect_value(__wrap_sqlite3_bind_text, pos, 14);
-    expect_string(__wrap_sqlite3_bind_text, buffer, "");
+    expect_value(__wrap_sqlite3_bind_null, index, 14);
 
-    expect_value(__wrap_sqlite3_bind_text, pos, 15);
-    expect_string(__wrap_sqlite3_bind_text, buffer, "");
+    expect_value(__wrap_sqlite3_bind_null, index, 15);
 
     will_return_always(__wrap_sqlite3_errmsg, error_value);
 
@@ -3473,7 +3389,6 @@ void test_dbsync_modify_type_exists_avoid_old_implementation(void **state) {
     os_free(query);
 }
 
-
 void test_dbsync_insert_type_exists_data_correct_null_value_variant(void **state) {
     int ret = -1;
     test_struct_t *data  = (test_struct_t *)*state;
@@ -3591,8 +3506,8 @@ void test_dbsync_insert_type_exists_data_correct_null_value_from_json(void **sta
     expect_value(__wrap_sqlite3_bind_text, pos, 3);
     expect_string(__wrap_sqlite3_bind_text, buffer, "_NULL_");
 
-    expect_value(__wrap_sqlite3_bind_text, pos, 4);
-    expect_string(__wrap_sqlite3_bind_text, buffer, "");
+    expect_value(__wrap_sqlite3_bind_null, index, 4);
+    will_return(__wrap_sqlite3_bind_null, SQLITE_OK);
 
     will_return_always(__wrap_sqlite3_bind_text, SQLITE_OK);
 
@@ -3648,8 +3563,8 @@ void test_dbsync_modify_type_exists_data_null_value_from_json(void **state) {
 
     expect_value(__wrap_sqlite3_bind_text, pos, 1);
     expect_string(__wrap_sqlite3_bind_text, buffer, "data1");
-    expect_value(__wrap_sqlite3_bind_text, pos, 2);
-    expect_string(__wrap_sqlite3_bind_text, buffer, "");
+    expect_value(__wrap_sqlite3_bind_null, index, 2);
+    will_return(__wrap_sqlite3_bind_null, SQLITE_OK);
     expect_value(__wrap_sqlite3_bind_text, pos, 3);
     expect_string(__wrap_sqlite3_bind_text, buffer, "_NULL_");
 
@@ -3670,12 +3585,100 @@ void test_dbsync_modify_type_exists_data_null_value_from_json(void **state) {
     os_free(query);
 }
 
+/* wdb_parse_global_backup */
 
+void test_wdb_parse_global_backup_invalid_syntax(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+    int result = OS_INVALID;
+    char *query = NULL;
+
+    os_strdup("global backup", query);
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: backup");
+
+    expect_string(__wrap__mdebug1, formatted_msg, "Global DB Invalid DB query syntax for backup.");
+    expect_string(__wrap__mdebug2, formatted_msg, "Global DB query error near: backup");
+
+    result = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "err Invalid DB query syntax, near 'backup'");
+    assert_int_equal(result, OS_INVALID);
+
+    os_free(query);
+}
+
+void test_wdb_parse_global_backup_missing_action(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+    int result = OS_INVALID;
+    char *query = NULL;
+
+    os_strdup("", query);
+
+    result = wdb_parse_global_backup(NULL, query, data->output);
+
+    assert_string_equal(data->output, "err Missing backup action");
+    assert_int_equal(result, OS_INVALID);
+    os_free(query);
+}
+
+void test_wdb_parse_global_backup_invalid_action(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+    int result = OS_INVALID;
+    char *query = NULL;
+
+    os_strdup("invalid", query);
+
+    result = wdb_parse_global_backup(NULL, query, data->output);
+
+    assert_string_equal(data->output, "err Invalid backup action: invalid");
+    assert_int_equal(result, OS_INVALID);
+    os_free(query);
+}
+
+void test_wdb_parse_global_backup_create_failed(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+    int result = OS_INVALID;
+    char *query = NULL;
+
+    os_strdup("global backup create", query);
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: backup create");
+
+    will_return(__wrap_wdb_global_create_backup, "ERROR MESSAGE");
+    will_return(__wrap_wdb_global_create_backup, OS_INVALID);
+    expect_string(__wrap__merror, formatted_msg, "Creating Global DB snapshot on demand failed: ERROR MESSAGE");
+
+    result = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "ERROR MESSAGE");
+    assert_int_equal(result, OS_INVALID);
+
+    os_free(query);
+}
+
+void test_wdb_parse_global_backup_create_success(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+    int result = OS_INVALID;
+    char *query = NULL;
+
+    os_strdup("global backup create", query);
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: backup create");
+
+    will_return(__wrap_wdb_global_create_backup, "ok SNAPSHOT");
+    will_return(__wrap_wdb_global_create_backup, OS_SUCCESS);
+
+    result = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "ok SNAPSHOT");
+    assert_int_equal(result, OS_SUCCESS);
+
+    os_free(query);
+}
 
 int main()
 {
-    const struct CMUnitTest tests[] =
-    {
+    const struct CMUnitTest tests[] = {
         cmocka_unit_test_setup_teardown(test_wdb_parse_syscheck_no_space, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_scan_info_error, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_scan_info_ok, test_setup, test_teardown),
@@ -3716,7 +3719,9 @@ int main()
         cmocka_unit_test_setup_teardown(test_wdb_parse_rootcheck_save_date_max_long, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_wdb_parse_rootcheck_save_update_cache_error, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_wdb_parse_rootcheck_save_update_success, test_setup, test_teardown),
-        cmocka_unit_test_setup_teardown(test_wdb_parse_rootcheck_save_update_insert_cache_error, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_wdb_parse_rootcheck_save_update_insert_cache_error,
+                                        test_setup,
+                                        test_teardown),
         cmocka_unit_test_setup_teardown(test_wdb_parse_rootcheck_save_update_insert_success, test_setup, test_teardown),
         /* Tests osinfo */
         cmocka_unit_test_setup_teardown(test_osinfo_syntax_error, test_setup, test_teardown),
@@ -3763,16 +3768,13 @@ int main()
         cmocka_unit_test_setup_teardown(test_vuln_cves_update_status_command_success, test_setup, test_teardown),
         // wdb_parse_agents_update_vuln_cves_status_by_type
         cmocka_unit_test_setup_teardown(test_vuln_cves_update_status_by_type_command_error, test_setup, test_teardown),
-        cmocka_unit_test_setup_teardown(test_vuln_cves_update_status_by_type_command_success, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_vuln_cves_update_status_by_type_command_success,
+                                        test_setup,
+                                        test_teardown),
         // wdb_parse_agents_remove_vuln_cves
         cmocka_unit_test_setup_teardown(test_vuln_cves_remove_syntax_error, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_vuln_cves_remove_json_data_error, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_vuln_cves_remove_by_status_success, test_setup, test_teardown),
-        cmocka_unit_test_setup_teardown(test_vuln_cves_remove_entry_error, test_setup, test_teardown),
-        cmocka_unit_test_setup_teardown(test_vuln_cves_remove_entry_success, test_setup, test_teardown),
-        // wdb_parse_agents_clear_vuln_cves
-        cmocka_unit_test_setup_teardown(test_vuln_cves_clear_command_error, test_setup, test_teardown),
-        cmocka_unit_test_setup_teardown(test_vuln_cves_clear_command_success, test_setup, test_teardown),
         // wdb_parse_packages
         cmocka_unit_test_setup_teardown(test_packages_get_success, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_packages_get_not_triaged_success, test_setup, test_teardown),
@@ -3839,9 +3841,14 @@ int main()
         cmocka_unit_test_setup_teardown(test_dbsync_insert_type_exists_data_correct_null_value_from_json, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_dbsync_delete_type_exists_data_null_value_from_json, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_dbsync_modify_type_exists_data_null_value_from_json, test_setup, test_teardown),
-        cmocka_unit_test_setup_teardown(test_dbsync_modify_type_exists_avoid_old_implementation, test_setup, test_teardown)
+        cmocka_unit_test_setup_teardown(test_dbsync_modify_type_exists_avoid_old_implementation, test_setup, test_teardown),
+        /* wdb_parse_global_backup */
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_backup_invalid_syntax, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_backup_missing_action, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_backup_invalid_action, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_backup_create_failed, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_backup_create_success, test_setup, test_teardown),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
-
 }

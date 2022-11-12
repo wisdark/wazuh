@@ -78,6 +78,10 @@ int __wrap_UnmergeFiles(const char *finalpath, const char *optdir, int mode);
 long long __wrap_get_UTC_modification_time(const char *file_path);
 #endif
 
+char *__wrap_GetRandomNoise();
+
+const char *__wrap_getuname();
+
 #endif
 int64_t __wrap_w_ftell (FILE *x);
 
@@ -92,3 +96,6 @@ int __wrap_TestUnmergeFiles(const char *finalpath, int mode);
 int __wrap_checkBinaryFile(const char *f_name);
 
 int __wrap_w_copy_file(const char *src, const char *dst, char mode, __attribute__((unused)) char * message, int silent);
+
+char * __wrap_w_get_file_content(__attribute__ ((__unused__)) const char * path, __attribute__ ((__unused__)) int max_size);
+void expect_w_get_file_content(const char *buffer);

@@ -23,7 +23,7 @@ cJSON *wm_control_dump();
 const wm_context WM_CONTROL_CONTEXT = {
     "control",
     (wm_routine)wm_control_main,
-    (wm_routine)(void *)wm_control_destroy,
+    (void(*)(void *))wm_control_destroy,
     (cJSON * (*)(const void *))wm_control_dump,
     NULL,
     NULL
@@ -151,7 +151,7 @@ void *send_ip(){
     ssize_t length;
     fd_set fdset;
 
-    if (sock = OS_BindUnixDomain(CONTROL_SOCK, SOCK_STREAM, OS_MAXSTR), sock < 0) {
+    if (sock = OS_BindUnixDomainWithPerms(CONTROL_SOCK, SOCK_STREAM, OS_MAXSTR, getuid(), wm_getGroupID(), 0660), sock < 0) {
         mterror(WM_CONTROL_LOGTAG, "Unable to bind to socket '%s': (%d) %s.", CONTROL_SOCK, errno, strerror(errno));
         return NULL;
     }

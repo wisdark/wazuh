@@ -80,6 +80,7 @@ void *__wrap_OSHash_Begin(const OSHash *self, __attribute__((unused)) unsigned i
     return mock_type(OSHashNode*);
 }
 
+void *__real_OSHash_Clean(OSHash *self, void (*cleaner)(void*));
 void *__wrap_OSHash_Clean(__attribute__((unused)) OSHash *self,
                           __attribute__((unused)) void (*cleaner)(void*)) {
     return mock_type(void *);
@@ -135,6 +136,13 @@ void *__wrap_OSHash_Get(const OSHash *self, const char *key) {
 }
 
 void *__wrap_OSHash_Get_ex(const OSHash *self, const char *key) {
+    check_expected(self);
+    check_expected(key);
+
+    return mock_type(void*);
+}
+
+void *__wrap_OSHash_Numeric_Get_ex(const OSHash *self, int key) {
     check_expected(self);
     check_expected(key);
 

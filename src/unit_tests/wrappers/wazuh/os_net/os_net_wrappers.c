@@ -14,6 +14,17 @@
 #include "../../headers/shared.h"
 #include "os_net_wrappers.h"
 
+int __wrap_OS_BindUnixDomainWithPerms(const char *path, int type, int max_msg_size, uid_t uid, gid_t gid, mode_t perm) {
+    check_expected(path);
+    check_expected(type);
+    check_expected(max_msg_size);
+    check_expected(uid);
+    check_expected(gid);
+    check_expected(perm);
+
+    return mock();
+}
+
 int __wrap_OS_BindUnixDomain(const char *path, int type, int max_msg_size) {
     check_expected(path);
     check_expected(type);
@@ -124,6 +135,12 @@ uint32_t __wrap_wnet_order(uint32_t value) {
     return mock();
 }
 
+int __wrap_external_socket_connect(__attribute__((unused)) char *socket_path,
+                                   __attribute__((unused)) int response_timeout) {
+
+    return (int)mock();
+}
+
 int __wrap_get_ipv4_numeric(__attribute__((unused)) const char *address,
                             __attribute__((unused)) struct in_addr *addr) {
     int ret = mock();
@@ -151,4 +168,18 @@ int __wrap_get_ipv6_numeric(__attribute__((unused)) const char *address,
     }
 
     return ret;
+}
+
+int __wrap_get_ipv4_string(__attribute__((unused)) struct in_addr addr,
+                            char *address, size_t address_size) {
+    check_expected(address);
+    check_expected(address_size);
+    return mock();
+}
+
+int __wrap_get_ipv6_string(__attribute__((unused)) struct in6_addr addr6,
+                            char *address, size_t address_size) {
+    check_expected(address);
+    check_expected(address_size);
+    return mock();
 }

@@ -45,7 +45,7 @@ def test_token_raw_format(response):
     assert type(response.text) is str
 
 
-def test_select_key_affected_items(response, select_key):
+def test_select_key_affected_items(response, select_key, flag_nested_key_list=False):
     """Check that all items in response have no other keys than those specified in 'select_key'.
 
     Absence of 'select_key' in response does not raise any error. However, extra keys in response (not specified
@@ -54,9 +54,14 @@ def test_select_key_affected_items(response, select_key):
     Some keys like 'id', 'agent_id', etc. are accepted even if not specified in 'select_key' since
     they ignore the 'select' param in API.
 
-    :param response: Request response
-    :param select_key: Keys requested in select parameter.
-        Lists and nested fields accepted e.g: id,cpu.mhz,json
+    Parameters
+    ----------
+    response : Request response
+    select_key : str
+        Keys requested in select parameter. Lists and nested fields accepted e.g: id,cpu.mhz,json
+    flag_nested_key_list : bool
+        Flag used to indicate that the nested key contains a list. Used to test endpoints like
+        GET /sca/{agent_id}/checks/{policy_id}.
     """
     main_keys = set()
     nested_keys = dict()
@@ -79,15 +84,50 @@ def test_select_key_affected_items(response, select_key):
 
         # Check if there are keys in response that were not specified in 'select_keys', apart from those which can be
         # mandatory (id, agent_id, etc).
-        assert (set1 == set() or set1 == set1.intersection({'id', 'agent_id', 'file', 'task_id'} | main_keys)), \
-            f'Select keys are {main_keys}, but the response contains these keys: {set1}'
+        assert (set1 == set() or set1 == set1.intersection(
+            {'id', 'agent_id', 'file', 'task_id',
+             'policy_id'} | main_keys)), f'Select keys are {main_keys}, but the response contains these keys: {set1}'
 
         for nested_key in nested_keys.items():
+            # nested_key = compliance, value
             try:
-                set2 = nested_key[1].symmetric_difference(set(item[nested_key[0]].keys()))
+                if not flag_nested_key_list:
+                    set2 = nested_key[1].symmetric_difference(set(item[nested_key[0]].keys()))
+
+                # If we are using select in endpoints like GET /sca/{agent_id}/checks/{policy_id},
+                # the nested field contains a list
+                else:
+                    set2 = nested_key[1].symmetric_difference(set(item[nested_key[0]][0].keys()))
+
                 assert set2 == set(), f'Nested select keys are {nested_key[1]}, but this one is different {set2}'
             except KeyError:
                 assert nested_key[0] in main_keys
+
+
+def test_select_distinct_nested_sca_checks(response, select_key):
+    """Check that all items in response have no other keys than those specified in 'select_key'.
+
+    This function is specifically used for the SCA checks endpoint, when distinct=True and select contains a nested
+    field.
+
+    This function does not take into account min select fields.
+
+    Absence of 'select_key' in response does not raise any error. However, extra keys in response (not specified
+    in 'select_key') will raise assertion error.
+
+    Parameters
+    ----------
+    response : Request response
+    select_key : str
+        Keys requested in select parameter. Lists and nested fields accepted e.g: id,cpu.mhz,json
+    """
+    main_keys = set(select_key.split(','))
+
+    for item in response.json()['data']['affected_items']:
+        # Check that there are no keys in the item that are not specified in 'select_keys'
+        set1 = main_keys.symmetric_difference(set(item.keys()))
+        assert set1 == set() or set1 == set1.intersection(main_keys),\
+            f'Select keys are {main_keys}, but an item contains the keys: {set(item.keys())}'
 
 
 def test_select_key_affected_items_with_agent_id(response, select_key):
@@ -187,7 +227,7 @@ def test_sort_response(response, key=None, reverse=False):
 
 
 def test_validate_data_dict_field(response, fields_dict):
-    assert fields_dict, f'Fields dict is empty'
+    assert fields_dict, "Fields dict is empty"
     for field, dikt in fields_dict.items():
         field_list = response.json()['data'][field]
 
@@ -207,7 +247,7 @@ def test_count_elements(response, n_expected_items):
     assert len(response.json()['data']['affected_items']) == n_expected_items
 
 
-def test_expected_value(response, key, expected_values):
+def test_expected_value(response, key, expected_values, empty_response_possible=False):
     """Iterate all items in the response and check that <key> value is within <expected_values>.
 
     Parameters
@@ -218,10 +258,17 @@ def test_expected_value(response, key, expected_values):
         Key whose value is checked.
     expected_values : str, list
         List of values which are allowed.
+    empty_response_possible : bool
+        Indicates whether the response could be empty or not. Set to True when the key value does not depend on the
+        test itself, for instance, node. Default: `False`
     """
     expected_values = set(expected_values.split(',')) if not isinstance(expected_values, list) else set(expected_values)
+    affected_items = response.json()['data']['affected_items']
 
-    for item in response.json()['data']['affected_items']:
+    if not affected_items and not empty_response_possible:
+        raise Exception("No items found in the response")
+
+    for item in affected_items:
         response_set = set(map(str, item[key])) if isinstance(item[key], list) else {str(item[key])}
         assert bool(expected_values.intersection(response_set)), \
             f'Expected values {expected_values} not found in {item[key]}'
@@ -233,6 +280,10 @@ def test_response_is_different(response, response_value, unexpected_value):
     :param unexpected_value: Response value should be different to this.
     """
     assert response_value != unexpected_value, f"{response_value} and {unexpected_value} shouldn't be the same"
+
+
+def test_save_token_raw_format(response):
+    return Box({'login_token': response.text})
 
 
 def test_save_response_data(response):
@@ -249,9 +300,12 @@ def test_save_response_data_mitre(response, fields):
 
 
 def test_validate_mitre(response, data, index=0):
+    data = data.replace('"', '\\"')  # Escape " character in data
     data = json.loads(data.replace("'", '"'))
     for element in data:
         for k, v in element.items():
+            if isinstance(v, str):
+                v = v.replace('\\"', '"')  # Remove \\ characters used to escape "
             assert v == response.json()['data']['affected_items'][index][k]
 
 

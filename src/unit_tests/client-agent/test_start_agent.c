@@ -83,6 +83,7 @@ void add_server_config(char* address, int protocol) {
     memset(agt->server + agt->rip_id + 1, 0, sizeof(agent_server));
     agt->server[agt->rip_id].protocol = protocol;
     agt->rip_id++;
+    agt->server_count++;
 }
 
 void keys_init(keystore *keys) {
@@ -113,7 +114,6 @@ static int setup_test(void **state) {
     agt = (agent *)calloc(1, sizeof(agent));
     /* Default conf */
     agt->server = NULL;
-    agt->lip = NULL;
     agt->rip_id = 0;
     agt->execdq = 0;
     agt->cfgadq = -1;
@@ -310,7 +310,7 @@ static void test_agent_handshake_to_server(void **state) {
     will_return(__wrap_OS_RecvSecureTCP, SERVER_ENC_ACK);
     will_return(__wrap_OS_RecvSecureTCP, strlen(SERVER_ENC_ACK));
     expect_string(__wrap_send_msg, msg, "#!-agent startup ");
-    expect_string(__wrap_send_msg, msg, "1:ossec:ossec: Agent started: 'agent0->any'.");
+    expect_string(__wrap_send_msg, msg, "1:wazuh-agent:ossec: Agent started: 'agent0->any'.");
     expect_string(__wrap_ReadSecMSG, buffer, SERVER_ENC_ACK);
     will_return(__wrap_ReadSecMSG, "#!-agent ack ");
     will_return(__wrap_ReadSecMSG, KS_VALID);
@@ -376,7 +376,7 @@ static void test_agent_handshake_to_server(void **state) {
 
 /* agent_start_up_to_server */
 static void test_send_msg_on_startup(void **state) {
-    expect_string(__wrap_send_msg, msg, "1:ossec:ossec: Agent started: 'agent0->any'.");
+    expect_string(__wrap_send_msg, msg, "1:wazuh-agent:ossec: Agent started: 'agent0->any'.");
     send_msg_on_startup();
     return;
 }
@@ -395,7 +395,7 @@ int main(void) {
         cmocka_unit_test_setup_teardown(test_connect_server, setup_test, teardown_test),
         cmocka_unit_test_setup_teardown(test_agent_handshake_to_server, setup_test, teardown_test),
         cmocka_unit_test_setup_teardown(test_send_msg_on_startup, setup_test, teardown_test),
-        cmocka_unit_test_setup_teardown(test_send_agent_stopped_message, setup_test, teardown_test)
+        cmocka_unit_test_setup_teardown(test_send_agent_stopped_message, setup_test, teardown_test),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

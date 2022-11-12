@@ -28,9 +28,11 @@
 #include <pthread.h>
 #include <sys/wait.h>
 #include "check_cert.h"
+#include "key_request.h"
 #include "wazuh_db/helpers/wdb_global_helpers.h"
 #include "wazuhdb_op.h"
 #include "os_err.h"
+#include "generate_cert.h"
 
 /* Prototypes */
 static void help_authd(char * home_path) __attribute((noreturn));
@@ -82,7 +84,7 @@ static void help_authd(char * home_path)
     print_out("    -t          Test configuration.");
     print_out("    -f          Run in foreground.");
     print_out("    -g <group>  Group to run as. Default: %s.", GROUPGLOBAL);
-    print_out("    -D <dir>    Directory to chroot into. Default: %s.", home_path);
+    print_out("    -D <dir>    Directory to chdir into. Default: %s.", home_path);
     print_out("    -p <port>   Manager port. Default: %d.", DEFAULT_PORT);
     print_out("    -P          Enable shared password authentication, at %s or random.", AUTHD_PASS);
     print_out("    -c          SSL cipher list (default: %s)", DEFAULT_CIPHERS);
@@ -92,39 +94,14 @@ static void help_authd(char * home_path)
     print_out("    -k <path>   Full path to server key. Default: %s.", KEYFILE);
     print_out("    -a          Auto select SSL/TLS method. Default: TLS v1.2 only.");
     print_out("    -L          Force insertion though agent limit reached.");
+    print_out("    -C          Specify the certificate validity in days.");
+    print_out("    -B          Specify the certificate key size in bits.");
+    print_out("    -K          Specify the path to store the certificate key.");
+    print_out("    -X          Specify the path to store the certificate.");
+    print_out("    -S          Specify the certificate subject.");
     print_out(" ");
     os_free(home_path);
     exit(1);
-}
-
-/* Generates a random and temporary shared pass to be used by the agents. */
-char *__generatetmppass()
-{
-    int rand1;
-    int rand2;
-    char *rand3;
-    char *rand4;
-    os_md5 md1;
-    os_md5 md3;
-    os_md5 md4;
-    char *fstring = NULL;
-    char str1[STR_SIZE +1];
-
-    rand1 = os_random();
-    rand2 = os_random();
-
-    rand3 = GetRandomNoise();
-    rand4 = GetRandomNoise();
-
-    OS_MD5_Str(rand3, -1, md3);
-    OS_MD5_Str(rand4, -1, md4);
-
-    os_snprintf(str1, STR_SIZE, "%d%d%s%d%s%s",(int)time(0), rand1, getuname(), rand2, md3, md4);
-    OS_MD5_Str(str1, -1, md1);
-    fstring = strdup(md1);
-    free(rand3);
-    free(rand4);
-    return(fstring);
 }
 
 /* Function to use with SSL on non blocking socket,
@@ -149,6 +126,7 @@ static int ssl_error(const SSL *ssl, int ret)
 
 int main(int argc, char **argv)
 {
+
     FILE *fp;
     /* Count of pids we are wait()ing on */
     int debug_level = 0;
@@ -163,6 +141,7 @@ int main(int argc, char **argv)
     pthread_t thread_dispatcher = 0;
     pthread_t thread_remote_server = 0;
     pthread_t thread_writer = 0;
+    pthread_t thread_key_request = 0;
 
     /* Set the name */
     OS_SetName(ARGV0);
@@ -184,9 +163,17 @@ int main(int argc, char **argv)
         const char *ca_cert = NULL;
         const char *server_cert = NULL;
         const char *server_key = NULL;
+        char cert_val[OS_SIZE_32 + 1] = "\0";
+        char cert_key_bits[OS_SIZE_32 + 1] = "\0";
+        char cert_key_path[PATH_MAX + 1] = "\0";
+        char cert_path[PATH_MAX + 1] = "\0";
+        char cert_subj[OS_MAXSTR + 1] = "\0";
+        bool generate_certificate = false;
         unsigned short port = 0;
+        unsigned long days_val = 0;
+        unsigned long key_bits = 0;
 
-        while (c = getopt(argc, argv, "Vdhtfig:D:p:c:v:sx:k:PF:ar:L"), c != -1) {
+        while (c = getopt(argc, argv, "Vdhtfigj:D:p:c:v:sx:k:PF:ar:L:C:B:K:X:S:"), c != -1) {
             switch (c) {
                 case 'V':
                     print_version();
@@ -289,9 +276,102 @@ int main(int argc, char **argv)
                     mwarn("This option no longer applies. The agent limit has been removed.");
                     break;
 
+                case 'C':
+                    if (!optarg) {
+                        merror_exit("-%c needs an argument", c);
+                    }
+
+                    generate_certificate = true;
+                    if (snprintf(cert_val, OS_SIZE_32 + 1, "%s", optarg) > OS_SIZE_32) {
+                        mwarn("-%c argument exceeds %d bytes. Certificate validity info truncated", c, OS_SIZE_32);
+                    }
+                    break;
+
+                case 'B':
+                    if (!optarg) {
+                        merror_exit("-%c needs an argument", c);
+                    }
+
+                    generate_certificate = true;
+                    if (snprintf(cert_key_bits, OS_SIZE_32 + 1, "%s", optarg) > OS_SIZE_32) {
+                        mwarn("-%c argument exceeds %d bytes. Certificate key size info truncated", c, OS_SIZE_32);
+                    }
+                    break;
+
+                case 'K':
+                    if (!optarg) {
+                        merror_exit("-%c needs an argument", c);
+                    }
+
+                    generate_certificate = true;
+                    if (snprintf(cert_key_path, PATH_MAX + 1, "%s", optarg) > PATH_MAX) {
+                        mwarn("-%c argument exceeds %d bytes. Certificate key path info truncated", c, PATH_MAX);
+                    }
+                    break;
+
+                case 'X':
+                    if (!optarg) {
+                        merror_exit("-%c needs an argument", c);
+                    }
+
+                    generate_certificate = true;
+                    if (snprintf(cert_path, PATH_MAX + 1, "%s", optarg) > PATH_MAX) {
+                        mwarn("-%c argument exceeds %d bytes. Certificate path info truncated", c, PATH_MAX);
+                    }
+                    break;
+
+                case 'S':
+                    if (!optarg) {
+                        merror_exit("-%c needs an argument", c);
+                    }
+
+                    generate_certificate = true;
+                    if (snprintf(cert_subj, OS_MAXSTR + 1, "%s", optarg) > OS_MAXSTR) {
+                        mwarn("-%c argument exceeds %d bytes. Certificate subject info truncated", c, OS_MAXSTR);
+                    }
+                    break;
+
                 default:
                     help_authd(home_path);
                     break;
+            }
+        }
+
+        if (generate_certificate) {
+            // Sanitize parameters
+            if (strlen(cert_val) == 0) {
+                merror_exit("Certificate expiration time not defined.");
+            }
+
+            if (strlen(cert_key_bits) == 0) {
+                merror_exit("Certificate key size not defined.");
+            }
+
+            if (strlen(cert_key_path) == 0) {
+                merror_exit("Key path not defined.");
+            }
+
+            if (strlen(cert_path) == 0) {
+                merror_exit("Certificate path not defined.");
+            }
+
+            if (strlen(cert_subj) == 0) {
+                merror_exit("Certificate subject not defined.");
+            }
+
+            if (days_val = strtol(cert_val, NULL, 10), days_val == 0) {
+                merror_exit("Unable to set certificate validity to 0 days.");
+            }
+
+            if (key_bits = strtol(cert_key_bits, NULL, 10), key_bits == 0) {
+                merror_exit("Unable to set certificate private key size to 0 bits.");
+            }
+
+            if (generate_cert(days_val, key_bits, cert_key_path, cert_path, cert_subj) == 0) {
+                mdebug2("Certificates generated successfully.");
+                exit(0);
+            } else {
+                merror_exit("Unable to generate auth certificates.");
             }
         }
 
@@ -334,22 +414,22 @@ int main(int argc, char **argv)
         }
 
         if (ciphers) {
-            free(config.ciphers);
+            os_free(config.ciphers);
             config.ciphers = strdup(ciphers);
         }
 
         if (ca_cert) {
-            free(config.agent_ca);
+            os_free(config.agent_ca);
             config.agent_ca = strdup(ca_cert);
         }
 
         if (server_cert) {
-            free(config.manager_cert);
+            os_free(config.manager_cert);
             config.manager_cert = strdup(server_cert);
         }
 
         if (server_key) {
-            free(config.manager_key);
+            os_free(config.manager_key);
             config.manager_key = strdup(server_key);
         }
 
@@ -365,7 +445,7 @@ int main(int argc, char **argv)
 
     /* Exit here if disabled */
     if (config.flags.disabled) {
-        minfo("Daemon is disabled. Closing.");
+        minfo("Daemon is disabled. Closing.");
         exit(0);
     }
 
@@ -405,6 +485,9 @@ int main(int argc, char **argv)
         sigaction(SIGTERM, &action, NULL);
         sigaction(SIGHUP, &action, NULL);
         sigaction(SIGINT, &action, NULL);
+
+        action.sa_handler = SIG_IGN;
+        sigaction(SIGPIPE, &action, NULL);
     }
 
     /* Create PID files */
@@ -463,15 +546,17 @@ int main(int argc, char **argv)
                 minfo("Accepting connections on port %hu. Using password specified on file: %s", config.port, AUTHD_PASS);
             } else {
                 /* Getting temporary pass. */
-                authpass = __generatetmppass();
-                minfo("Accepting connections on port %hu. Random password chosen for agent authentication: %s", config.port, authpass);
+                if (authpass = w_generate_random_pass(), authpass) {
+                    minfo("Accepting connections on port %hu. Random password chosen for agent authentication: %s", config.port, authpass);
+                } else {
+                    merror_exit("Unable to generate random password. Exiting.");
+                }
             }
         } else {
             minfo("Accepting connections on port %hu. No password required.", config.port);
         }
     }
 
-    /* Before chroot */
     srandom_init();
     getuname();
 
@@ -480,12 +565,6 @@ int main(int argc, char **argv)
         shost[sizeof(shost) - 1] = '\0';
     }
 
-    /* Chroot */
-    if (Privsep_Chroot(home_path) < 0) {
-        merror_exit(CHROOT_ERROR, home_path, errno, strerror(errno));
-    }
-
-    nowChroot();
     os_free(home_path);
 
     /* Initialize queues */
@@ -519,11 +598,18 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
     } else {
-        minfo("Port %hu was set as disabled.", config.port);
+        minfo("Port %hu was set as disabled.", config.port);
     }
 
     if (!config.worker_node) {
         if (status = pthread_create(&thread_writer, NULL, (void *)&run_writer, NULL), status != 0) {
+            merror("Couldn't create thread: %s", strerror(status));
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (config.key_request.enabled) {
+        if (status = pthread_create(&thread_key_request, NULL, (void *)&run_key_request_main, NULL), status != 0) {
             merror("Couldn't create thread: %s", strerror(status));
             return EXIT_FAILURE;
         }
@@ -541,6 +627,9 @@ int main(int argc, char **argv)
         w_cond_signal(&cond_pending);
         w_mutex_unlock(&mutex_keys);
         pthread_join(thread_writer, NULL);
+    }
+    if (config.key_request.enabled) {
+        pthread_join(thread_key_request, NULL);
     }
 
     queue_free(client_queue);
@@ -632,7 +721,7 @@ void* run_dispatcher(__attribute__((unused)) void *arg) {
                 os_free(client->addr4);
             }
             os_free(client);
-            free(buf);
+            os_free(buf);
             continue;
         }
         buf[ret] = '\0';
@@ -656,7 +745,7 @@ void* run_dispatcher(__attribute__((unused)) void *arg) {
             else {
                 w_mutex_lock(&mutex_keys);
                 if (OS_SUCCESS == w_auth_validate_data(response, ip, agentname, centralized_group, key_hash)) {
-                    if (OS_SUCCESS == w_auth_add_agent(response, ip, agentname, centralized_group, &new_id, &new_key)) {
+                    if (OS_SUCCESS == w_auth_add_agent(response, ip, agentname, &new_id, &new_key)) {
                         enrollment_ok = TRUE;
                     }
                 }
@@ -879,25 +968,41 @@ void* run_writer(__attribute__((unused)) void *arg) {
         mdebug2("[Writer] OS_WriteTimestamps(): %d µs.", (int)(1000000. * (double)time_diff(&t0, &t1)));
 
         OS_FreeKeys(copy_keys);
-        free(copy_keys);
+        os_free(copy_keys);
 
         for (cur = copy_insert; cur; cur = next) {
             next = cur->next;
 
             mdebug1("[Writer] Performing insert([%s] %s).", cur->id, cur->name);
 
-            if (cur->group && (set_agent_group(cur->id,cur->group) == -1)) {
-                merror("Unable to set agent centralized group: %s (internal error)", cur->group);
+            gettime(&t0);
+            if (wdb_insert_agent(atoi(cur->id), cur->name, NULL, cur->ip, cur->raw_key, cur->group, 1, &wdb_sock)) {
+                mdebug2("The agent %s '%s' already exists in the database.", cur->id, cur->name);
+            }
+            gettime(&t1);
+            mdebug2("[Writer] wdb_insert_agent(): %d µs.", (int)(1000000. * (double)time_diff(&t0, &t1)));
+
+            gettime(&t0);
+            if (cur->group) {
+                if (wdb_set_agent_groups_csv(atoi(cur->id),
+                                             cur->group,
+                                             WDB_GROUP_MODE_OVERRIDE,
+                                             w_is_single_node(NULL) ? "synced" : "syncreq",
+                                             &wdb_sock)) {
+                    merror("Unable to set agent centralized group: %s (internal error)", cur->group);
+                }
+
             }
 
             gettime(&t1);
-            mdebug2("[Writer] set_agent_group(): %d µs.", (int)(1000000. * (double)time_diff(&t0, &t1)));
+            mdebug2("[Writer] wdb_set_agent_groups_csv(): %d µs.", (int)(1000000. * (double)time_diff(&t0, &t1)));
 
-            free(cur->id);
-            free(cur->name);
-            free(cur->ip);
-            free(cur->group);
-            free(cur);
+            os_free(cur->id);
+            os_free(cur->name);
+            os_free(cur->ip);
+            os_free(cur->group);
+            os_free(cur->raw_key);
+            os_free(cur);
 
             inserted_agents++;
         }
@@ -920,9 +1025,9 @@ void* run_writer(__attribute__((unused)) void *arg) {
             mdebug2("[Writer] OS_RemoveCounter(): %d µs.", (int)(1000000. * (double)time_diff(&t0, &t1)));
 
             gettime(&t0);
-            OS_RemoveAgentGroup(cur->id);
+            OS_RemoveAgentTimestamp(cur->id);
             gettime(&t1);
-            mdebug2("[Writer] OS_RemoveAgentGroup(): %d µs.", (int)(1000000. * (double)time_diff(&t0, &t1)));
+            mdebug2("[Writer] OS_RemoveAgentTimestamp(): %d µs.", (int)(1000000. * (double)time_diff(&t0, &t1)));
 
             gettime(&t0);
             if (wdb_remove_agent(atoi(cur->id), &wdb_sock) != OS_SUCCESS) {
@@ -937,10 +1042,12 @@ void* run_writer(__attribute__((unused)) void *arg) {
             gettime(&t1);
             mdebug2("[Writer] wdbc_query_ex(): %d µs.", (int)(1000000. * (double)time_diff(&t0, &t1)));
 
-            free(cur->id);
-            free(cur->name);
-            free(cur->ip);
-            free(cur);
+            os_free(cur->id);
+            os_free(cur->name);
+            os_free(cur->ip);
+            os_free(cur->group);
+            os_free(cur->raw_key);
+            os_free(cur);
 
             removed_agents++;
         }
