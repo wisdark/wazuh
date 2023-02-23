@@ -148,9 +148,10 @@
 #define INVALID_RULE_ELEMENT    "(1279): Invalid rule element."
 #define INVALID_PREFIX          "(1283): Incorrect prefix message, message type: %s."
 #define INVALID_OPERATION       "(1284): Incorrect/unknown operation, type: %s."
-#define INVALID_RESPONSE        "(1285): Response without content, the event cannot be raised."
+#define INVALID_RESPONSE        "(1285): Response with unexpected content."
 #define A_QUERY_ERROR           "(1286): Wazuh-db query error, check wdb logs."
 #define INVALID_TYPE            "(1287): Incorrect/unknown type value %s."
+#define WDBC_QUERY_EX_ERROR     "(1288): Wazuh-db query execution error."
 
 /* logcollector */
 #define SYSTEM_ERROR     "(1600): Internal error. Exiting.."
@@ -244,6 +245,8 @@
 #define GET_FLAGS_ERROR "(1972): The flags couldn't be obtained from the file descriptor: %s (%d)."
 #define SET_FLAGS_ERROR "(1973): The flags couldn't be set in the file descriptor: %s (%d)."
 #define WPOPENV_ERROR   "(1974): An error ocurred while calling wpopenv(): %s (%d)."
+#define LF_LOG_REGEX    "(1975): Syntax error on regex %s: '%s'"
+#define LF_MATCH_REGEX  "(1976): Ignoring the log line '%s' due to %s config: '%s'"
 
 /* Encryption/auth errors */
 #define INVALID_KEY     "(1401): Error reading authentication key: '%s'."
@@ -300,6 +303,7 @@
 #define AG_NOKEYS_EXIT  "(4109): Unable to start without auth keys. Exiting."
 #define AG_INV_MNGIP    "(4112): Invalid server address found: '%s'"
 #define AG_ENROLL_FAIL  "(4113): Auto Enrollment configuration failed."
+#define AG_INV_INT      "(4114): All server addresses are IPv6 link-local and no interface to any <server> block has been configured."
 
 /* Rules reading errors */
 #define RL_INV_ROOT     "(5101): Invalid root element: '%s'."
@@ -340,7 +344,8 @@
 #define DB_CACHE_ERROR        "(5213): Cannot cache statement."
 #define DB_CACHE_NULL_STMT    "(5214): Null statement on internal cache."
 #define DB_AGENT_SQL_ERROR    "(5215): DB(%s) SQL Error: '%s'."
-#define DB_INVALID_DELTA_MSG  "(5216): Delta (%s) field count mismatch: expect %zu, received %zu."
+#define DB_INVALID_DELTA_MSG  "(5216): DB(%s) Could not bind delta field '%s' from '%s' scan."
+#define DB_DELTA_PARSING_ERR  "(5217): Could not parse syscollector delta information as JSON."
 
 /* vulnerability-detector messages*/
 #define VU_FETCH_ERROR              "(5500): The '%s' database could not be fetched."
@@ -551,14 +556,12 @@
 #define FIM_DB_ERROR_RM_NOT_SCANNED                 "(6709): Failed to delete from db all unscanned files."
 #define FIM_ERROR_WHODATA_INIT                      "(6710): Failed to start the Whodata engine. Directories/files will be monitored in Realtime mode"
 #define FIM_ERROR_GET_ABSOLUTE_PATH                 "(6711): Cannot get absolute path of '%s': %s (%d)"
-#define FIM_ERROR_REMOVE_COLON                      "(6712): Cannot remove heading colon from full path '%s'"
 #define FIM_DIFF_DELETE_DIFF_FOLDER_ERROR           "(6713): Cannot remove diff folder for file: '%s'"
 #ifdef WIN32
 #define FIM_DIFF_COMMAND_OUTPUT_ERROR               "(6714): Command fc output an error"
 #else
 #define FIM_DIFF_COMMAND_OUTPUT_ERROR               "(6714): Command diff output an error"
 #endif
-#define FIM_DIFF_FILE_PATH_TOO_LONG                 "(6715): The path of the file monitored '%s' is too long to compute differences."
 #define FIM_WARN_OPEN_HANDLE_FILE                   "(6716): Could not open handle for '%s'. Error code: %lu"
 #define FIM_WARN_GET_FILETIME                       "(6717): Could not get the filetime of the file '%s'. Error code: %lu."
 #ifndef WIN32

@@ -27,19 +27,20 @@ static void wm_sys_stop(wm_sys_t *sys);         // Module stopper
 const char *WM_SYS_LOCATION = "syscollector";   // Location field for event sending
 cJSON *wm_sys_dump(const wm_sys_t *sys);
 int wm_sync_message(const char *data);
-pthread_cond_t sys_stop_condition;
-pthread_mutex_t sys_stop_mutex;
+pthread_cond_t sys_stop_condition = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t sys_stop_mutex = PTHREAD_MUTEX_INITIALIZER;
 bool need_shutdown_wait = false;
-pthread_mutex_t sys_reconnect_mutex;
+pthread_mutex_t sys_reconnect_mutex = PTHREAD_MUTEX_INITIALIZER;
 bool shutdown_process_started = false;
 
 const wm_context WM_SYS_CONTEXT = {
-    "syscollector",
-    (wm_routine)wm_sys_main,
-    (void(*)(void *))wm_sys_destroy,
-    (cJSON * (*)(const void *))wm_sys_dump,
-    (int(*)(const char*))wm_sync_message,
-    (void(*)(void *))wm_sys_stop
+    .name = "syscollector",
+    .start = (wm_routine)wm_sys_main,
+    .destroy = (void(*)(void *))wm_sys_destroy,
+    .dump = (cJSON * (*)(const void *))wm_sys_dump,
+    .sync = (int(*)(const char*))wm_sync_message,
+    .stop = (void(*)(void *))wm_sys_stop,
+    .query = NULL,
 };
 
 void *syscollector_module = NULL;

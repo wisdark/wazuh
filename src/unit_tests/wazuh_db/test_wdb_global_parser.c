@@ -3513,6 +3513,389 @@ void test_wdb_parse_global_restore_backup_success_pre_restore_missing(void **sta
     os_free(query);
 }
 
+/* wdb_parse_global_vacuum */
+
+void test_wdb_parse_global_vacuum_commit_error(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+    int result = OS_INVALID;
+    char *query = NULL;
+
+    os_strdup("global vacuum", query);
+
+    expect_function_call(__wrap_w_inc_queries_total);
+    expect_function_call(__wrap_w_inc_global);
+
+    expect_function_call(__wrap_w_inc_global_vacuum);
+    expect_function_call(__wrap_gettimeofday);
+
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: vacuum");
+    will_return(__wrap_wdb_commit2, OS_INVALID);
+
+    expect_function_call(__wrap_wdb_finalize_all_statements);
+
+    expect_string(__wrap__mdebug1, formatted_msg, "Global DB Cannot end transaction.");
+
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_w_inc_global_vacuum_time);
+
+    result = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "err Cannot end transaction");
+    assert_int_equal(result, OS_INVALID);
+
+    os_free(query);
+}
+
+void test_wdb_parse_global_vacuum_vacuum_error(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+    int result = OS_INVALID;
+    char *query = NULL;
+
+    os_strdup("global vacuum", query);
+
+    expect_function_call(__wrap_w_inc_queries_total);
+    expect_function_call(__wrap_w_inc_global);
+
+    expect_function_call(__wrap_w_inc_global_vacuum);
+    expect_function_call(__wrap_gettimeofday);
+
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: vacuum");
+    will_return(__wrap_wdb_commit2, OS_SUCCESS);
+
+    expect_function_call(__wrap_wdb_finalize_all_statements);
+
+    will_return(__wrap_wdb_vacuum, OS_INVALID);
+
+    expect_string(__wrap__mdebug1, formatted_msg, "Global DB Cannot vacuum database.");
+
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_w_inc_global_vacuum_time);
+
+    result = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "err Cannot vacuum database");
+    assert_int_equal(result, OS_INVALID);
+
+    os_free(query);
+}
+
+void test_wdb_parse_global_vacuum_success_get_db_state_error(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+    int result = OS_INVALID;
+    char *query = NULL;
+
+    os_strdup("global vacuum", query);
+
+    expect_function_call(__wrap_w_inc_queries_total);
+    expect_function_call(__wrap_w_inc_global);
+
+    expect_function_call(__wrap_w_inc_global_vacuum);
+    expect_function_call(__wrap_gettimeofday);
+
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: vacuum");
+    will_return(__wrap_wdb_commit2, OS_SUCCESS);
+
+    expect_function_call(__wrap_wdb_finalize_all_statements);
+
+    will_return(__wrap_wdb_vacuum, OS_SUCCESS);
+
+    will_return(__wrap_wdb_get_db_state, OS_INVALID);
+
+    expect_string(__wrap__mdebug1, formatted_msg, "Global DB Couldn't get fragmentation after vacuum for the database.");
+
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_w_inc_global_vacuum_time);
+
+    result = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "err Vacuum performed, but couldn't get fragmentation information after vacuum");
+    assert_int_equal(result, OS_INVALID);
+
+    os_free(query);
+}
+
+void test_wdb_parse_global_vacuum_success_update_vacuum_data_error(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+    int result = OS_INVALID;
+    char *query = NULL;
+
+    os_strdup("global vacuum", query);
+
+    expect_function_call(__wrap_w_inc_queries_total);
+    expect_function_call(__wrap_w_inc_global);
+
+    expect_function_call(__wrap_w_inc_global_vacuum);
+    expect_function_call(__wrap_gettimeofday);
+
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: vacuum");
+    will_return(__wrap_wdb_commit2, OS_SUCCESS);
+
+    expect_function_call(__wrap_wdb_finalize_all_statements);
+
+    will_return(__wrap_wdb_vacuum, OS_SUCCESS);
+
+    will_return(__wrap_wdb_get_db_state, 10);
+
+    expect_string(__wrap_wdb_update_last_vacuum_data, last_vacuum_value, "10");
+    will_return(__wrap_wdb_update_last_vacuum_data, OS_INVALID);
+
+    expect_string(__wrap__mdebug1, formatted_msg, "Global DB Couldn't update last vacuum info for the database.");
+
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_w_inc_global_vacuum_time);
+
+    result = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "err Vacuum performed, but last vacuum information couldn't be updated in the metadata table");
+    assert_int_equal(result, OS_INVALID);
+
+    os_free(query);
+}
+
+void test_wdb_parse_global_vacuum_success(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+    int result = OS_INVALID;
+    char *query = NULL;
+
+    os_strdup("global vacuum", query);
+
+    expect_function_call(__wrap_w_inc_queries_total);
+    expect_function_call(__wrap_w_inc_global);
+
+    expect_function_call(__wrap_w_inc_global_vacuum);
+    expect_function_call(__wrap_gettimeofday);
+
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: vacuum");
+    will_return(__wrap_wdb_commit2, OS_SUCCESS);
+
+    expect_function_call(__wrap_wdb_finalize_all_statements);
+
+    will_return(__wrap_wdb_vacuum, OS_SUCCESS);
+
+    will_return(__wrap_wdb_get_db_state, 10);
+
+    expect_string(__wrap_wdb_update_last_vacuum_data, last_vacuum_value, "10");
+    will_return(__wrap_wdb_update_last_vacuum_data, OS_SUCCESS);
+
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_w_inc_global_vacuum_time);
+
+    result = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "ok {\"fragmentation_after_vacuum\":10}");
+    assert_int_equal(result, OS_SUCCESS);
+
+    os_free(query);
+}
+
+/* wdb_parse_global_get_fragmentation */
+
+void test_wdb_parse_global_get_fragmentation_db_state_error(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+    int result = OS_INVALID;
+    char *query = NULL;
+
+    os_strdup("global get_fragmentation", query);
+
+    expect_function_call(__wrap_w_inc_queries_total);
+    expect_function_call(__wrap_w_inc_global);
+
+    expect_function_call(__wrap_w_inc_global_get_fragmentation);
+    expect_function_call(__wrap_gettimeofday);
+
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: get_fragmentation");
+
+    will_return(__wrap_wdb_get_db_state, OS_INVALID);
+    will_return(__wrap_wdb_get_db_free_pages_percentage, 10);
+
+    expect_string(__wrap__mdebug1, formatted_msg, "Global DB Cannot get database fragmentation.");
+
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_w_inc_global_get_fragmentation_time);
+
+    result = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "err Cannot get database fragmentation");
+    assert_int_equal(result, OS_INVALID);
+
+    os_free(query);
+}
+
+void test_wdb_parse_global_get_fragmentation_free_pages_error(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+    int result = OS_INVALID;
+    char *query = NULL;
+
+    os_strdup("global get_fragmentation", query);
+
+    expect_function_call(__wrap_w_inc_queries_total);
+    expect_function_call(__wrap_w_inc_global);
+
+    expect_function_call(__wrap_w_inc_global_get_fragmentation);
+    expect_function_call(__wrap_gettimeofday);
+
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: get_fragmentation");
+
+    will_return(__wrap_wdb_get_db_state, 10);
+    will_return(__wrap_wdb_get_db_free_pages_percentage, OS_INVALID);
+
+    expect_string(__wrap__mdebug1, formatted_msg, "Global DB Cannot get database fragmentation.");
+
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_w_inc_global_get_fragmentation_time);
+
+    result = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "err Cannot get database fragmentation");
+    assert_int_equal(result, OS_INVALID);
+
+    os_free(query);
+}
+
+void test_wdb_parse_global_get_fragmentation_success(void **state) {
+    test_struct_t *data  = (test_struct_t *)*state;
+    int result = OS_INVALID;
+    char *query = NULL;
+
+    os_strdup("global get_fragmentation", query);
+
+    expect_function_call(__wrap_w_inc_queries_total);
+    expect_function_call(__wrap_w_inc_global);
+
+    expect_function_call(__wrap_w_inc_global_get_fragmentation);
+    expect_function_call(__wrap_gettimeofday);
+
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: get_fragmentation");
+
+    will_return(__wrap_wdb_get_db_state, 50);
+    will_return(__wrap_wdb_get_db_free_pages_percentage, 10);
+
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_w_inc_global_get_fragmentation_time);
+
+    result = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "ok {\"fragmentation\":50,\"free_pages_percentage\":10}");
+    assert_int_equal(result, OS_SUCCESS);
+
+    os_free(query);
+}
+
+/* Tests wdb_parse_global_get_distinct_agent_groups */
+
+void test_wdb_parse_global_get_distinct_agent_groups_success(void **state)
+{
+    int ret = 0;
+    test_struct_t *data  = (test_struct_t *)*state;
+    char query[OS_BUFFER_SIZE] = "global get-distinct-groups";
+    cJSON *group_info = cJSON_Parse("[\"GROUP INFO\"]");
+
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: get-distinct-groups");
+    expect_value(__wrap_wdb_global_get_distinct_agent_groups, group_hash, NULL);
+    will_return(__wrap_wdb_global_get_distinct_agent_groups, WDBC_OK);
+    will_return(__wrap_wdb_global_get_distinct_agent_groups, group_info);
+
+    expect_function_call(__wrap_w_inc_queries_total);
+    expect_function_call(__wrap_w_inc_global);
+    expect_function_call(__wrap_w_inc_global_agent_get_distinct_groups);
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_w_inc_global_agent_get_distinct_groups_time);
+
+    ret = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "ok [\"GROUP INFO\"]");
+    assert_int_equal(ret, OS_SUCCESS);
+}
+
+void test_wdb_parse_global_get_distinct_agent_groups_success_with_last_hash(void **state)
+{
+    int ret = 0;
+    test_struct_t *data  = (test_struct_t *)*state;
+    char query[OS_BUFFER_SIZE] = "global get-distinct-groups abcdef";
+    cJSON *group_info = cJSON_Parse("[\"GROUP INFO\"]");
+
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: get-distinct-groups abcdef");
+    expect_string(__wrap_wdb_global_get_distinct_agent_groups, group_hash, "abcdef");
+    will_return(__wrap_wdb_global_get_distinct_agent_groups, WDBC_OK);
+    will_return(__wrap_wdb_global_get_distinct_agent_groups, group_info);
+
+    expect_function_call(__wrap_w_inc_queries_total);
+    expect_function_call(__wrap_w_inc_global);
+    expect_function_call(__wrap_w_inc_global_agent_get_distinct_groups);
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_w_inc_global_agent_get_distinct_groups_time);
+
+    ret = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "ok [\"GROUP INFO\"]");
+    assert_int_equal(ret, OS_SUCCESS);
+}
+
+void test_wdb_parse_global_get_distinct_agent_groups_result_null(void **state)
+{
+    int ret = 0;
+    test_struct_t *data  = (test_struct_t *)*state;
+    char query[OS_BUFFER_SIZE] = "global get-distinct-groups";
+
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: get-distinct-groups");
+    expect_value(__wrap_wdb_global_get_distinct_agent_groups, group_hash, NULL);
+    will_return(__wrap_wdb_global_get_distinct_agent_groups, WDBC_ERROR);
+    will_return(__wrap_wdb_global_get_distinct_agent_groups, NULL);
+
+    expect_string(__wrap__mdebug1, formatted_msg, "Error getting agent groups from global.db.");
+
+    expect_function_call(__wrap_w_inc_queries_total);
+    expect_function_call(__wrap_w_inc_global);
+    expect_function_call(__wrap_w_inc_global_agent_get_distinct_groups);
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_w_inc_global_agent_get_distinct_groups_time);
+
+    ret = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "err Error getting agent groups from global.db.");
+    assert_int_equal(ret, OS_INVALID);
+}
+
+void test_wdb_parse_global_get_distinct_agent_groups_result_null_with_last_hash(void **state)
+{
+    int ret = 0;
+    test_struct_t *data  = (test_struct_t *)*state;
+    char query[OS_BUFFER_SIZE] = "global get-distinct-groups abcdef";
+
+    will_return(__wrap_wdb_open_global, data->wdb);
+    expect_string(__wrap__mdebug2, formatted_msg, "Global query: get-distinct-groups abcdef");
+    expect_string(__wrap_wdb_global_get_distinct_agent_groups, group_hash, "abcdef");
+    will_return(__wrap_wdb_global_get_distinct_agent_groups, WDBC_ERROR);
+    will_return(__wrap_wdb_global_get_distinct_agent_groups, NULL);
+
+    expect_string(__wrap__mdebug1, formatted_msg, "Error getting agent groups from global.db.");
+
+    expect_function_call(__wrap_w_inc_queries_total);
+    expect_function_call(__wrap_w_inc_global);
+    expect_function_call(__wrap_w_inc_global_agent_get_distinct_groups);
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_gettimeofday);
+    expect_function_call(__wrap_w_inc_global_agent_get_distinct_groups_time);
+
+    ret = wdb_parse(query, data->output, 0);
+
+    assert_string_equal(data->output, "err Error getting agent groups from global.db.");
+    assert_int_equal(ret, OS_INVALID);
+}
 
 int main()
 {
@@ -3614,7 +3997,7 @@ int main()
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_sync_agent_info_set_del_label_error, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_sync_agent_info_set_set_label_error, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_sync_agent_info_set_success, test_setup, test_teardown),
-        /* Test wdb_parse_global_set_agent_groups */
+        /* Tests wdb_parse_global_set_agent_groups */
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_set_agent_groups_syntax_error, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_set_agent_groups_invalid_json, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_set_agent_groups_missing_field, test_setup, test_teardown),
@@ -3668,15 +4051,30 @@ int main()
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_get_agents_by_connection_status_limit_succes, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_get_agents_by_connection_status_query_success, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_get_agents_by_connection_status_query_fail, test_setup, test_teardown),
-        /* wdb_parse_global_get_backup */
+        /* Tests wdb_parse_global_get_backup */
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_get_backup_failed, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_get_backup_success, test_setup, test_teardown),
-        /* wdb_parse_global_restore_backup */
+        /* Tests wdb_parse_global_restore_backup */
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_restore_backup_invalid_syntax, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_restore_backup_success_missing_snapshot, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_restore_backup_success_pre_restore_true, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_restore_backup_success_pre_restore_false, test_setup, test_teardown),
         cmocka_unit_test_setup_teardown(test_wdb_parse_global_restore_backup_success_pre_restore_missing, test_setup, test_teardown),
+        /* Tests wdb_parse_global_vacuum */
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_vacuum_commit_error, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_vacuum_vacuum_error, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_vacuum_success_get_db_state_error, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_vacuum_success_update_vacuum_data_error, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_vacuum_success, test_setup, test_teardown),
+        /* Tests wdb_parse_global_get_fragmentation */
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_get_fragmentation_db_state_error, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_get_fragmentation_free_pages_error, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_get_fragmentation_success, test_setup, test_teardown),
+        /* Tests wdb_parse_global_get_distinct_agent_groups */
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_get_distinct_agent_groups_success, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_get_distinct_agent_groups_result_null, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_get_distinct_agent_groups_success_with_last_hash, test_setup, test_teardown),
+        cmocka_unit_test_setup_teardown(test_wdb_parse_global_get_distinct_agent_groups_result_null_with_last_hash, test_setup, test_teardown),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

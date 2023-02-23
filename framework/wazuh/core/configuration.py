@@ -95,7 +95,7 @@ CONF_SECTIONS = MappingProxyType({
     },
     'vulnerability-detector': {
         'type': 'merge',
-        'list_options': ['feed']
+        'list_options': ['feed', 'provider']
     },
     'osquery': {
         'type': 'merge',
@@ -251,7 +251,14 @@ def _read_option(section_name: str, opt: str) -> tuple:
             if list(opt):
                 for child in opt:
                     child_section, child_config = _read_option(child.tag.lower(), child)
-                    opt_value[child_section] = child_config
+                    if (section_name, opt_name, child_section) != ('vulnerability-detector', 'provider', 'os'):
+                        opt_value[child_section] = child_config
+                    else:
+                        try:
+                            opt_value[child_section].append(child_config)
+                        except KeyError:
+                            opt_value[child_section] = [child_config]
+
             else:
                 opt_value['item'] = opt.text
         else:
@@ -1128,8 +1135,10 @@ def get_active_configuration(agent_id: str, component: str, configuration: str) 
             # Socket connection
             try:
                 s = wazuh_socket.WazuhSocket(dest_socket)
-            except Exception:
-                raise WazuhInternalError(1121)
+            except WazuhInternalError:
+                raise
+            except Exception as unhandled_exc:
+                raise WazuhInternalError(1121, extra_message=str(unhandled_exc))
 
             # Send message
             s.send(msg.encode())
@@ -1154,8 +1163,10 @@ def get_active_configuration(agent_id: str, component: str, configuration: str) 
             # Socket connection
             try:
                 s = wazuh_socket.WazuhSocketJSON(dest_socket)
-            except Exception:
-                raise WazuhInternalError(1121)
+            except WazuhInternalError:
+                raise
+            except Exception as unhandled_exc:
+                raise WazuhInternalError(1121, extra_message=str(unhandled_exc))
 
             # Send message
             s.send(msg)
@@ -1181,8 +1192,10 @@ def get_active_configuration(agent_id: str, component: str, configuration: str) 
         # Socket connection
         try:
             s = wazuh_socket.WazuhSocket(dest_socket)
-        except Exception:
-            raise WazuhInternalError(1121)
+        except WazuhInternalError:
+            raise
+        except Exception as unhandled_exc:
+            raise WazuhInternalError(1121, extra_message=str(unhandled_exc))
 
         # Send message
         s.send(msg.encode())

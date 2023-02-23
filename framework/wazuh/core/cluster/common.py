@@ -129,6 +129,9 @@ class SendStringTask:
     """
     Create an asyncio task that can be identified by a task_id specified in advance.
     """
+    # Due to a CPython bug in the Streams library, tasks must be hard-referenced so that they are not deleted
+    # by the garbage collector (https://github.com/python/cpython/issues/90467). It should be fixed in Python 3.10.8.
+    tasks_hard_reference = set()
 
     def __init__(self, wazuh_common, logger):
         """Class constructor.
@@ -143,6 +146,7 @@ class SendStringTask:
         self.wazuh_common = wazuh_common
         self.coro = self.set_up_coro()
         self.task = asyncio.create_task(self.coro())
+        self.tasks_hard_reference.add(self.task)
         self.task.add_done_callback(self.done_callback)
         self.logger = logger
 
@@ -161,6 +165,7 @@ class SendStringTask:
 
         Remove string and task_id (if exist) from sync_tasks dict. If task was not cancelled, raise stored exception.
         """
+        self.tasks_hard_reference.discard(self.task)
         if not self.task.cancelled():
             task_exc = self.task.exception()
             if task_exc:
@@ -926,6 +931,8 @@ class Handler(asyncio.Protocol):
             return self.end_file(data)
         elif command == b'cancel_task':
             return self.cancel_task(data)
+        elif command == b'dapi_err':
+            return self.process_dapi_error(data)
         else:
             return self.process_unknown_cmd(command)
 
@@ -967,6 +974,32 @@ class Handler(asyncio.Protocol):
             Response message.
         """
         return b'ok', data
+
+    def process_dapi_error(self, data: bytes) -> Tuple[bytes, bytes]:
+        """Send DAPI error command to client.
+
+        Parameters
+        ----------
+        data : bytes
+            Bytes containing client and error message separated by ' '.
+
+        Returns
+        -------
+        bytes
+            Result.
+        bytes
+            Response message.
+        """
+        dapi_client, error_msg = data.split(b' ', 1)
+        if dapi_client.decode() in self.server.local_server.clients:
+            try:
+                asyncio.create_task(
+                    self.server.local_server.clients[dapi_client.decode()].send_request(b'dapi_err', error_msg))
+            except exception.WazuhClusterError:
+                raise exception.WazuhClusterError(3025)
+        else:
+            raise exception.WazuhClusterError(3032, extra_message=dapi_client.decode())
+        return b'ok', b'DAPI error forwarded to worker'
 
     def receive_file(self, data: bytes) -> Tuple[bytes, bytes]:
         """Create a file descriptor to store the incoming file.

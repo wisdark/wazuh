@@ -20,8 +20,8 @@
 ; general
 !define MUI_ICON install.ico
 !define MUI_UNICON uninstall.ico
-!define VERSION "4.5.0"
-!define REVISION "40500"
+!define VERSION "4.6.0"
+!define REVISION "40600"
 !define NAME "Wazuh"
 !define SERVICE "WazuhSvc"
 
@@ -39,7 +39,7 @@ OutFile "${OutFile}"
 VIProductVersion "4.0.0.0"
 VIAddVersionKey ProductName "${NAME}"
 VIAddVersionKey CompanyName "Wazuh Inc."
-VIAddVersionKey LegalCopyright "2022 - Wazuh Inc."
+VIAddVersionKey LegalCopyright "2023 - Wazuh Inc."
 VIAddVersionKey FileDescription "Wazuh Agent installer"
 VIAddVersionKey FileVersion "${VERSION}"
 VIAddVersionKey ProductVersion "${VERSION}"
@@ -210,6 +210,7 @@ Section "Wazuh Agent (required)" MainSec
     File /oname=active-response\bin\netsh.exe netsh.exe
     File /oname=libwinpthread-1.dll libwinpthread-1.dll
     File /oname=libgcc_s_dw2-1.dll libgcc_s_dw2-1.dll
+    File /oname=libstdc++-6.dll libstdc++-6.dll
     File agent-auth.exe
     File /oname=wpk_root.pem ..\..\etc\wpk_root.pem
     File /oname=libwazuhext.dll ..\libwazuhext.dll

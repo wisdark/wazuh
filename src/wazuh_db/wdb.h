@@ -240,6 +240,7 @@ typedef enum wdb_stmt {
     WDB_STMT_GLOBAL_GROUP_CTX_SET,
     WDB_STMT_GLOBAL_GROUP_HASH_GET,
     WDB_STMT_GLOBAL_UPDATE_AGENT_INFO,
+    WDB_STMT_GLOBAL_GET_GROUPS,
     WDB_STMT_GLOBAL_GET_AGENTS,
     WDB_STMT_GLOBAL_GET_AGENTS_BY_CONNECTION_STATUS,
     WDB_STMT_GLOBAL_GET_AGENTS_BY_CONNECTION_STATUS_AND_NODE,
@@ -366,6 +367,11 @@ typedef struct wdb_config {
     int commit_time_min;
     int commit_time_max;
     int open_db_limit;
+    int fragmentation_threshold;
+    int fragmentation_delta;
+    int free_pages_percentage;
+    int max_fragmentation;
+    int check_fragmentation_interval;
     wdb_backup_settings_node** wdb_backup_settings;
 } wdb_config;
 
@@ -398,6 +404,8 @@ extern char *schema_upgrade_v6_sql;
 extern char *schema_upgrade_v7_sql;
 extern char *schema_upgrade_v8_sql;
 extern char *schema_upgrade_v9_sql;
+extern char *schema_upgrade_v10_sql;
+extern char *schema_upgrade_v11_sql;
 extern char *schema_global_upgrade_v1_sql;
 extern char *schema_global_upgrade_v2_sql;
 extern char *schema_global_upgrade_v3_sql;
@@ -437,7 +445,7 @@ typedef struct agent_info_data {
 } agent_info_data;
 
 typedef enum {
-    FIELD_INTEGER,
+    FIELD_INTEGER = 0,
     FIELD_TEXT,
     FIELD_REAL,
     FIELD_INTEGER_LONG
@@ -446,9 +454,17 @@ typedef enum {
 struct field {
     field_type_t type;
     int index;
-    bool is_old_implementation;
+    bool is_aux_field;
     bool is_pk;
-    char name[OS_SIZE_256];
+    const char * source_name;
+    const char * target_name;
+    union {
+        const char * text;
+        int integer;
+        double real;
+        long long integer_long;
+    } default_value;
+    bool convert_empty_string_as_null;
 };
 
 struct column_list {
@@ -527,12 +543,12 @@ int wdb_rootcheck_update(wdb_t * wdb, const rk_event_t *event);
 int wdb_sca_find(wdb_t * wdb, int pm_id, char * output);
 
 /* Update a configuration assessment entry. Returns ID on success or -1 on error (new) */
-int wdb_sca_update(wdb_t * wdb, char * result, int id,int scan_id, char * status, char * reason);
+int wdb_sca_update(wdb_t * wdb, char * result, int id,int scan_id, char * reason);
 
 /* Insert configuration assessment entry. Returns ID on success or -1 on error (new) */
 int wdb_sca_save(wdb_t *wdb, int id, int scan_id, char *title, char *description, char *rationale,
         char *remediation, char *condition, char *file, char *directory, char *process, char *registry,
-        char *reference, char *result, char *policy_id, char *command, char *status, char *reason);
+        char *reference, char *result, char *policy_id, char *command, char *reason);
 
 /* Insert scan info configuration assessment entry. Returns ID on success or -1 on error (new) */
 int wdb_sca_scan_info_save(wdb_t * wdb, int start_scan, int end_scan, int scan_id,char * policy_id,int pass,int fail,int invalid, int total_checks,int score,char * hash);
@@ -605,6 +621,18 @@ void wdb_free_agent_info_data(agent_info_data *agent_data);
  * @return JSON array with the statement execution results. NULL On error.
  */
 wdbc_result wdb_parse_chunk_to_int(char* input, int** output, const char* item, int* last_item, int* last_size);
+
+/**
+ * @brief Function to parse a chunk response that contains the status of the query and a json array.
+ *        This function will add the parsed response to the output_json (json) array.
+ *
+ * @param [in] input The chunk obtained from WazuhDB to be parsed.
+ * @param [out] output_json Json array in which the new elements will be added.
+ * @param [in] item Json string to search elements on the chunks.
+ * @param [out] last_item_value Value of the last item. If NULL no value is written.
+ * @return wdbc_result representing the status of the command.
+ */
+wdbc_result wdb_parse_chunk_to_json_by_string_item(char* input, cJSON** output_json, const char* item, char** last_item_value);
 
 /**
  * @brief Function to initialize a new transaction and cache the statement.
@@ -692,8 +720,39 @@ int wdb_create_file(const char *path, const char *source);
 /* Delete PM events of an agent. Returns number of affected rows on success or -1 on error. */
 int wdb_rootcheck_delete(wdb_t * wdb);
 
-/* Rebuild database. Returns 0 on success or -1 on error. */
+/**
+ * @brief Rebuild database.
+ *
+ * @param[in] db Database to query for the table existence.
+ * @return Returns 0 on success or -1 on error.
+ */
 int wdb_vacuum(sqlite3 *db);
+
+/**
+ * @brief Calculate the fragmentation state of a db.
+ *
+ * @param[in] wdb Database to query for the table existence.
+ * @return Returns 0-100 on success or OS_INVALID on error.
+ */
+int wdb_get_db_state(wdb_t * wdb);
+
+/**
+ * @brief Calculate the percentage of free pages of a db.
+ *
+ * @param[in] wdb Database to query for the table existence.
+ * @return Returns zero or greater than zero on success or OS_INVALID on error.
+ */
+int wdb_get_db_free_pages_percentage(wdb_t * wdb);
+
+/**
+ * @brief Store the fragmentation data of the last vacuum in the metadata table.
+ *
+ * @param[in] wdb Database to query for the table existence.
+ * @param[in] last_vacuum_time Timestamp to store in the metadata table.
+ * @param[in] last_vacuum_value Value to store in the metadata table.
+ * @return Returns OS_SUCCES on success or OS_INVALID on error.
+ */
+int wdb_update_last_vacuum_data(wdb_t* wdb, const char *last_vacuum_time, const char *last_vacuum_value);
 
 /* Insert key-value pair into info table */
 int wdb_insert_info(const char *key, const char *value);
@@ -806,6 +865,11 @@ void wdb_commit_old();
 void wdb_close_old();
 
 int wdb_remove_database(const char * agent_id);
+
+/**
+ * @brief Checks and vacuums (if necessary) the databases in the DB pool.
+ */
+void wdb_check_fragmentation();
 
 /**
  * @brief Function to execute one row of an SQL statement and save the result in a JSON array.
@@ -1291,6 +1355,16 @@ int wdb_parse_global_disconnect_agents(wdb_t* wdb, char* input, char* output);
  * @return 0 Success: response contains the value. -1 On error: invalid DB query syntax.
  */
 int wdb_parse_global_get_all_agents(wdb_t* wdb, char* input, char* output);
+
+/**
+ * @brief Function to parse the get-distinct-groups command data.
+ *
+ * @param [in] wdb The global struct database.
+ * @param [in] input String with 'last_group_hash'.
+ * @param [out] output Response of the query.
+ * @return 0 Success: response contains the value. -1 On error: invalid DB query syntax.
+ */
+int wdb_parse_global_get_distinct_agent_groups(wdb_t* wdb, char *input, char* output);
 
 /**
  * @brief Function to parse the reset agent connection status request.
@@ -2144,40 +2218,28 @@ cJSON* wdb_global_get_agents_to_disconnect(wdb_t *wdb, int last_agent_id, int ke
 int wdb_global_check_manager_keepalive(wdb_t *wdb);
 
 /**
- * @brief Function to clean table and write new values, this is only
- * for single row tables. Its necessary to have the table PKs well.
+ * @brief Returns a JSON array containing the group and group_hash assigned to all agents,
+ *        if two agents have the same group assigned it is only included once
  *
- * @param wdb The Global struct database.
- * @param kv_value Table metadata to build dynamic queries.
- * @param data Values separated with pipe character '|'.
- * @retval true when the database single row insertion is executed successfully.
- * @retval false on error.
+ * @param [in] wdb The Global struct database.
+ * @param [in] group_hash Group hash where to start querying.
+ * @param [out] status wdbc_result to represent if all group/group_hash has being obtained or any error occurred.
+ * @retval JSON with group/group_hash on success.
+ * @retval NULL on error.
  */
-bool wdb_single_row_insert_dbsync(wdb_t * wdb, struct kv const *kv_value, const char *data);
+cJSON* wdb_global_get_distinct_agent_groups(wdb_t *wdb, char *group_hash, wdbc_result* status);
 
 /**
- * @brief Function to insert new rows with a dynamic query based on metadata.
+ * @brief Function to insert or update rows with a dynamic query based on metadata.
  * Its necessary to have the table PKs well.
  *
  * @param wdb The Global struct database.
  * @param kv_value Table metadata to build dynamic queries.
- * @param data Values separated with pipe character '|'.
+ * @param data JSON object containing delta information.
  * @retval true when the database insertion is executed successfully.
  * @retval false on error.
  */
-bool wdb_insert_dbsync(wdb_t * wdb, struct kv const *kv_value, const char *data);
-
-/**
- * @brief Function to modify existing rows with a dynamic query based on metadata.
- * Its necessary to have the table PKs well.
- *
- * @param wdb The Global struct database.
- * @param kv_value Table metadata to build dynamic queries.
- * @param data Values separated with pipe character '|'.
- * @retval true when the database update is executed successfully.
- * @retval false on error.
- */
-bool wdb_modify_dbsync(wdb_t * wdb, struct kv const *kv_value, const char *data);
+bool wdb_upsert_dbsync(wdb_t * wdb, struct kv const * kv_value, cJSON * data);
 
 /**
  * @brief Function to delete rows with a dynamic query based on metadata.
@@ -2185,22 +2247,11 @@ bool wdb_modify_dbsync(wdb_t * wdb, struct kv const *kv_value, const char *data)
  *
  * @param wdb The Global struct database.
  * @param kv_value Table metadata to build dynamic queries.
- * @param data Values separated with pipe character '|'.
+ * @param data JSON object containing delta information.
  * @retval true when the database delete is executed successfully.
  * @retval false on error.
  */
-bool wdb_delete_dbsync(wdb_t * wdb, struct kv const *kv_value, const char *data);
-
-/**
- * @brief Function to select rows with a dynamic query based on metadata.
- * Its necessary to have the table PKs well.
- *
- * @param wdb The Global struct database.
- * @param kv_value Table metadata to build dynamic queries.
- * @param data Values separated with pipe character '|'.
- * @param output Output values separated with pipe character '|'.
- */
-void wdb_select_dbsync(wdb_t * wdb, struct kv const *kv_value, const char *data, char *output);
+bool wdb_delete_dbsync(wdb_t * wdb, struct kv const *kv_value, cJSON *data);
 
 /**
  * @brief Function to parse the insert upgrade request.

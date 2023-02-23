@@ -414,7 +414,7 @@ typedef struct _config {
     registry_ignore_regex *value_ignore_regex;         /* Regex of registry values to ignore */
     registry *registry;                                /* array of registry entries to be scanned */
     unsigned int max_fd_win_rt;                        /* Maximum number of descriptors in realtime */
-    whodata wdata;
+    whodata wdata;                                     /* Whodata struct */
     registry *registry_nodiff;                         /* list of values/registries to never output diff */
     registry_ignore_regex *registry_nodiff_regex;      /* regex of values/registries to never output diff */
 #endif
@@ -468,6 +468,13 @@ int read_data_unit(const char *content);
  * @param node XML node to continue reading the configuration file
  */
 void parse_diff(const OS_XML *xml, syscheck_config * syscheck, XML_NODE node);
+
+/**
+ * @brief Change sysnative directory to system32.
+ *
+ * @param path Directory path read from configuration file
+ */
+void fim_adjust_path(char** path);
 
 /**
  * @brief Creates a directory_t object from defined values

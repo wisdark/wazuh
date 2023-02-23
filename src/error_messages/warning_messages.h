@@ -66,7 +66,9 @@
 #define FIM_DATABASE_NODES_COUNT_FAIL           "(6948): Unable to get the number of entries in database."
 #define FIM_CJSON_ERROR_CREATE_ITEM             "(6949): Cannot create a cJSON item"
 #define FIM_REGISTRY_ACC_SID                    "(6950): Error in LookupAccountSid getting %s. (%ld): %s"
-
+#define FIM_WHODATA_ERROR_CHECKING_POL          "(6951): Unable to check the necessary policies for whodata: %s (%lu)."
+#define FIM_WHODATA_POLICY_CHANGE_CHECKER       "(6952): Audit policy change detected. Switching directories to realtime."
+#define FIM_WHODATA_POLICY_CHANGE_CHANNEL       "(6953): Event 4719 received due to changes in audit policy. Switching directories to realtime."
 
 /* Monitord warning messages */
 #define ROTATE_LOG_LONG_PATH                    "(7500): The path of the rotated log is too long."
@@ -133,6 +135,7 @@
                                                 "'log_format'. Default value will be used."
 #define LOGCOLLECTOR_MISSING_LOCATION_MACOS     "(8006): Missing 'location' element when using 'macos' as " \
                                                 "'log_format'. Default value will be used."
+#define LOGCOLLECTOR_DEFAULT_REGEX_TYPE         "(8007): Invalid type in '%s' regex '%s', setting by default PCRE2 regex."
 
 /* Remoted */
 #define REMOTED_NET_PROTOCOL_ERROR              "(9000): Error getting protocol. Default value (%s) will be used."
