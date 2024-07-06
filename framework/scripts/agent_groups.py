@@ -18,11 +18,13 @@ try:
     import wazuh.agent as agent
     from wazuh.core.exception import WazuhError
     from wazuh.core.cluster import utils as cluster_utils
+    from wazuh.core.wlogging import CLIFilter
 except Exception as e:
     print("Error importing 'Wazuh' package.\n\n{0}\n".format(e))
     exit()
 
 logger = logging.getLogger('wazuh')
+logger.addFilter(CLIFilter())
 
 
 # Functions
@@ -203,12 +205,7 @@ async def remove_group(group_id: str, quiet: bool = False):
         if result.total_affected_items == 0:
             msg = list(result.failed_items.keys())[0]
         else:
-            affected_agents = next(iter(result.affected_items[0].values()))
             msg = f'Group {group_id} removed.'
-            if len(affected_agents) == 0:
-                msg += "\nNo affected agents."
-            else:
-                msg += "\nAffected agents: {0}.".format(', '.join(affected_agents))
     else:
         msg = 'Cancelled.'
 

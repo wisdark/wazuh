@@ -18,18 +18,20 @@
 #include "../wrappers/wazuh/shared/hash_op_wrappers.h"
 #include "../wrappers/wazuh/shared/agent_op_wrappers.h"
 #include "../wrappers/wazuh/remoted/shared_download_wrappers.h"
-#include "../wrappers/wazuh/wazuh_db/wdb_global_helpers_wrappers.h"
 #include "../wrappers/posix/dirent_wrappers.h"
 #include "../wrappers/posix/unistd_wrappers.h"
 #include "../wrappers/wazuh/remoted/request_wrappers.h"
 #include "../wrappers/wazuh/remoted/remoted_op_wrappers.h"
 #include "../wrappers/wazuh/wazuh_db/wdb_global_helpers_wrappers.h"
+#include "../wrappers/wazuh/shared/hash_op_wrappers.h"
 
+#include "../wazuh_db/wdb.h"
 #include "../remoted/remoted.h"
 #include "../remoted/shared_download.h"
 #include "../../remoted/manager.c"
 
 int lookfor_agent_group(const char *agent_id, char *msg, char **r_group, int* wdb_sock);
+extern OSHash *agent_data_hash;
 
 /* tests */
 
@@ -70,7 +72,42 @@ static void free_group_c_group(void *data) {
     }
 }
 
-int __wrap_send_msg(const char *msg, ssize_t msg_length) {
+static int setup_globals(void ** state) {
+    agent_data_hash = __real_OSHash_Create();
+    test_mode = 1;
+
+    return 0;
+}
+
+static int setup_globals_no_test_mode(void ** state) {
+    agent_data_hash = __real_OSHash_Create();
+    test_mode = 0;
+
+    return 0;
+}
+
+static int teardown_globals(void ** state) {
+    __real_OSHash_Clean(agent_data_hash, agent_data_hash_cleaner);
+    test_mode = 0;
+
+    return 0;
+}
+
+static int setup_test_mode(void ** state) {
+    test_mode = 1;
+
+    return 0;
+}
+
+static int teardown_test_mode(void ** state) {
+    test_mode = 0;
+
+    return 0;
+}
+
+
+int __wrap_send_msg(const char *agent_id, const char *msg, ssize_t msg_length) {
+    check_expected(agent_id);
     check_expected(msg);
     return 0;
 }
@@ -521,36 +558,8 @@ void test_lookfor_agent_group_with_group()
     int ret = lookfor_agent_group(agent_id_str, msg, &r_group, NULL);
     assert_int_equal(OS_SUCCESS, ret);
     assert_string_equal(r_group, test_group);
-}
 
-void test_lookfor_agent_group_null_groups()
-{
-    const int agent_id = 1;
-    const char agent_id_str[] = "001";
-    char *msg = "Linux |localhost.localdomain |4.18.0-240.22.1.el8_3.x86_64 |#1 SMP Thu Apr 8 19:01:30 UTC 2021 |x86_64 [CentOS Linux|centos: 8.3] - Wazuh v4.2.0 / ab73af41699f13fdd81903b5f23d8d00\nc2305e0ac17e7176e924294c69cc7a24 merged.mg\n#\"_agent_ip\":10.0.2.4";
-    char *r_group = NULL;
-
-    expect_value(__wrap_wdb_get_agent_group, id, agent_id);
-    will_return(__wrap_wdb_get_agent_group, NULL);
-
-    expect_string(__wrap__mdebug2, formatted_msg, "Agent '001' with file 'merged.mg' MD5 'c2305e0ac17e7176e924294c69cc7a24'");
-
-    expect_function_call(__wrap_pthread_mutex_lock);
-
-    will_return(__wrap_w_is_single_node, 0);
-
-    expect_function_call(__wrap_pthread_mutex_unlock);
-
-    expect_string(__wrap__mdebug2, formatted_msg, "Group assigned: 'default'");
-
-    expect_value(__wrap_wdb_set_agent_groups_csv, id, agent_id);
-    will_return(__wrap_wdb_set_agent_groups_csv, 0);
-
-    int ret = lookfor_agent_group(agent_id_str, msg, &r_group, NULL);
-    assert_int_equal(OS_SUCCESS, ret);
-    assert_string_equal(r_group, "default");
-
-    os_free(r_group);
+    os_free(test_group);
 }
 
 void test_lookfor_agent_group_set_default_group()
@@ -581,6 +590,122 @@ void test_lookfor_agent_group_set_default_group()
     assert_string_equal(r_group, "default");
 
     os_free(r_group);
+}
+
+void test_lookfor_agent_group_set_group_worker()
+{
+    const int agent_id = 1;
+    const char agent_id_str[] = "001";
+    char *msg = "Linux |localhost.localdomain |4.18.0-240.22.1.el8_3.x86_64 |#1 SMP Thu Apr 8 19:01:30 UTC 2021 |x86_64 [CentOS Linux|centos: 8.3] - Wazuh v4.2.0 / ab73af41699f13fdd81903b5f23d8d00\nc2305e0ac17e7176e924294c69cc7a24 merged.mg\n#\"_agent_ip\":10.0.2.4";
+    char *r_group = NULL;
+
+    cJSON *input = cJSON_CreateObject();
+
+    cJSON *parameters = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(parameters, "agent", "001");
+    cJSON_AddStringToObject(parameters, "md5", "c2305e0ac17e7176e924294c69cc7a24");
+
+    cJSON_AddStringToObject(input, "command", "assigngroup");
+    cJSON_AddItemToObject(input, "parameters", parameters);
+
+    cJSON * cluster_request = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(cluster_request, "daemon_name", "remoted");
+    cJSON_AddItemToObject(cluster_request, "message", input);
+
+    char *message = "{\"daemon_name\":\"remoted\","
+                     "\"message\":{\"command\":\"assigngroup\","
+                                  "\"parameters\":{\"agent\":\"001\","
+                                                  "\"md5\":\"c2305e0ac17e7176e924294c69cc7a24\"}}}";
+
+    char *response = "{\"error\":0,\"data\":{\"group\":\"test1\"}}";
+
+    expect_value(__wrap_wdb_get_agent_group, id, agent_id);
+    will_return(__wrap_wdb_get_agent_group, NULL);
+
+    expect_string(__wrap_w_create_sendsync_payload, daemon_name, "remoted");
+    will_return(__wrap_w_create_sendsync_payload, 1);
+    will_return(__wrap_w_create_sendsync_payload, cluster_request);
+
+    expect_string(__wrap__mdebug2, formatted_msg, "Sending message to master node: '{\"daemon_name\":\"remoted\","
+                                                                                    "\"message\":{\"command\":\"assigngroup\","
+                                                                                                 "\"parameters\":{\"agent\":\"001\","
+                                                                                                                 "\"md5\":\"c2305e0ac17e7176e924294c69cc7a24\"}}}'");
+
+    expect_string(__wrap_w_send_clustered_message, command, "sendsync");
+    expect_string(__wrap_w_send_clustered_message, payload, message);
+    will_return(__wrap_w_send_clustered_message, response);
+    will_return(__wrap_w_send_clustered_message, 0);
+
+    expect_string(__wrap__mdebug2, formatted_msg, "Message received from master node: '{\"error\":0,\"data\":{\"group\":\"test1\"}}'");
+
+    logr.worker_node = 1;
+    int ret = lookfor_agent_group(agent_id_str, msg, &r_group, NULL);
+    logr.worker_node = 0;
+
+    assert_int_equal(OS_SUCCESS, ret);
+    assert_string_equal(r_group, "test1");
+
+    os_free(r_group);
+}
+
+void test_lookfor_agent_group_set_group_worker_error()
+{
+    const int agent_id = 1;
+    const char agent_id_str[] = "001";
+    char *msg = "Linux |localhost.localdomain |4.18.0-240.22.1.el8_3.x86_64 |#1 SMP Thu Apr 8 19:01:30 UTC 2021 |x86_64 [CentOS Linux|centos: 8.3] - Wazuh v4.2.0 / ab73af41699f13fdd81903b5f23d8d00\nc2305e0ac17e7176e924294c69cc7a24 merged.mg\n#\"_agent_ip\":10.0.2.4";
+    char *r_group = NULL;
+
+    cJSON *input = cJSON_CreateObject();
+
+    cJSON *parameters = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(parameters, "agent", "001");
+    cJSON_AddStringToObject(parameters, "md5", "c2305e0ac17e7176e924294c69cc7a24");
+
+    cJSON_AddStringToObject(input, "command", "assigngroup");
+    cJSON_AddItemToObject(input, "parameters", parameters);
+
+    cJSON * cluster_request = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(cluster_request, "daemon_name", "remoted");
+    cJSON_AddItemToObject(cluster_request, "message", input);
+
+    char *message = "{\"daemon_name\":\"remoted\","
+                     "\"message\":{\"command\":\"assigngroup\","
+                                  "\"parameters\":{\"agent\":\"001\","
+                                                  "\"md5\":\"c2305e0ac17e7176e924294c69cc7a24\"}}}";
+
+    char *response = "{\"error\":1,\"data\":{}}";
+
+    expect_value(__wrap_wdb_get_agent_group, id, agent_id);
+    will_return(__wrap_wdb_get_agent_group, NULL);
+
+    expect_string(__wrap_w_create_sendsync_payload, daemon_name, "remoted");
+    will_return(__wrap_w_create_sendsync_payload, 1);
+    will_return(__wrap_w_create_sendsync_payload, cluster_request);
+
+    expect_string(__wrap__mdebug2, formatted_msg, "Sending message to master node: '{\"daemon_name\":\"remoted\","
+                                                                                    "\"message\":{\"command\":\"assigngroup\","
+                                                                                                 "\"parameters\":{\"agent\":\"001\","
+                                                                                                                 "\"md5\":\"c2305e0ac17e7176e924294c69cc7a24\"}}}'");
+
+    expect_string(__wrap_w_send_clustered_message, command, "sendsync");
+    expect_string(__wrap_w_send_clustered_message, payload, message);
+    will_return(__wrap_w_send_clustered_message, response);
+    will_return(__wrap_w_send_clustered_message, 1);
+
+    expect_string(__wrap__mdebug2, formatted_msg, "Message received from master node: '{\"error\":1,\"data\":{}}'");
+
+    expect_string(__wrap__merror, formatted_msg, "Agent '001' invalid or empty group assigned.");
+
+    logr.worker_node = 1;
+    int ret = lookfor_agent_group(agent_id_str, msg, &r_group, NULL);
+    logr.worker_node = 0;
+
+    assert_int_equal(OS_INVALID, ret);
+    assert_null(r_group);
 }
 
 void test_lookfor_agent_group_msg_without_enter()
@@ -717,9 +842,9 @@ void test_c_group_no_changes_disk(void **state)
     expect_string(__wrap_w_parser_get_group, name, group->name);
     will_return(__wrap_w_parser_get_group, NULL);
 
-    expect_string(__wrap_fopen, path, "etc/shared/test_default/merged.mg.tmp");
-    expect_string(__wrap_fopen, mode, "w");
-    will_return(__wrap_fopen, (FILE *)1);
+    expect_string(__wrap_wfopen, path, "etc/shared/test_default/merged.mg.tmp");
+    expect_string(__wrap_wfopen, mode, "w");
+    will_return(__wrap_wfopen, (FILE *)1);
 
     expect_value(__wrap_fprintf, __stream, (FILE *)1);
     expect_string(__wrap_fprintf, formatted_msg, "#test_default\n");
@@ -821,9 +946,9 @@ void test_c_group_changes(void **state)
     will_return(__wrap_OS_MD5_File, "md5_test2");
     will_return(__wrap_OS_MD5_File, 0);
 
-    expect_string(__wrap_fopen, path, "etc/shared/test_default/merged.mg");
-    expect_string(__wrap_fopen, mode, "w");
-    will_return(__wrap_fopen, (FILE *)2);
+    expect_string(__wrap_wfopen, path, "etc/shared/test_default/merged.mg");
+    expect_string(__wrap_wfopen, mode, "w");
+    will_return(__wrap_wfopen, (FILE *)2);
 
     will_return(__wrap_fwrite, 1);
 
@@ -862,9 +987,9 @@ void test_c_group_changes_disk(void **state)
     expect_string(__wrap_w_parser_get_group, name, group->name);
     will_return(__wrap_w_parser_get_group, NULL);
 
-    expect_string(__wrap_fopen, path, "etc/shared/test_default/merged.mg.tmp");
-    expect_string(__wrap_fopen, mode, "w");
-    will_return(__wrap_fopen, (FILE *)1);
+    expect_string(__wrap_wfopen, path, "etc/shared/test_default/merged.mg.tmp");
+    expect_string(__wrap_wfopen, mode, "w");
+    will_return(__wrap_wfopen, (FILE *)1);
 
     expect_value(__wrap_fprintf, __stream, (FILE *)1);
     expect_string(__wrap_fprintf, formatted_msg, "#test_default\n");
@@ -962,9 +1087,9 @@ void test_c_group_fail(void **state)
     will_return(__wrap_OS_MD5_File, "md5_test");
     will_return(__wrap_OS_MD5_File, -1);
 
-    expect_string(__wrap_fopen, path, "etc/shared/test_default/merged.mg");
-    expect_string(__wrap_fopen, mode, "w");
-    will_return(__wrap_fopen, (FILE *)2);
+    expect_string(__wrap_wfopen, path, "etc/shared/test_default/merged.mg");
+    expect_string(__wrap_wfopen, mode, "w");
+    will_return(__wrap_wfopen, (FILE *)2);
 
     will_return(__wrap_fwrite, 1);
 
@@ -999,9 +1124,9 @@ void test_c_group_fail_disk(void **state)
     expect_string(__wrap_w_parser_get_group, name, group->name);
     will_return(__wrap_w_parser_get_group, NULL);
 
-    expect_string(__wrap_fopen, path, "etc/shared/test_default/merged.mg.tmp");
-    expect_string(__wrap_fopen, mode, "w");
-    will_return(__wrap_fopen, (FILE *)1);
+    expect_string(__wrap_wfopen, path, "etc/shared/test_default/merged.mg.tmp");
+    expect_string(__wrap_wfopen, mode, "w");
+    will_return(__wrap_wfopen, (FILE *)1);
 
     expect_value(__wrap_fprintf, __stream, (FILE *)1);
     expect_string(__wrap_fprintf, formatted_msg, "#test_default\n");
@@ -1355,9 +1480,9 @@ void test_c_group_invalid_share_file(void **state)
     will_return(__wrap_OS_MD5_File, "md5_test");
     will_return(__wrap_OS_MD5_File, -1);
 
-    expect_string(__wrap_fopen, path, "etc/shared/test_default/merged.mg");
-    expect_string(__wrap_fopen, mode, "w");
-    will_return(__wrap_fopen, NULL);
+    expect_string(__wrap_wfopen, path, "etc/shared/test_default/merged.mg");
+    expect_string(__wrap_wfopen, mode, "w");
+    will_return(__wrap_wfopen, NULL);
 
     will_return(__wrap_strerror, "No such file or directory");
 
@@ -1592,9 +1717,9 @@ void test_c_group_truncate_error_disk(void **state)
     expect_string(__wrap_w_parser_get_group, name, group->name);
     will_return(__wrap_w_parser_get_group, NULL);
 
-    expect_string(__wrap_fopen, path, "etc/shared/test_default/merged.mg.tmp");
-    expect_string(__wrap_fopen, mode, "w");
-    will_return(__wrap_fopen, NULL);
+    expect_string(__wrap_wfopen, path, "etc/shared/test_default/merged.mg.tmp");
+    expect_string(__wrap_wfopen, mode, "w");
+    will_return(__wrap_wfopen, NULL);
 
     will_return(__wrap_strerror, "No such file or directory");
 
@@ -1664,10 +1789,7 @@ void test_c_multi_group_call_copy_directory(void **state)
 
     expect_string(__wrap__mwarn, formatted_msg, "Could not open directory 'etc/shared/multi_group_test'. Group folder was deleted.");
 
-    expect_string(__wrap_wdb_remove_group_db, name, "multi_group_test");
-    will_return(__wrap_wdb_remove_group_db, OS_SUCCESS);
-
-    // Open the multi-group files and generate merged
+    /* Open the multi-group files and generate merged */
     will_return(__wrap_opendir, 0);
     will_return(__wrap_strerror, "No such file or directory");
     expect_string(__wrap__mdebug2, formatted_msg, "Opening directory: 'var/multigroups': No such file or directory");
@@ -1806,9 +1928,6 @@ void test_c_multi_group_subdir_fail(void **state)
     errno = 1;
     expect_string(__wrap__mwarn, formatted_msg, "Could not open directory 'etc/shared/multi_group_test'. Group folder was deleted.");
 
-    expect_string(__wrap_wdb_remove_group_db, name, "multi_group_test");
-    will_return(__wrap_wdb_remove_group_db, OS_SUCCESS);
-
     // End copy_directory function
 
     will_return(__wrap_opendir, 0);
@@ -1846,9 +1965,6 @@ void test_c_multi_group_call_c_group(void **state)
 
     errno = 1;
     expect_string(__wrap__mwarn, formatted_msg, "Could not open directory 'etc/shared/multi_group_test'. Group folder was deleted.");
-
-    expect_string(__wrap_wdb_remove_group_db, name, "multi_group_test");
-    will_return(__wrap_wdb_remove_group_db, OS_SUCCESS);
 
     // End copy_directory function
 
@@ -2603,9 +2719,9 @@ void test_process_groups_find_group_null(void **state)
     will_return(__wrap_OS_MD5_File, "md5_test");
     will_return(__wrap_OS_MD5_File, -1);
 
-    expect_string(__wrap_fopen, path, "etc/shared/test/merged.mg");
-    expect_string(__wrap_fopen, mode, "w");
-    will_return(__wrap_fopen, NULL);
+    expect_string(__wrap_wfopen, path, "etc/shared/test/merged.mg");
+    expect_string(__wrap_wfopen, mode, "w");
+    will_return(__wrap_wfopen, NULL);
 
     will_return(__wrap_strerror, "No such file or directory");
 
@@ -2715,9 +2831,9 @@ void test_process_groups_find_group_changed(void **state)
     will_return(__wrap_OS_MD5_File, "md5_test");
     will_return(__wrap_OS_MD5_File, -1);
 
-    expect_string(__wrap_fopen, path, "etc/shared/test_default/merged.mg");
-    expect_string(__wrap_fopen, mode, "w");
-    will_return(__wrap_fopen, NULL);
+    expect_string(__wrap_wfopen, path, "etc/shared/test_default/merged.mg");
+    expect_string(__wrap_wfopen, mode, "w");
+    will_return(__wrap_wfopen, NULL);
 
     will_return(__wrap_strerror, "No such file or directory");
 
@@ -4038,7 +4154,7 @@ void test_validate_shared_files_sub_subfolder_valid_file(void **state)
     validate_shared_files("etc/shared/test_default", finalfp, &_f_time, false, false, -1);
 }
 
-void test_copy_directory_files_null_initial(void **state)
+void test_copy_directory_files_null(void **state)
 {
     expect_string(__wrap_wreaddir, name, "src_path");
     will_return(__wrap_wreaddir, NULL);
@@ -4046,22 +4162,8 @@ void test_copy_directory_files_null_initial(void **state)
     errno = 1;
     expect_string(__wrap__mwarn, formatted_msg, "Could not open directory 'src_path'. Group folder was deleted.");
 
-    expect_string(__wrap_wdb_remove_group_db, name, "group_test");
-    will_return(__wrap_wdb_remove_group_db, OS_SUCCESS);
+    copy_directory("src_path", "dst_path", "group_test");
 
-    copy_directory("src_path", "dst_path", "group_test", true);
-}
-
-void test_copy_directory_files_null_not_initial(void **state)
-{
-    expect_string(__wrap_wreaddir, name, "src_path");
-    will_return(__wrap_wreaddir, NULL);
-
-    errno = 1;
-    will_return(__wrap_strerror, "ERROR");
-    expect_string(__wrap__mdebug2, formatted_msg, "Could not open directory 'src_path': ERROR (1)");
-
-    copy_directory("src_path", "dst_path", "group_test", false);
 }
 
 void test_copy_directory_hidden_file(void **state)
@@ -4075,7 +4177,7 @@ void test_copy_directory_hidden_file(void **state)
     expect_string(__wrap_wreaddir, name, "src_path");
     will_return(__wrap_wreaddir, files);
 
-    copy_directory("src_path", "dst_path", "group_test", true);
+    copy_directory("src_path", "dst_path", "group_test");
 }
 
 void test_copy_directory_merged_file(void **state)
@@ -4089,7 +4191,7 @@ void test_copy_directory_merged_file(void **state)
     expect_string(__wrap_wreaddir, name, "src_path");
     will_return(__wrap_wreaddir, files);
 
-    copy_directory("src_path", "dst_path", "group_test", true);
+    copy_directory("src_path", "dst_path", "group_test");
 }
 
 void test_copy_directory_source_path_too_long_warning(void **state)
@@ -4110,7 +4212,7 @@ void test_copy_directory_source_path_too_long_warning(void **state)
 
     reported_path_size_exceeded = 0;
 
-    copy_directory(LONG_PATH, "dst_path", "group_test", true);
+    copy_directory(LONG_PATH, "dst_path", "group_test");
 }
 
 void test_copy_directory_source_path_too_long_debug(void **state)
@@ -4131,7 +4233,7 @@ void test_copy_directory_source_path_too_long_debug(void **state)
 
     reported_path_size_exceeded = 1;
 
-    copy_directory(LONG_PATH, "dst_path", "group_test", true);
+    copy_directory(LONG_PATH, "dst_path", "group_test");
 
     reported_path_size_exceeded = 0;
 }
@@ -4154,7 +4256,7 @@ void test_copy_directory_destination_path_too_long_warning(void **state)
 
     reported_path_size_exceeded = 0;
 
-    copy_directory("src_path", LONG_PATH, "group_test", true);
+    copy_directory("src_path", LONG_PATH, "group_test");
 }
 
 void test_copy_directory_destination_path_too_long_debug(void **state)
@@ -4175,7 +4277,7 @@ void test_copy_directory_destination_path_too_long_debug(void **state)
 
     reported_path_size_exceeded = 1;
 
-    copy_directory("src_path", LONG_PATH, "group_test", true);
+    copy_directory("src_path", LONG_PATH, "group_test");
 
     reported_path_size_exceeded = 0;
 }
@@ -4205,7 +4307,7 @@ void test_copy_directory_invalid_file(void **state)
     expect_string(__wrap_OSHash_Get, key, "src_path/test-file");
     will_return(__wrap_OSHash_Get, last_modify);
 
-    copy_directory("src_path", "dst_path", "group_test", true);
+    copy_directory("src_path", "dst_path", "group_test");
 
     os_free(last_modify);
 }
@@ -4237,7 +4339,7 @@ void test_copy_directory_agent_conf_file(void **state)
     expect_value(__wrap_w_copy_file, silent, 1);
     will_return(__wrap_w_copy_file, 0);
 
-    copy_directory("src_path", "dst_path", "group_test", true);
+    copy_directory("src_path", "dst_path", "group_test");
 }
 
 void test_copy_directory_valid_file(void **state)
@@ -4267,7 +4369,7 @@ void test_copy_directory_valid_file(void **state)
     expect_value(__wrap_w_copy_file, silent, 1);
     will_return(__wrap_w_copy_file, 0);
 
-    copy_directory("src_path", "dst_path", "group_test", true);
+    copy_directory("src_path", "dst_path", "group_test");
 }
 
 void test_copy_directory_valid_file_subfolder_file(void **state)
@@ -4331,7 +4433,7 @@ void test_copy_directory_valid_file_subfolder_file(void **state)
     expect_value(__wrap_w_copy_file, silent, 1);
     will_return(__wrap_w_copy_file, 0);
 
-    copy_directory("src_path", "dst_path", "group_test", true);
+    copy_directory("src_path", "dst_path", "group_test");
 }
 
 void test_copy_directory_mkdir_fail(void **state)
@@ -4357,7 +4459,7 @@ void test_copy_directory_mkdir_fail(void **state)
     will_return(__wrap_strerror, "ERROR");
     expect_string(__wrap__merror, formatted_msg, "Cannot create directory 'dst_path/subfolder': ERROR (10)");
 
-    copy_directory("src_path", "dst_path", "group_test", true);
+    copy_directory("src_path", "dst_path", "group_test");
     errno = 0;
 }
 
@@ -4384,10 +4486,9 @@ void test_copy_directory_mkdir_exist(void **state)
     expect_string(__wrap_wreaddir, name, "src_path/subfolder");
     will_return(__wrap_wreaddir, NULL);
 
-    will_return(__wrap_strerror, "ERROR");
-    expect_string(__wrap__mdebug2, formatted_msg, "Could not open directory 'src_path/subfolder': ERROR (17)");
+    expect_string(__wrap__mwarn, formatted_msg, "Could not open directory 'src_path/subfolder'. Group folder was deleted.");
 
-    copy_directory("src_path", "dst_path", "group_test", true);
+    copy_directory("src_path", "dst_path", "group_test");
     errno = 0;
 }
 
@@ -4465,7 +4566,7 @@ void test_copy_directory_file_subfolder_file(void **state)
     expect_value(__wrap_w_copy_file, silent, 1);
     will_return(__wrap_w_copy_file, 0);
 
-    copy_directory("src_path", "dst_path", "group_test", true);
+    copy_directory("src_path", "dst_path", "group_test");
 }
 
 void test_save_controlmsg_request_error(void **state)
@@ -4506,7 +4607,6 @@ void test_save_controlmsg_request_success(void **state)
 
 void test_save_controlmsg_invalid_msg(void **state)
 {
-
     char r_msg[OS_SIZE_128] = {0};
     strcpy(r_msg, "Invalid message");
 
@@ -4517,6 +4617,81 @@ void test_save_controlmsg_invalid_msg(void **state)
     int *wdb_sock = NULL;
 
     expect_string(__wrap__mwarn, formatted_msg, "Invalid message from agent: 'NEW_AGENT' (001)");
+
+    save_controlmsg(&key, r_msg, msg_length, wdb_sock);
+
+    free_keyentry(&key);
+}
+
+void test_save_controlmsg_agent_invalid_version(void **state)
+{
+    char r_msg[OS_SIZE_128] = {0};
+    char s_msg[OS_FLSIZE + 1] = {0};
+    strcpy(r_msg, "agent startup {\"version\":\"v4.6.0\"}");
+    snprintf(s_msg, OS_FLSIZE, "%s%s%s%s%s", CONTROL_HEADER, HC_ERROR, "{\"message\":\"", HC_INVALID_VERSION_RESPONSE, "\"}");
+
+    keyentry key;
+    keyentry_init(&key, "NEW_AGENT", "001", "10.2.2.5", NULL);
+    memset(&key.peer_info, 0, sizeof(struct sockaddr_storage));
+
+    size_t msg_length = sizeof(r_msg);
+    int *wdb_sock = NULL;
+
+    expect_string(__wrap__mdebug1, formatted_msg, "Agent NEW_AGENT sent HC_STARTUP from ''");
+
+    expect_string(__wrap_compare_wazuh_versions, version1, "v4.5.0");
+    expect_string(__wrap_compare_wazuh_versions, version2, "v4.6.0");
+    expect_value(__wrap_compare_wazuh_versions, compare_patch, false);
+    will_return(__wrap_compare_wazuh_versions, -1);
+
+    expect_string(__wrap__mdebug2, formatted_msg, "Unable to connect agent: '001': 'Incompatible version'");
+
+    expect_value(__wrap_wdb_update_agent_status_code, id, 1);
+    expect_value(__wrap_wdb_update_agent_status_code, status_code, INVALID_VERSION);
+    expect_string(__wrap_wdb_update_agent_status_code, version, "v4.6.0");
+    expect_string(__wrap_wdb_update_agent_status_code, sync_status, "synced");
+    will_return(__wrap_wdb_update_agent_status_code, OS_SUCCESS);
+
+    expect_string(__wrap_send_msg, agent_id, "001");
+    expect_string(__wrap_send_msg, msg, s_msg);
+
+    expect_string(__wrap_rem_inc_send_ack, agent_id, "001");
+
+    save_controlmsg(&key, r_msg, msg_length, wdb_sock);
+
+    free_keyentry(&key);
+}
+
+void test_save_controlmsg_get_agent_version_fail(void **state)
+{
+    char r_msg[OS_SIZE_128] = {0};
+    char s_msg[OS_FLSIZE + 1] = {0};
+    strcpy(r_msg, "agent startup {\"test\":\"fail\"}");
+    snprintf(s_msg, OS_FLSIZE, "%s%s%s%s%s", CONTROL_HEADER, HC_ERROR, "{\"message\":\"", HC_RETRIEVE_VERSION, "\"}");
+
+    keyentry key;
+    keyentry_init(&key, "NEW_AGENT", "001", "10.2.2.5", NULL);
+    memset(&key.peer_info, 0, sizeof(struct sockaddr_storage));
+
+    size_t msg_length = sizeof(r_msg);
+    int *wdb_sock = NULL;
+
+    expect_string(__wrap__mdebug1, formatted_msg, "Agent NEW_AGENT sent HC_STARTUP from ''");
+    expect_string(__wrap__merror, formatted_msg, "Error getting version from agent '001'");
+
+    expect_string(__wrap__mdebug2, formatted_msg, "Unable to connect agent: '001': 'Couldn't retrieve version'");
+
+    expect_value(__wrap_wdb_update_agent_status_code, id, 1);
+    expect_value(__wrap_wdb_update_agent_status_code, status_code, ERR_VERSION_RECV);
+    expect_string(__wrap_wdb_update_agent_status_code, sync_status, "synced");
+    will_return(__wrap_wdb_update_agent_status_code, OS_INVALID);
+
+    expect_string(__wrap__mwarn, formatted_msg, "Unable to set status code for agent: '001'");
+
+    expect_string(__wrap_send_msg, agent_id, "001");
+    expect_string(__wrap_send_msg, msg, s_msg);
+
+    expect_string(__wrap_rem_inc_send_ack, agent_id, "001");
 
     save_controlmsg(&key, r_msg, msg_length, wdb_sock);
 
@@ -4534,7 +4709,8 @@ void test_save_controlmsg_could_not_add_pending_data(void **state)
     size_t msg_length = sizeof(r_msg);
     int *wdb_sock = NULL;
 
-    expect_string(__wrap_send_msg, msg, "001");
+    expect_string(__wrap_send_msg, agent_id, "001");
+    expect_string(__wrap_send_msg, msg, "#!-agent ack ");
 
     expect_string(__wrap_rem_inc_send_ack, agent_id, "001");
 
@@ -4573,7 +4749,8 @@ void test_save_controlmsg_unable_to_save_last_keepalive(void **state)
     size_t msg_length = sizeof(r_msg);
     int *wdb_sock = NULL;
 
-    expect_string(__wrap_send_msg, msg, "001");
+    expect_string(__wrap_send_msg, agent_id, "001");
+    expect_string(__wrap_send_msg, msg, "#!-agent ack ");
 
     expect_string(__wrap_rem_inc_send_ack, agent_id, "001");
 
@@ -4618,7 +4795,8 @@ void test_save_controlmsg_update_msg_error_parsing(void **state)
     size_t msg_length = sizeof(r_msg);
     int *wdb_sock = NULL;
 
-    expect_string(__wrap_send_msg, msg, "001");
+    expect_string(__wrap_send_msg, agent_id, "001");
+    expect_string(__wrap_send_msg, msg, "#!-agent ack ");
 
     expect_string(__wrap_rem_inc_send_ack, agent_id, "001");
 
@@ -4698,7 +4876,8 @@ void test_save_controlmsg_update_msg_unable_to_update_information(void **state)
     size_t msg_length = sizeof(r_msg);
     int *wdb_sock = NULL;
 
-    expect_string(__wrap_send_msg, msg, "001");
+    expect_string(__wrap_send_msg, agent_id, "001");
+    expect_string(__wrap_send_msg, msg, "#!-agent ack ");
 
     expect_string(__wrap_rem_inc_send_ack, agent_id, "001");
 
@@ -4801,7 +4980,8 @@ void test_save_controlmsg_update_msg_lookfor_agent_group_fail(void **state)
     size_t msg_length = sizeof(r_msg);
     int *wdb_sock = NULL;
 
-    expect_string(__wrap_send_msg, msg, "001");
+    expect_string(__wrap_send_msg, agent_id, "001");
+    expect_string(__wrap_send_msg, msg, "#!-agent ack ");
 
     expect_string(__wrap_rem_inc_send_ack, agent_id, "001");
 
@@ -4866,20 +5046,26 @@ void test_save_controlmsg_update_msg_lookfor_agent_group_fail(void **state)
 void test_save_controlmsg_startup(void **state)
 {
     char r_msg[OS_SIZE_128] = {0};
-    strcpy(r_msg, HC_STARTUP);
+    strcpy(r_msg, "agent startup {\"version\":\"v4.5.0\"}");
     keyentry key;
     keyentry_init(&key, "NEW_AGENT", "001", "10.2.2.5", NULL);
     key.peer_info.ss_family = 0;
     size_t msg_length = sizeof(r_msg);
     int *wdb_sock = NULL;
 
-    expect_string(__wrap_send_msg, msg, "001");
+    expect_string(__wrap_send_msg, agent_id, "001");
+    expect_string(__wrap_send_msg, msg, "#!-agent ack ");
 
     expect_string(__wrap_rem_inc_send_ack, agent_id, "001");
 
     expect_string(__wrap_rem_inc_recv_ctrl_startup, agent_id, "001");
 
     expect_string(__wrap__mdebug1, formatted_msg, "Agent NEW_AGENT sent HC_STARTUP from ''");
+
+    expect_string(__wrap_compare_wazuh_versions, version1, "v4.5.0");
+    expect_string(__wrap_compare_wazuh_versions, version2, "v4.5.0");
+    expect_value(__wrap_compare_wazuh_versions, compare_patch, false);
+    will_return(__wrap_compare_wazuh_versions, 0);
 
     expect_function_call(__wrap_OSHash_Create);
     will_return(__wrap_OSHash_Create, 1);
@@ -4922,13 +5108,13 @@ void test_save_controlmsg_shutdown(void **state)
     size_t msg_length = sizeof(r_msg);
     int *wdb_sock = NULL;
 
-    expect_string(__wrap_rem_inc_recv_ctrl_shutdown, agent_id, "001");
-
     expect_any(__wrap_get_ipv4_string, address);
     expect_any(__wrap_get_ipv4_string, address_size);
     will_return(__wrap_get_ipv4_string, OS_INVALID);
 
     expect_string(__wrap__mdebug1, formatted_msg, "Agent NEW_AGENT sent HC_SHUTDOWN from ''");
+
+    expect_string(__wrap_rem_inc_recv_ctrl_shutdown, agent_id, "001");
 
     expect_function_call(__wrap_OSHash_Create);
     will_return(__wrap_OSHash_Create, 1);
@@ -4973,6 +5159,10 @@ void test_save_controlmsg_shutdown(void **state)
     will_return(__wrap_strerror, "fail");
     expect_string(__wrap__merror, formatted_msg, "(1210): Queue 'queue/sockets/queue' not accessible: 'fail'");
 
+    will_return(__wrap_OSHash_Delete_ex, NULL);
+    expect_string(__wrap_OSHash_Delete_ex, key, "001");
+    expect_value(__wrap_OSHash_Delete_ex, self, agent_data_hash);
+
     save_controlmsg(&key, r_msg, msg_length, wdb_sock);
 
     free_keyentry(&key);
@@ -4990,13 +5180,13 @@ void test_save_controlmsg_shutdown_wdb_fail(void **state)
     size_t msg_length = sizeof(r_msg);
     int *wdb_sock = NULL;
 
-    expect_string(__wrap_rem_inc_recv_ctrl_shutdown, agent_id, "001");
-
     expect_any(__wrap_get_ipv6_string, address);
     expect_any(__wrap_get_ipv6_string, address_size);
     will_return(__wrap_get_ipv6_string, OS_INVALID);
 
     expect_string(__wrap__mdebug1, formatted_msg, "Agent NEW_AGENT sent HC_SHUTDOWN from ''");
+
+    expect_string(__wrap_rem_inc_recv_ctrl_shutdown, agent_id, "001");
 
     expect_function_call(__wrap_OSHash_Create);
     will_return(__wrap_OSHash_Create, 1);
@@ -5021,6 +5211,10 @@ void test_save_controlmsg_shutdown_wdb_fail(void **state)
 
     expect_string(__wrap__mwarn, formatted_msg, "Unable to set connection status as disconnected for agent: 001");
 
+    will_return(__wrap_OSHash_Delete_ex, NULL);
+    expect_string(__wrap_OSHash_Delete_ex, key, "001");
+    expect_value(__wrap_OSHash_Delete_ex, self, agent_data_hash);
+
     save_controlmsg(&key, r_msg, msg_length, wdb_sock);
 
     free_keyentry(&key);
@@ -5031,8 +5225,10 @@ int main(void)
 {
     const struct CMUnitTest tests[] = {
         // Tests lookfor_agent_group
+        cmocka_unit_test(test_lookfor_agent_group_with_group),
         cmocka_unit_test(test_lookfor_agent_group_set_default_group),
-        cmocka_unit_test(test_lookfor_agent_group_null_groups),
+        cmocka_unit_test(test_lookfor_agent_group_set_group_worker),
+        cmocka_unit_test(test_lookfor_agent_group_set_group_worker_error),
         cmocka_unit_test(test_lookfor_agent_group_msg_without_enter),
         cmocka_unit_test(test_lookfor_agent_group_bad_message),
         cmocka_unit_test(test_lookfor_agent_group_message_without_second_enter),
@@ -5130,8 +5326,7 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_validate_shared_files_valid_file_subfolder_valid_file, test_c_group_setup, test_c_group_teardown),
         cmocka_unit_test_setup_teardown(test_validate_shared_files_sub_subfolder_valid_file, test_c_group_setup, test_c_group_teardown),
         // Test copy_directory
-        cmocka_unit_test(test_copy_directory_files_null_initial),
-        cmocka_unit_test(test_copy_directory_files_null_not_initial),
+        cmocka_unit_test(test_copy_directory_files_null),
         cmocka_unit_test(test_copy_directory_hidden_file),
         cmocka_unit_test(test_copy_directory_merged_file),
         cmocka_unit_test(test_copy_directory_source_path_too_long_warning),
@@ -5149,14 +5344,16 @@ int main(void)
         cmocka_unit_test(test_save_controlmsg_request_error),
         cmocka_unit_test(test_save_controlmsg_request_success),
         cmocka_unit_test(test_save_controlmsg_invalid_msg),
-        cmocka_unit_test(test_save_controlmsg_could_not_add_pending_data),
-        cmocka_unit_test(test_save_controlmsg_unable_to_save_last_keepalive),
-        cmocka_unit_test(test_save_controlmsg_update_msg_error_parsing),
-        cmocka_unit_test(test_save_controlmsg_update_msg_unable_to_update_information),
-        cmocka_unit_test(test_save_controlmsg_update_msg_lookfor_agent_group_fail),
-        cmocka_unit_test(test_save_controlmsg_startup),
-        cmocka_unit_test(test_save_controlmsg_shutdown),
-        cmocka_unit_test(test_save_controlmsg_shutdown_wdb_fail),
+        cmocka_unit_test_setup_teardown(test_save_controlmsg_agent_invalid_version, setup_globals_no_test_mode, teardown_globals),
+        cmocka_unit_test_setup_teardown(test_save_controlmsg_get_agent_version_fail, setup_test_mode, teardown_test_mode),
+        cmocka_unit_test_setup_teardown(test_save_controlmsg_could_not_add_pending_data, setup_test_mode, teardown_test_mode),
+        cmocka_unit_test_setup_teardown(test_save_controlmsg_unable_to_save_last_keepalive, setup_test_mode, teardown_test_mode),
+        cmocka_unit_test_setup_teardown(test_save_controlmsg_update_msg_error_parsing, setup_test_mode, teardown_test_mode),
+        cmocka_unit_test_setup_teardown(test_save_controlmsg_update_msg_unable_to_update_information, setup_test_mode, teardown_test_mode),
+        cmocka_unit_test_setup_teardown(test_save_controlmsg_update_msg_lookfor_agent_group_fail, setup_test_mode, teardown_test_mode),
+        cmocka_unit_test_setup_teardown(test_save_controlmsg_startup, setup_globals, teardown_globals),
+        cmocka_unit_test_setup_teardown(test_save_controlmsg_shutdown, setup_globals, teardown_globals),
+        cmocka_unit_test_setup_teardown(test_save_controlmsg_shutdown_wdb_fail, setup_globals, teardown_globals),
     };
     return cmocka_run_group_tests(tests, test_setup_group, test_teardown_group);
 }

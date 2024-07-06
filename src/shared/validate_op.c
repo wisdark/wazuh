@@ -11,7 +11,7 @@
 #include "shared.h"
 #include "validate_op.h"
 #include "expression.h"
-#include "os_net/os_net.h"
+#include "../os_net/os_net.h"
 
 #ifdef WAZUH_UNIT_TESTING
 #define static
@@ -96,7 +96,7 @@ static char *_read_file(const char *high_name, const char *low_name, const char 
     char *ret;
     int i;
 
-    fp = fopen(defines_file, "r");
+    fp = wfopen(defines_file, "r");
     if (!fp) {
         if (strcmp(defines_file, OSSEC_LDEFINES) != 0) {
             merror(FOPEN_ERROR, defines_file, errno, strerror(errno));

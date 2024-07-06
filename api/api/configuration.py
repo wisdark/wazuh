@@ -6,6 +6,7 @@ import copy
 import datetime
 import os
 from typing import Dict, Tuple, Any, List
+import logging
 
 import yaml
 from cryptography import x509
@@ -20,6 +21,9 @@ import wazuh.core.utils as core_utils
 from api.api_exception import APIError
 from api.constants import CONFIG_FILE_PATH, SECURITY_CONFIG_PATH, API_SSL_PATH
 from api.validator import api_config_schema, security_config_schema
+
+CACHE_DEPRECATED_MESSAGE = 'The `cache` API configuration option was deprecated in {release} and will be removed ' \
+                           'in the next minor release.'
 
 default_security_configuration = {
     "auth_token_exp_timeout": 900,
@@ -41,7 +45,7 @@ default_api_configuration = {
         "cert": "server.crt",
         "use_ca": False,
         "ca": "ca.crt",
-        "ssl_protocol": "TLSv1.2",
+        "ssl_protocol": "auto",
         "ssl_ciphers": ""
     },
     "logs": {
@@ -58,10 +62,6 @@ default_api_configuration = {
         "expose_headers": "*",
         "allow_headers": "*",
         "allow_credentials": False,
-    },
-    "cache": {
-        "enabled": True,
-        "time": 0.750
     },
     "access": {
         "max_login_attempts": 50,
@@ -82,6 +82,22 @@ default_api_configuration = {
         "limits": {
             "eps": {
                 "allow": True
+            }
+        },
+        "agents": {
+            "allow_higher_versions": {
+                "allow": True
+            }
+        },
+        "indexer": {
+            "allow": True
+        },
+        "integrations": {
+            "virustotal": {
+                "public_key": {
+                    "allow": True,
+                    "minimum_quota": 240
+                }
             }
         }
     }
@@ -105,7 +121,6 @@ def dict_to_lowercase(mydict: Dict):
 
 def append_wazuh_prefixes(dictionary: Dict, path_fields: Dict[Any, List[Tuple[str, str]]]) -> None:
     """Append Wazuh prefix to all path fields in a dictionary.
-    
     Parameters
     ----------
     dictionary : dict
@@ -301,6 +316,12 @@ def read_yaml_config(config_file: str = CONFIG_FILE_PATH, default_conf: dict = N
     else:
         # If any value is missing from user's configuration, add the default one:
         dict_to_lowercase(configuration)
+
+        # Check if cache is enabled
+        if configuration.get('cache', {}).get('enabled', {}):
+            logger = logging.getLogger('wazuh-api')
+            logger.warning(CACHE_DEPRECATED_MESSAGE.format(release="4.8.0"))
+
         schema = security_config_schema if config_file == SECURITY_CONFIG_PATH else api_config_schema
         configuration = fill_dict(default_conf, configuration, schema)
 

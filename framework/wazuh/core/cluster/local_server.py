@@ -7,17 +7,15 @@ import functools
 import json
 import os
 import random
-from datetime import datetime
 from typing import Tuple, Union
 
 import uvloop
-
 from wazuh.core import common
-from wazuh.core.cluster import common as c_common, server, client, cluster
+from wazuh.core.cluster import client, cluster, server
+from wazuh.core.cluster import common as c_common
 from wazuh.core.cluster.dapi import dapi
 from wazuh.core.cluster.utils import context_tag
 from wazuh.core.exception import WazuhClusterError
-from wazuh.core.utils import get_date_from_timestamp
 
 
 class LocalServerHandler(server.AbstractServerHandler):
@@ -166,7 +164,7 @@ class LocalServerHandler(server.AbstractServerHandler):
             Request result.
         """
         result = future.result()
-        send_res = asyncio.create_task(self.log_exceptions(self.send_request(command=b'send_f_res', data=result)))
+        send_res = asyncio.create_task(self.send_request(command=b'send_f_res', data=result))
         send_res.add_done_callback(self.send_res_callback)
 
     def send_res_callback(self, future):
@@ -304,10 +302,7 @@ class LocalServerHandlerMaster(LocalServerHandler):
         dict
             Dict object containing nodes information.
         """
-        return b'ok', json.dumps(self.server.node.get_health(json.loads(filter_nodes)),
-                                 default=lambda o: "n/a" if
-                                 isinstance(o, datetime) and o == get_date_from_timestamp(0)
-                                 else (o.__str__() if isinstance(o, datetime) else None)).encode()
+        return b'ok', json.dumps(self.server.node.get_health(json.loads(filter_nodes))).encode()
 
     def send_file_request(self, path, node_name):
         """Send a file from the API to the cluster.
@@ -355,6 +350,7 @@ class LocalServerMaster(LocalServer):
         self.handler_class = LocalServerHandlerMaster
         self.dapi = dapi.APIRequestQueue(server=self)
         self.sendsync = dapi.SendSyncRequestQueue(server=self)
+
         self.tasks.extend([self.dapi.run, self.sendsync.run])
 
 

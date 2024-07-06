@@ -30,12 +30,12 @@ from wazuh.core import common, exception
 from wazuh.core.cluster import local_client, common as c_common
 from wazuh.core.cluster.cluster import check_cluster_status
 from wazuh.core.exception import WazuhException, WazuhClusterError, WazuhError
-from wazuh.core.wazuh_socket import wazuh_sendsync
+from wazuh.core.wazuh_socket import wazuh_sendasync
 
 pools = common.mp_pools.get()
 
 authentication_funcs = {'check_token', 'check_user_master', 'get_permissions', 'get_security_conf'}
-
+events_funcs = {"send_event_to_analysisd"}
 
 class DistributedAPI:
     """Represents a distributed API request."""
@@ -102,9 +102,7 @@ class DistributedAPI:
         self.origin_module = 'API'
         self.nodes = nodes if nodes is not None else list()
         if not basic_services:
-            self.basic_services = ('wazuh-modulesd', 'wazuh-analysisd', 'wazuh-execd', 'wazuh-db')
-            if common.WAZUH_INSTALL_TYPE != "local":
-                self.basic_services += ('wazuh-remoted',)
+            self.basic_services = ('wazuh-modulesd', 'wazuh-analysisd', 'wazuh-execd', 'wazuh-db', 'wazuh-remoted')
         else:
             self.basic_services = basic_services
 
@@ -231,16 +229,8 @@ class DistributedAPI:
             raise exception.WazuhError(1017, extra_message=extra_info)
 
     @staticmethod
-    def run_local(f, f_kwargs, logger, rbac_permissions, broadcasting, nodes, current_user, origin_module):
+    def run_local(f, f_kwargs, rbac_permissions, broadcasting, nodes, current_user, origin_module):
         """Run framework SDK function locally in another process."""
-
-        def debug_log(logger, message):
-            if logger.name == 'wazuh-api':
-                logger.debug2(message)
-            else:
-                logger.debug(message)
-
-        debug_log(logger, "Starting to execute request locally")
         common.rbac.set(rbac_permissions)
         common.broadcast.set(broadcasting)
         common.cluster_nodes.set(nodes)
@@ -248,7 +238,6 @@ class DistributedAPI:
         common.origin_module.set(origin_module)
         data = f(**f_kwargs)
         common.reset_context_cache()
-        debug_log(logger, "Finished executing request locally")
         return data
 
     async def execute_local_request(self) -> str:
@@ -274,7 +263,7 @@ class DistributedAPI:
                 self.f_kwargs[self.local_client_arg] = lc
             try:
                 if self.is_async:
-                    task = self.run_local(self.f, self.f_kwargs, self.logger, self.rbac_permissions, self.broadcasting,
+                    task = self.run_local(self.f, self.f_kwargs, self.rbac_permissions, self.broadcasting,
                                           self.nodes, self.current_user, self.origin_module)
 
                 else:
@@ -283,19 +272,22 @@ class DistributedAPI:
                         pool = pools.get('thread_pool')
                     elif self.f.__name__ in authentication_funcs:
                         pool = pools.get('authentication_pool')
+                    elif self.f.__name__ in events_funcs:
+                        pool = pools.get('events_pool')
                     else:
                         pool = pools.get('process_pool')
 
                     task = loop.run_in_executor(pool, partial(self.run_local, self.f, self.f_kwargs,
-                                                              self.logger, self.rbac_permissions,
-                                                              self.broadcasting, self.nodes,
+                                                              self.rbac_permissions, self.broadcasting, self.nodes,
                                                               self.current_user, self.origin_module))
                 try:
+                    self.debug_log("Starting to execute request locally")
                     data = await asyncio.wait_for(task, timeout=timeout)
+                    self.debug_log("Finished executing request locally")
                 except asyncio.TimeoutError:
                     raise exception.WazuhInternalError(3021)
-                except OperationalError:
-                    raise exception.WazuhInternalError(2008)
+                except OperationalError as exc:
+                    raise exception.WazuhInternalError(2008, extra_message=str(exc.orig))
                 except process.BrokenProcessPool:
                     raise exception.WazuhInternalError(901)
             except json.decoder.JSONDecodeError:
@@ -737,8 +729,8 @@ class SendSyncRequestQueue(WazuhRequestQueue):
             try:
                 request = json.loads(request, object_hook=c_common.as_wazuh_object)
                 self.logger.debug(f"Receiving SendSync request ({request['daemon_name']}) from {names[0]} ({names[1]})")
-                result = await wazuh_sendsync(**request)
-                task_id = await node.send_string(result.encode())
+                result = await wazuh_sendasync(**request)
+                task_id = await node.send_string(result)
             except Exception as e:
                 self.logger.error(f"Error in SendSync (parameters {request}): {str(e)}", exc_info=False)
                 with contextlib.suppress(Exception):

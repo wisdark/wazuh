@@ -15,11 +15,13 @@
 #include <shared.h>
 #include <pthread.h>
 #include <openssl/evp.h>
-#include "external/sqlite/sqlite3.h"
+#include "../external/sqlite/sqlite3.h"
 #include "syscheck_op.h"
 #include "rootcheck_op.h"
 #include "wazuhdb_op.h"
 #include "regex_op.h"
+#include "router.h"
+#include "../config/global-config.h"
 
 #define WDB_AGENT_EMPTY 0
 #define WDB_AGENT_PENDING 1
@@ -51,16 +53,14 @@
 #define AGENT_CS_ACTIVE          "active"
 #define AGENT_CS_DISCONNECTED    "disconnected"
 
-#define VULN_CVES_STATUS_VALID              "VALID"
-#define VULN_CVES_STATUS_PENDING            "PENDING"
-#define VULN_CVES_STATUS_OBSOLETE           "OBSOLETE"
-#define VULN_CVES_STATUS_SOLVED_LOWERCASE   "Solved"
-#define VULN_CVES_STATUS_ACTIVE_LOWERCASE   "Active"
-
-#define VULN_CVES_TYPE_OS         "OS"
-#define VULN_CVES_TYPE_PACKAGE    "PACKAGE"
-
-#define VULN_CVES_MAX_REFERENCES OS_SIZE_20480
+/// Enumeration of agents disconected status reasons.
+typedef enum agent_status_code_t {
+        INVALID_VERSION = 1,    ///< Invalid agent version
+        ERR_VERSION_RECV,       ///< Error retrieving version
+        HC_SHUTDOWN_RECV,       ///< Shutdown message received
+        NO_KEEPALIVE,           ///< Disconnected because no keepalive received
+        RESET_BY_MANAGER,       ///< Connection reset by manager
+} agent_status_code_t;
 
 /* wdb_exec_row_stmt modes */
 #define STMT_MULTI_COLUMN 0
@@ -70,6 +70,7 @@
 typedef enum wdb_groups_sync_condition_t {
         WDB_GROUP_SYNC_STATUS,      ///< Get groups by their sync status
         WDB_GROUP_ALL,              ///< Get all groups
+        WDB_GROUP_NO_CONDITION,     ///< No condition
         WDB_GROUP_INVALID_CONDITION ///< Invalid condition
 } wdb_groups_sync_condition_t;
 
@@ -100,6 +101,9 @@ typedef enum wdb_global_group_hash_operations_t {
 
 #define SYSCOLLECTOR_LEGACY_CHECKSUM_VALUE "legacy"
 
+// Router provider variables
+extern ROUTER_PROVIDER_HANDLE router_agent_events_handle;
+
 typedef enum wdb_stmt {
     WDB_STMT_FIM_LOAD,
     WDB_STMT_FIM_FIND_ENTRY,
@@ -115,7 +119,6 @@ typedef enum wdb_stmt {
     WDB_STMT_OSINFO_INSERT2,
     WDB_STMT_OSINFO_DEL,
     WDB_STMT_OSINFO_GET,
-    WDB_STMT_OSINFO_SET_TRIAGED,
     WDB_STMT_PROGRAM_INSERT,
     WDB_STMT_PROGRAM_INSERT2,
     WDB_STMT_PROGRAM_DEL,
@@ -201,6 +204,16 @@ typedef enum wdb_stmt {
     WDB_STMT_FIM_REGISTRY_CLEAR,
     WDB_STMT_FIM_REGISTRY_DELETE_AROUND,
     WDB_STMT_FIM_REGISTRY_DELETE_RANGE,
+    WDB_STMT_FIM_REGISTRY_KEY_SELECT_CHECKSUM,
+    WDB_STMT_FIM_REGISTRY_KEY_SELECT_CHECKSUM_RANGE,
+    WDB_STMT_FIM_REGISTRY_KEY_CLEAR,
+    WDB_STMT_FIM_REGISTRY_KEY_DELETE_AROUND,
+    WDB_STMT_FIM_REGISTRY_KEY_DELETE_RANGE,
+    WDB_STMT_FIM_REGISTRY_VALUE_SELECT_CHECKSUM,
+    WDB_STMT_FIM_REGISTRY_VALUE_SELECT_CHECKSUM_RANGE,
+    WDB_STMT_FIM_REGISTRY_VALUE_CLEAR,
+    WDB_STMT_FIM_REGISTRY_VALUE_DELETE_AROUND,
+    WDB_STMT_FIM_REGISTRY_VALUE_DELETE_RANGE,
     WDB_STMT_FIM_REGISTRY_DELETE_BY_PK,
     WDB_STMT_ROOTCHECK_INSERT_PM,
     WDB_STMT_ROOTCHECK_UPDATE_PM,
@@ -214,6 +227,7 @@ typedef enum wdb_stmt {
     WDB_STMT_GLOBAL_LABELS_SET,
     WDB_STMT_GLOBAL_UPDATE_AGENT_KEEPALIVE,
     WDB_STMT_GLOBAL_UPDATE_AGENT_CONNECTION_STATUS,
+    WDB_STMT_GLOBAL_UPDATE_AGENT_STATUS_CODE,
     WDB_STMT_GLOBAL_DELETE_AGENT,
     WDB_STMT_GLOBAL_SELECT_AGENT_NAME,
     WDB_STMT_GLOBAL_FIND_AGENT,
@@ -239,9 +253,11 @@ typedef enum wdb_stmt {
     WDB_STMT_GLOBAL_GROUP_CSV_GET,
     WDB_STMT_GLOBAL_GROUP_CTX_SET,
     WDB_STMT_GLOBAL_GROUP_HASH_GET,
+    WDB_STMT_GLOBAL_GROUP_HASH_SET,
     WDB_STMT_GLOBAL_UPDATE_AGENT_INFO,
     WDB_STMT_GLOBAL_GET_GROUPS,
     WDB_STMT_GLOBAL_GET_AGENTS,
+    WDB_STMT_GLOBAL_GET_AGENTS_CONTEXT,
     WDB_STMT_GLOBAL_GET_AGENTS_BY_CONNECTION_STATUS,
     WDB_STMT_GLOBAL_GET_AGENTS_BY_CONNECTION_STATUS_AND_NODE,
     WDB_STMT_GLOBAL_GET_AGENT_INFO,
@@ -258,6 +274,7 @@ typedef enum wdb_stmt {
     WDB_STMT_TASK_CANCEL_PENDING_UPGRADE_TASKS,
     WDB_STMT_PRAGMA_JOURNAL_WAL,
     WDB_STMT_PRAGMA_ENABLE_FOREIGN_KEYS,
+    WDB_STMT_PRAGMA_SYNCHRONOUS_NORMAL,
     WDB_STMT_SYSCOLLECTOR_PROCESSES_SELECT_CHECKSUM,
     WDB_STMT_SYSCOLLECTOR_PROCESSES_SELECT_CHECKSUM_RANGE,
     WDB_STMT_SYSCOLLECTOR_PROCESSES_DELETE_AROUND,
@@ -312,17 +329,8 @@ typedef enum wdb_stmt {
     WDB_STMT_SYSCOLLECTOR_OSINFO_DELETE_RANGE,
     WDB_STMT_SYSCOLLECTOR_OSINFO_DELETE_BY_PK,
     WDB_STMT_SYSCOLLECTOR_OSINFO_CLEAR,
-    WDB_STMT_VULN_CVES_INSERT,
-    WDB_STMT_VULN_CVES_UPDATE,
-    WDB_STMT_VULN_CVES_UPDATE_BY_TYPE,
-    WDB_STMT_VULN_CVES_UPDATE_ALL,
-    WDB_STMT_VULN_CVES_FIND_CVE,
-    WDB_STMT_VULN_CVES_SELECT_BY_STATUS,
-    WDB_STMT_VULN_CVES_DELETE_ENTRY,
     WDB_STMT_SYS_HOTFIXES_GET,
     WDB_STMT_SYS_PROGRAMS_GET,
-    WDB_STMT_SYS_PROGRAMS_GET_NOT_TRIAGED,
-    WDB_STMT_SYS_PROGRAMS_SET_TRIAGED,
     WDB_STMT_SIZE // This must be the last constant
 } wdb_stmt;
 
@@ -341,9 +349,9 @@ typedef struct wdb_t {
     sqlite3_stmt * stmt[WDB_STMT_SIZE];
     char * id;
     int peer;
-    unsigned int refcount;
+    _Atomic(unsigned int) refcount;
     unsigned int transaction:1;
-    time_t last;
+    _Atomic(time_t) last;
     time_t transaction_begin_time;
     pthread_mutex_t mutex;
     struct stmt_cache_list *cache_list;
@@ -380,6 +388,8 @@ typedef enum {
     WDB_FIM,                         ///< File integrity monitoring.
     WDB_FIM_FILE,                    ///< File integrity monitoring.
     WDB_FIM_REGISTRY,                ///< Registry integrity monitoring.
+    WDB_FIM_REGISTRY_KEY,            ///< Registry key integrity monitoring.
+    WDB_FIM_REGISTRY_VALUE,          ///< Registry value integrity monitoring.
     WDB_SYSCOLLECTOR_PROCESSES,      ///< Processes integrity monitoring.
     WDB_SYSCOLLECTOR_PACKAGES,       ///< Packages integrity monitoring.
     WDB_SYSCOLLECTOR_HOTFIXES,       ///< Hotfixes integrity monitoring.
@@ -391,6 +401,8 @@ typedef enum {
     WDB_SYSCOLLECTOR_OSINFO,         ///< OS info integrity monitoring.
     WDB_GENERIC_COMPONENT,           ///< Miscellaneous component
 } wdb_component_t;
+
+#include "wdb_pool.h"
 
 extern char *schema_global_sql;
 extern char *schema_agents_sql;
@@ -406,16 +418,18 @@ extern char *schema_upgrade_v8_sql;
 extern char *schema_upgrade_v9_sql;
 extern char *schema_upgrade_v10_sql;
 extern char *schema_upgrade_v11_sql;
+extern char *schema_upgrade_v12_sql;
+extern char *schema_upgrade_v13_sql;
+extern char *schema_upgrade_v14_sql;
 extern char *schema_global_upgrade_v1_sql;
 extern char *schema_global_upgrade_v2_sql;
 extern char *schema_global_upgrade_v3_sql;
 extern char *schema_global_upgrade_v4_sql;
+extern char *schema_global_upgrade_v5_sql;
+extern char *schema_global_upgrade_v6_sql;
 
 extern wdb_config wconfig;
-extern pthread_mutex_t pool_mutex;
-extern wdb_t * db_pool;
-extern int db_pool_size;
-extern OSHash * open_dbs;
+extern _Config gconfig;
 
 typedef struct os_data {
     char *os_name;
@@ -442,6 +456,7 @@ typedef struct agent_info_data {
     char *connection_status;
     char *sync_status;
     char *group_config_status;
+    agent_status_code_t status_code;
 } agent_info_data;
 
 typedef enum {
@@ -485,6 +500,12 @@ struct kv_list {
     const struct kv_list *next;
 };
 
+
+/**
+ * @brief pointer to function for any transaction
+ */
+typedef int (*wdb_ptr_any_txn_t)(wdb_t *);
+
 /**
  * @brief Opens global database and stores it in DB pool.
  *
@@ -502,9 +523,6 @@ wdb_t * wdb_open_global();
  * @return wdb_t* Database Structure that store mitre database or NULL on failure.
  */
 wdb_t * wdb_open_mitre();
-
-/* Open database for agent */
-sqlite3* wdb_open_agent(int id_agent, const char *name);
 
 // Open database for agent and store in DB pool. It returns a locked database or NULL
 wdb_t * wdb_open_agent2(int agent_id);
@@ -618,7 +636,7 @@ void wdb_free_agent_info_data(agent_info_data *agent_data);
  * @param [in] item Json string to search elements on the chunks.
  * @param [out] last_item Value of the last parsed item. If NULL no value is written.
  * @param [out] last_size Size of the returned array. If NULL no value is written.
- * @return JSON array with the statement execution results. NULL On error.
+ * @return wdbc_result representing the status of the command.
  */
 wdbc_result wdb_parse_chunk_to_int(char* input, int** output, const char* item, int* last_item, int* last_size);
 
@@ -635,6 +653,18 @@ wdbc_result wdb_parse_chunk_to_int(char* input, int** output, const char* item, 
 wdbc_result wdb_parse_chunk_to_json_by_string_item(char* input, cJSON** output_json, const char* item, char** last_item_value);
 
 /**
+ * @brief Function to parse a chunk response that contains the status of the query and a json array.
+ *        This function will add the parsed response to the output RB tree.
+ *
+ * @param [in] input The chunk obtained from WazuhDB to be parsed.
+ * @param [out] output RB tree in which the new elements will be added.
+ * @param [in] item Json string to search elements on the chunks.
+ * @param [out] last_item Value of the last parsed item. If NULL no value is written.
+ * @return wdbc_result representing the status of the command.
+ */
+wdbc_result wdb_parse_chunk_to_rbtree(char* input, rb_tree** output, const char* item, int* last_item);
+
+/**
  * @brief Function to initialize a new transaction and cache the statement.
  *
  * @param [in] wdb The global struct database.
@@ -646,34 +676,13 @@ sqlite3_stmt* wdb_init_stmt_in_cache(wdb_t* wdb, wdb_stmt statement_index);
 /**
  * @brief Create database for agent from profile.
  *
- * @param[in] id Id of the agent.
- * @param[in] name Name of the agent.
- * @return OS_SUCCESS on success or OS_INVALID on failure.
- */
-int wdb_create_agent_db(int id, const char *name);
-
-/**
- * @brief Create database for agent from profile.
- *
  * @param[in] agent_id Id of the agent.
  * @return OS_SUCCESS on success or OS_INVALID on failure.
  */
 int wdb_create_agent_db2(const char * agent_id);
 
-/**
- * @brief Remove an agent's database.
- *
- * @param[in] id Id of the agent for whom its database must be deleted.
- * @param[in] name Name of the agent for whom its database must be deleted.
- * @return OS_SUCCESS on success or OS_INVALID on failure.
- */
-int wdb_remove_agent_db(int id, const char * name);
-
 /* Remove agents databases from id's list. */
 cJSON *wdb_remove_multiple_agents(char *agent_list);
-
-/* Insert metadata for minor and major version. Returns 0 on success or -1 on error. */
-int wdb_metadata_fill_version(sqlite3 *db);
 
 /* Get value data in output variable. Returns 0 if doesn't found, 1 on success or -1 on error. */
 int wdb_metadata_get_entry (wdb_t * wdb, const char *key, char *output);
@@ -701,18 +710,32 @@ int wdb_prepare(sqlite3 *db, const char *zSql, int nByte, sqlite3_stmt **stmt, c
 int wdb_step(sqlite3_stmt *stmt);
 
 /* Begin transaction */
-int wdb_begin(sqlite3 *db);
+int wdb_begin(wdb_t * wdb);
 int wdb_begin2(wdb_t * wdb);
 
 /* Commit transaction */
-int wdb_commit(sqlite3 *db);
+int wdb_commit(wdb_t * wdb);
 int wdb_commit2(wdb_t * wdb);
+
+/**
+ * @brief Rollback transaction
+ * @param[in] wdb Database to query for the table existence.
+ * @return 0 when succeed, !=0 otherwise.
+*/
+int wdb_rollback(wdb_t * wdb);
+
+/**
+ * @brief Rollback transaction and write status
+ * @param[in] wdb Database to query for the table existence.
+ * @return 0 when succeed, !=0 otherwise.
+*/
+int wdb_rollback2(wdb_t * wdb);
 
 /* Create global database */
 int wdb_create_global(const char *path);
 
 /* Create profile database */
-int wdb_create_profile(const char *path);
+int wdb_create_profile();
 
 /* Create new database file from SQL script */
 int wdb_create_file(const char *path, const char *source);
@@ -722,11 +745,10 @@ int wdb_rootcheck_delete(wdb_t * wdb);
 
 /**
  * @brief Rebuild database.
- *
- * @param[in] db Database to query for the table existence.
+ * @param[in] wdb Database to query for the table existence.
  * @return Returns 0 on success or -1 on error.
  */
-int wdb_vacuum(sqlite3 *db);
+int wdb_vacuum(wdb_t * wdb);
 
 /**
  * @brief Calculate the fragmentation state of a db.
@@ -758,10 +780,10 @@ int wdb_update_last_vacuum_data(wdb_t* wdb, const char *last_vacuum_time, const 
 int wdb_insert_info(const char *key, const char *value);
 
 // Insert network info tuple. Return 0 on success or -1 on error.
-int wdb_netinfo_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * name, const char * adapter, const char * type, const char * state, int mtu, const char * mac, long tx_packets, long rx_packets, long tx_bytes, long rx_bytes, long tx_errors, long rx_errors, long tx_dropped, long rx_dropped, const char * checksum, const char * item_id, const bool replace);
+int wdb_netinfo_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * name, const char * adapter, const char * type, const char * state, int64_t mtu, const char * mac, long tx_packets, long rx_packets, int64_t tx_bytes, int64_t rx_bytes, long tx_errors, long rx_errors, long tx_dropped, long rx_dropped, const char * checksum, const char * item_id, const bool replace);
 
 // Save Network info into DB.
-int wdb_netinfo_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * name, const char * adapter, const char * type, const char * state, int mtu, const char * mac, long tx_packets, long rx_packets, long tx_bytes, long rx_bytes, long tx_errors, long rx_errors, long tx_dropped, long rx_dropped, const char * checksum, const char * item_id, const bool replace);
+int wdb_netinfo_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * name, const char * adapter, const char * type, const char * state, int64_t mtu, const char * mac, long tx_packets, long rx_packets, int64_t tx_bytes, int64_t rx_bytes, long tx_errors, long rx_errors, long tx_dropped, long rx_dropped, const char * checksum, const char * item_id, const bool replace);
 
 // Delete Network info from DB.
 int wdb_netinfo_delete(wdb_t * wdb, const char * scan_id);
@@ -782,7 +804,7 @@ int wdb_netaddr_insert(wdb_t * wdb, const char * scan_id, const char * iface, in
 int wdb_netaddr_save(wdb_t * wdb, const char * scan_id, const char * iface, int proto, const char * address, const char * netmask, const char * broadcast, const char * checksum, const char * item_id, const bool replace);
 
 // Insert OS info tuple. Return 0 on success or -1 on error.
-int wdb_osinfo_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * hostname, const char * architecture, const char * os_name, const char * os_version, const char * os_codename, const char * os_major, const char * os_minor, const char * os_patch, const char * os_build, const char * os_platform, const char * sysname, const char * release, const char * version, const char * os_release, const char * os_display_version, const char * checksum, const bool replace, os_sha1 hexdigest, int triaged);
+int wdb_osinfo_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * hostname, const char * architecture, const char * os_name, const char * os_version, const char * os_codename, const char * os_major, const char * os_minor, const char * os_patch, const char * os_build, const char * os_platform, const char * sysname, const char * release, const char * version, const char * os_release, const char * os_display_version, const char * checksum, const bool replace, os_sha1 hexdigest);
 
 // Save OS info into DB.
 int wdb_osinfo_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * hostname, const char * architecture, const char * os_name, const char * os_version, const char * os_codename, const char * os_major, const char * os_minor, const char * os_patch, const char * os_build, const char * os_platform, const char * sysname, const char * release, const char * version, const char * os_release, const char * os_display_version, const char * checksum, const bool replace);
@@ -794,7 +816,7 @@ int wdb_hardware_insert(wdb_t * wdb, const char * scan_id, const char * scan_tim
 int wdb_hardware_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * serial, const char * cpu_name, int cpu_cores, double cpu_mhz, uint64_t ram_total, uint64_t ram_free, int ram_usage, const char * checksum, const bool replace);
 
 // Insert package info tuple. Return 0 on success or -1 on error.
-int wdb_package_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * format, const char * name, const char * priority, const char * section, long size, const char * vendor, const char * install_time, const char * version, const char * architecture, const char * multiarch, const char * source, const char * description, const char * location, const char triaged, const char * checksum, const char * item_id, const bool replace);
+int wdb_package_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * format, const char * name, const char * priority, const char * section, long size, const char * vendor, const char * install_time, const char * version, const char * architecture, const char * multiarch, const char * source, const char * description, const char * location, const char * checksum, const char * item_id, const bool replace);
 
 // Save Packages info into DB.
 int wdb_package_save(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * format, const char * name, const char * priority, const char * section, long size, const char * vendor, const char * install_time, const char * version, const char * architecture, const char * multiarch, const char * source, const char * description, const char * location, const char* checksum, const char * item_id, const bool replace);
@@ -840,7 +862,7 @@ int wdb_ciscat_insert(wdb_t * wdb, const char * scan_id, const char * scan_time,
 // Delete old information from the 'ciscat_results' table
 int wdb_ciscat_del(wdb_t * wdb, const char * scan_id);
 
-wdb_t * wdb_init(sqlite3 * db, const char * id);
+wdb_t * wdb_init(const char * id);
 
 void wdb_destroy(wdb_t * wdb);
 
@@ -916,6 +938,7 @@ int wdb_exec_stmt_silent(sqlite3_stmt* stmt);
  *        The result of each step will be placed in returned result while fits.
  *
  * @param [in] stmt The SQL statement to be executed.
+ * @param [in] max_size Maximum size of the response.
  * @param [out] status The status code of the statement execution.
  *                     SQLITE_DONE means the statement is completed.
  *                     SQLITE_ROW means the statement has pending elements.
@@ -970,8 +993,6 @@ int wdb_close(wdb_t * wdb, bool commit);
  * @param wdb The database struct pointer.
  */
 void wdb_finalize_all_statements(wdb_t * wdb);
-
-void wdb_leave(wdb_t * wdb);
 
 wdb_t * wdb_pool_find_prev(wdb_t * wdb);
 
@@ -1063,19 +1084,6 @@ int wdb_parse_agents_get_sys_osinfo(wdb_t* wdb, char* output);
  */
 int wdb_parse_agents_set_sys_osinfo(wdb_t * wdb, char * input, char * output);
 
-
-/**
- * @brief Function to parse set triaged over the sys_osinfo database table.
- *
- * @param wdb The Global struct database.
- * @param output Buffer output, on success responses are:
- *        "ok" -> If sql statement was processed.
- *        "err <error_message>" -> If sql statement wasn't processed.
- * @return -1 on error, and 0 on success.
- */
-int wdb_parse_agents_set_sys_osinfo_triaged(wdb_t* wdb, char* output);
-
-
 /**
  * @brief Function to parse generic dbsync message operation, and generate
  * a message to process in wazuh-db process.
@@ -1145,6 +1153,16 @@ int wdb_parse_global_get_agent_labels(wdb_t * wdb, char * input, char * output);
 int wdb_parse_get_groups_integrity(wdb_t * wdb, char * input, char* output);
 
 /**
+ * @brief Function to recalculate the agent group hash in global.db.
+ *
+ * @param wdb The global struct database.
+ * @param output Response of the query.
+ * @return 0 Success: response contains "ok".
+ *        -1 On error: response contains "err" and an error description.
+ */
+int wdb_parse_global_recalculate_agent_group_hashes(wdb_t* wdb, char* output);
+
+/**
  * @brief Function to get all the agent information.
  *
  * @param wdb The global struct database.
@@ -1187,6 +1205,17 @@ int wdb_parse_global_update_agent_keepalive(wdb_t * wdb, char * input, char * ou
  *        -1 On error: response contains "err" and an error description.
  */
 int wdb_parse_global_update_connection_status(wdb_t * wdb, char * input, char * output);
+
+/**
+ * @brief Function to parse the update agent connection status.
+ *
+ * @param [in] wdb The global struct database.
+ * @param [in] input String with the agent data in JSON format.
+ * @param [out] output Response of the query.
+ * @return 0 Success: response contains "ok".
+ *        -1 On error: response contains "err" and an error description.
+ */
+int wdb_parse_global_update_status_code(wdb_t * wdb, char * input, char * output);
 
 /**
  * @brief Function to parse the agent delete from agent table request.
@@ -1303,6 +1332,36 @@ int wdb_parse_global_get_group_agents(wdb_t * wdb, char * input, char * output);
  *        -1 On error: response contains "err" and an error description.
  */
 int wdb_parse_global_set_agent_groups(wdb_t* wdb, char* input, char* output);
+
+/**
+ * @brief Function to recalculate the agent group hash.
+ *
+ * @param [in] wdb The global struct database.
+ * @param [in] agent_id Int with the agent id.
+ * @param [in] sync_status String with the sync_status to be set.
+ * @return WDBC_OK Success.
+ *         WDBC_ERROR On error.
+ */
+int wdb_global_recalculate_agent_groups_hash(wdb_t* wdb, int agent_id, char* sync_status);
+
+/**
+ * @brief Function to recalculate the agent group hash whitout update sync_status field.
+ *
+ * @param [in] wdb The global struct database.
+ * @param [in] agent_id Int with the agent id.
+ * @return WDBC_OK Success.
+ *         WDBC_ERROR On error.
+ */
+int wdb_global_recalculate_agent_groups_hash_without_sync_status(wdb_t* wdb, int agent_id);
+
+/**
+ * @brief Function to recalculate the agent group hash for all agents.
+ *
+ * @param [in] wdb The global struct database.
+ * @return OS_SUCCESS Success.
+ *         OS_INVALID On error.
+ */
+int wdb_global_recalculate_all_agent_groups_hash(wdb_t* wdb);
 
 /**
  * @brief Function to parse sync-agent-info-get params and set next ID to iterate on further calls.
@@ -1489,6 +1548,8 @@ int wdbi_checksum(wdb_t * wdb, wdb_component_t component, os_sha1 hexdigest);
 int wdbi_checksum_range(wdb_t * wdb, wdb_component_t component, const char * begin, const char * end, os_sha1 hexdigest);
 
 int wdbi_delete(wdb_t * wdb, wdb_component_t component, const char * begin, const char * end, const char * tail);
+
+void wdbi_report_removed(const char* agent_id, wdb_component_t component, sqlite3_stmt* stmt);
 
 /**
  * @brief Updates the timestamps and counters of a component from sync_info table. It should be called when
@@ -1799,7 +1860,18 @@ int wdb_global_update_agent_keepalive(wdb_t *wdb, int id, const char *connection
  * @param [in] sync_status The value of sync_status.
  * @return Returns 0 on success or -1 on error.
  */
-int wdb_global_update_agent_connection_status(wdb_t *wdb, int id, const char* connection_status, const char *sync_status);
+int wdb_global_update_agent_connection_status(wdb_t *wdb, int id, const char* connection_status, const char *sync_status, int status_code);
+
+/**
+ * @brief Function to update an agent status code and the synchronization status.
+ *
+ * @param [in] wdb The Global struct database.
+ * @param [in] id The agent ID.
+ * @param [in] status_code The status code to be set.
+ * @param [in] version The agent version to be set.
+ * @return Returns 0 on success or -1 on error.
+ */
+int wdb_global_update_agent_status_code(wdb_t *wdb, int id, int status_code, const char *version, const char *sync_status);
 
 /**
  * @brief Function to delete an agent from the agent table.
@@ -1921,9 +1993,9 @@ int wdb_global_delete_tuple_belong(wdb_t *wdb, int id_group, int id_agent);
  *
  * @param [in] wdb The Global struct database.
  * @param [in] group_name The group name.
- * @return Returns true if the group is empty, false if it isn´t empty or error.
+ * @return Returns cJSON* with agents id.
  */
-bool wdb_is_group_empty(wdb_t *wdb, char* group_name);
+cJSON* wdb_is_group_empty(wdb_t *wdb, char* group_name);
 
 /**
  * @brief Function to delete a group by using the name.
@@ -2011,6 +2083,16 @@ wdbc_result wdb_global_sync_agent_groups_get(wdb_t* wdb,
                                              cJSON** output);
 
 /**
+ * @brief Add global group hash to JSON response.
+ *
+ * @param wdb The Global struct database.
+ * @param response JSON response to fill with global group hash.
+ * @param response_size Current size of JSON response.
+ * @return int result to represent if global hash has being added to JSON response.
+ */
+int wdb_global_add_global_group_hash_to_response(wdb_t *wdb, cJSON** response, size_t response_size);
+
+/**
  * @brief Function to update group_sync_status of a particular agent.
  *
  * @param [in] wdb The Global struct database.
@@ -2041,6 +2123,16 @@ char* wdb_global_calculate_agent_group_csv(wdb_t *wdb, int id);
  * @return wdbc_result representing the status of the command.
  */
 wdbc_result wdb_global_set_agent_group_context(wdb_t *wdb, int id, char* csv, char* hash, char* sync_status);
+
+/**
+ * @brief Sets the group information in the agent table.
+ * @param [in] wdb The Global struct database.
+ * @param [in] id ID of the agent to set the information.
+ * @param [in] csv String with all the groups sepparated by comma to be inserted in the group column.
+ * @param [in] hash Hash calculus from the csv string to be inserted in the group_hash column.
+ * @return wdbc_result representing the status of the command.
+ */
+wdbc_result wdb_global_set_agent_group_hash(wdb_t *wdb, int id, char* csv, char* hash);
 
 /**
  * @brief Verifies if at least one entry in the Global DB has the group_sync_status as "syncreq".
@@ -2082,6 +2174,15 @@ wdbc_result wdb_global_assign_agent_group(wdb_t *wdb, int id, cJSON* j_groups, i
  * @return wdbc_result representing the status of the command.
  */
 wdbc_result wdb_global_unassign_agent_group(wdb_t *wdb, int id, cJSON* j_groups);
+
+/**
+ * @brief Sets default group to an agent if it doesn't have any.
+ *
+ * @param [in] wdb The Global struct database.
+ * @param [in] id ID of the agent to set default group.
+ * @return wdbc_result representing the status of the command.
+ */
+int wdb_global_if_empty_set_default_agent_group(wdb_t *wdb, int id);
 
 /**
  * @brief Returns the number of groups that are assigned to an agent.
@@ -2148,6 +2249,17 @@ cJSON* wdb_global_get_agent_info(wdb_t *wdb, int id);
  * @retval NULL on error.
  */
 cJSON* wdb_global_get_all_agents(wdb_t *wdb, int last_agent_id, wdbc_result* status);
+
+/**
+ * @brief Gets every agent ID with context.
+ *        Response is send by elements.
+ *        One call of this function send all agents.
+ *
+ * @param [in] wdb The Global struct database.
+ * @retval OS_SUCCESS on success.
+ * @retval OS_INVALID on error.
+ */
+int wdb_global_get_all_agents_context(wdb_t *wdb);
 
 /**
  * @brief Checks the given ID is in the agent table.
@@ -2332,52 +2444,6 @@ int wdb_parse_task_set_timeout(wdb_t* wdb, const cJSON *parameters, char* output
 int wdb_parse_task_delete_old(wdb_t* wdb, const cJSON *parameters, char* output);
 
 /**
- * @brief Function to parse the vuln_cves requests.
- *
- * @param [in] wdb The global struct database.
- * @param [in] input String with the action and the data if needed.
- * @param [out] output Response of the query.
- * @return 0 Success: response contains "ok".
- *        -1 On error: response contains "err" and an error description.
- */
- int wdb_parse_vuln_cves(wdb_t* wdb, char* input, char* output);
-
- /**
- * @brief Function to parse the vuln_cves insert action.
- *
- * @param [in] wdb The global struct database.
- * @param [in] input String with the the data in json format.
- * @param [out] output Response of the query.
- * @return 0 Success: response contains "ok".
- *        -1 On error: response contains "err" and an error description.
- */
- int wdb_parse_agents_insert_vuln_cves(wdb_t* wdb, char* input, char* output);
-
-/**
- * @brief Function to parse the vuln_cves update status action.
- *
- * @param [in] wdb The global struct database.
- * @param [in] input String with the the data in json format.
- * @param [out] output Response of the query.
- * @return 0 Success: response contains "ok".
- *        -1 On error: response contains "err" and an error description.
- */
- int wdb_parse_agents_update_vuln_cves_status(wdb_t* wdb, char* input, char* output);
-
- /**
- * @brief Function to parse the vuln_cves remove action.
- *
- * @param [in] wdb The global struct database.
- * @param [in] input String with the the data in json format. It could receive a status to remove all the vulnerabilities
- *                   with that status. Example:
- *                   - To remove by status: {"status":"OBSOLETE"}
- * @param [out] output Response of the query.
- * @return 0 Success: response contains "ok".
- *        -1 On error: response contains "err" and an error description.
- */
- int wdb_parse_agents_remove_vuln_cves(wdb_t* wdb, char* input, char* output);
-
-/**
  * Update old tasks with status in progress to status timeout
  * @param wdb The task struct database
  * @param now Actual time
@@ -2492,5 +2558,18 @@ cJSON* wdb_get_config();
  * @param output the response to send
  */
 void wdbcom_dispatch(char* request, char* output);
+
+
+/**
+ * @brief Set the synchronous mode of the SQLite database session.
+ *
+ * This function sets the synchronous mode of the SQLite database session to control how
+ * and when changes made to the database are written to disk. It executes the necessary
+ * SQL statements to set the synchronous mode.
+ *
+ * @param[in] wdb The database structure.
+ * @return Returns 0 on success or -1 if an error occurs while setting the synchronous mode.
+ */
+int wdb_set_synchronous_normal(wdb_t * wdb);
 
 #endif

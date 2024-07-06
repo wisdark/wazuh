@@ -11,6 +11,7 @@ from os.path import dirname
 from signal import signal, SIGINT
 from sys import exit, path, argv
 from time import sleep
+from connexion import ProblemException
 
 # Set framework path
 path.append(dirname(argv[0]) + '/../framework')  # It is necessary to import Wazuh package
@@ -25,11 +26,13 @@ try:
     from wazuh.core.cluster.dapi.dapi import DistributedAPI
     from wazuh.core.exception import WazuhError
     from wazuh.core.cluster import utils as cluster_utils
+    from wazuh.core.wlogging import CLIFilter
 except Exception as e:
     print("Error importing 'Wazuh' package.\n\n{0}\n".format(e))
     exit()
 
 logger = logging.getLogger('wazuh')
+logger.addFilter(CLIFilter())
 
 
 # Functions
@@ -52,7 +55,7 @@ def get_script_arguments() -> argparse.Namespace:
         common.WPK_REPO_URL_4_X))
     parser.add_argument("-v", "--version", type=str, help="Version to upgrade. [Default: latest Wazuh version]")
     parser.add_argument("-F", "--force", action="store_true",
-                        help="Allows reinstall same version and downgrade version.")
+                        help="Forces the agents to upgrade, ignoring version validations.")
     parser.add_argument("-s", "--silent", action="store_true", help="Do not show output.")
     parser.add_argument("-l", "--list_outdated", action="store_true", help="Generates a list with all outdated agents.")
     parser.add_argument("-f", "--file", type=str, help="Custom WPK filename.")
@@ -60,6 +63,7 @@ def get_script_arguments() -> argparse.Namespace:
     parser.add_argument("-x", "--execute", type=str,
                         help="Executable filename in the WPK custom file. [Default: upgrade.sh]")
     parser.add_argument("--http", action="store_true", help="Uses http protocol instead of https.")
+    parser.add_argument("--package_type", type=str, help="Use rpm or deb packages for linux platforms.")
 
     return parser
 
@@ -118,7 +122,7 @@ async def get_agent_version(agent_id: str) -> str:
         "limit": 1
     }
     result = await cluster_utils.forward_function(get_agents, f_kwargs=f_kwargs)
-    return result['version']
+    return result.affected_items[0]['version']
 
 
 def create_command() -> dict:
@@ -131,7 +135,7 @@ def create_command() -> dict:
     """
     if not args.file and not args.execute:
         f_kwargs = {'agent_list': args.agents, 'wpk_repo': args.repository, 'version': args.version,
-                    'use_http': args.http, 'force': args.force}
+                    'use_http': args.http, 'force': args.force, 'package_type': args.package_type}
     else:
         # Upgrade custom
         f_kwargs = {'agent_list': args.agents, 'installer': args.execute, 'file_path': args.file}
@@ -223,6 +227,10 @@ async def main():
 
     except WazuhError as wazuh_err:
         print(f"Error {wazuh_err.code}: {wazuh_err.message}")
+        if args.debug:
+            raise
+    except ProblemException as e:
+        print(f"Error {getattr(e, 'ext', {}).get('code', e.status)}: {str(e.detail)}")
         if args.debug:
             raise
     except Exception as unexpected_err:

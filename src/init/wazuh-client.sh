@@ -11,8 +11,8 @@ PWD=`pwd`
 DIR=`dirname $PWD`;
 
 # Installation info
-VERSION="v4.6.0"
-REVISION="40600"
+VERSION="v5.0.0"
+REVISION="50000"
 TYPE="agent"
 
 ###  Do not modify below here ###
@@ -29,7 +29,7 @@ LOCK_PID="${LOCK}/pid"
 # This number should be more than enough (even if it is
 # started multiple times together). It will try for up
 # to 10 attempts (or 10 seconds) to execute.
-MAX_ITERATION="10"
+MAX_ITERATION="60"
 
 MAX_KILL_TRIES=600
 
@@ -282,6 +282,16 @@ info()
     fi
 }
 
+restart_service()
+{
+    testconfig
+    lock
+    stop_service
+    sleep 1
+    start_service
+    unlock
+}
+
 ### MAIN HERE ###
 
 arg=$2
@@ -300,20 +310,11 @@ stop)
     unlock
     ;;
 restart)
-    testconfig
-    lock
-    stop_service
-    sleep 1
-    start_service
-    unlock
+    restart_service
     ;;
 reload)
     DAEMONS=$(echo $DAEMONS | sed 's/wazuh-execd//')
-    lock
-    stop_service
-    sleep 1
-    start_service
-    unlock
+    restart_service
     ;;
 status)
     lock

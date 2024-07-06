@@ -12,10 +12,10 @@
 #include "remoted.h"
 #include "state.h"
 #include "remoted_op.h"
-#include "wazuh_db/helpers/wdb_global_helpers.h"
-#include "os_net/os_net.h"
+#include "../wazuh_db/helpers/wdb_global_helpers.h"
+#include "../os_net/os_net.h"
 #include "shared_download.h"
-#include "os_crypto/sha256/sha256_op.h"
+#include "../os_crypto/sha256/sha256_op.h"
 #include <pthread.h>
 
 #if defined(__FreeBSD__) || defined(__MACH__) || defined(__sun__)
@@ -25,6 +25,10 @@
 #ifdef WAZUH_UNIT_TESTING
 // Remove STATIC qualifier from tests
   #define STATIC
+
+// Redefine ossec_version
+#undef __ossec_version
+#define __ossec_version "v4.5.0"
 #else
   #define STATIC static
 #endif
@@ -149,6 +153,14 @@ STATIC bool group_changed(const char *multi_group);
 STATIC int lookfor_agent_group(const char *agent_id, char *msg, char **group, int *wdb_sock);
 
 /**
+ * @brief Redirect the request to the master node to assign a group
+ * @param agent_id. Agent id to assign a group
+ * @param md5. MD5 sum used if guessing is enabled
+ * @return JSON* with group name if successful, NULL otherwise
+ */
+STATIC cJSON *assign_group_to_agent_worker(const char *agent_id, const char *md5);
+
+/**
  * @brief Send a shared file to an agent
  * @param agent_id ID of the destination agent
  * @param group Name of the group where the file is located
@@ -176,9 +188,18 @@ STATIC int validate_shared_files(const char *src_path, FILE *finalfp, OSHash **_
  * @param src_path Source path of the files to copy
  * @param dst_path Destination path of the files
  * @param group Group name
- * @param initial_iteration Flag indicating if it is the first iteration
  */
-STATIC void copy_directory(const char *src_path, const char *dst_path, char *group, bool initial_iteration);
+STATIC void copy_directory(const char *src_path, const char *dst_path, char *group);
+
+/**
+ * @brief Create and send response to agent when exist any problem with agent version and set the status_code and agent version in db
+ * @param agent_id ID of the destination agent
+ * @param msg Message to send
+ * @param status_code Status code to set
+ * @param version Agent version to set
+ * @param wdb_sock Wazuh-DB socket
+ */
+STATIC void send_wrong_version_response(const char *agent_id, char *msg, agent_status_code_t status_code, char *version, int *wdb_sock);
 
 /* Groups structures */
 static OSHash *groups;
@@ -206,6 +227,9 @@ static int poll_interval_time = 0;
 
 /* This variable is used to prevent flooding when group files exceed the maximum size */
 static int reported_path_size_exceeded = 0;
+
+/* Hash table for agent data */
+OSHash *agent_data_hash;
 
 // Frees data in m_hash table
 void cleaner(void* data) {
@@ -263,7 +287,7 @@ void save_controlmsg(const keyentry * key, char *r_msg, size_t msg_length, int *
     char * clean = w_utf8_filter(r_msg, true);
     r_msg = clean;
 
-    if ((strcmp(r_msg, HC_STARTUP) == 0) || (strcmp(r_msg, HC_SHUTDOWN) == 0)) {
+    if ((strncmp(r_msg, HC_STARTUP, strlen(HC_STARTUP)) == 0) || (strcmp(r_msg, HC_SHUTDOWN) == 0)) {
         char aux_ip[IPSIZE + 1] = {0};
         switch (key->peer_info.ss_family) {
         case AF_INET:
@@ -275,14 +299,40 @@ void save_controlmsg(const keyentry * key, char *r_msg, size_t msg_length, int *
         default:
             break;
         }
-        if (strcmp(r_msg, HC_STARTUP) == 0) {
+        if (strncmp(r_msg, HC_STARTUP, strlen(HC_STARTUP)) == 0) {
             mdebug1("Agent %s sent HC_STARTUP from '%s'", key->name, aux_ip);
+            cJSON *agent_info = NULL;
+            if (agent_info = cJSON_Parse(strchr(r_msg, '{')), agent_info) {
+                cJSON *version = NULL;
+                if (version = cJSON_GetObjectItem(agent_info, "version"), cJSON_IsString(version)) {
+                    // Update agent data to keep context of events to forward
+                    OSHash_Set_ex(agent_data_hash, key->id, cJSON_Duplicate(agent_info, true));
+                    if (!logr.allow_higher_versions &&
+                        compare_wazuh_versions(__ossec_version, version->valuestring, false) < 0) {
+
+                        send_wrong_version_response(key->id, HC_INVALID_VERSION,
+                                                    INVALID_VERSION, version->valuestring,
+                                                    wdb_sock);
+                        cJSON_Delete(agent_info);
+                        os_free(clean);
+                        return;
+                    }
+                } else {
+                    merror("Error getting version from agent '%s'", key->id);
+                    send_wrong_version_response(key->id, HC_RETRIEVE_VERSION, ERR_VERSION_RECV, NULL, wdb_sock);
+                    cJSON_Delete(agent_info);
+                    os_free(clean);
+                    return;
+                }
+                cJSON_Delete(agent_info);
+            }
             is_startup = 1;
             rem_inc_recv_ctrl_startup(key->id);
         } else {
             mdebug1("Agent %s sent HC_SHUTDOWN from '%s'", key->name, aux_ip);
             is_shutdown = 1;
             rem_inc_recv_ctrl_shutdown(key->id);
+            cJSON_Delete(OSHash_Delete_ex(agent_data_hash, key->id));
         }
     } else {
         /* Clean msg and shared files (remove random string) */
@@ -350,7 +400,7 @@ void save_controlmsg(const keyentry * key, char *r_msg, size_t msg_length, int *
 
             agent_id = atoi(key->id);
 
-            result = wdb_update_agent_connection_status(agent_id, AGENT_CS_DISCONNECTED, logr.worker_node ? "syncreq" : "synced", wdb_sock);
+            result = wdb_update_agent_connection_status(agent_id, AGENT_CS_DISCONNECTED, logr.worker_node ? "syncreq" : "synced", wdb_sock, HC_SHUTDOWN_RECV);
 
             if (OS_SUCCESS != result) {
                 mwarn("Unable to set connection status as disconnected for agent: %s", key->id);
@@ -487,6 +537,77 @@ void save_controlmsg(const keyentry * key, char *r_msg, size_t msg_length, int *
     os_free(clean);
 }
 
+/* Assign a group to an agent without group */
+cJSON *assign_group_to_agent(const char *agent_id, const char *md5) {
+    cJSON *result = NULL;
+    char* group = NULL;
+
+    os_calloc(OS_SIZE_65536 + 1, sizeof(char), group);
+
+    mdebug2("Agent '%s' with file '%s' MD5 '%s'", agent_id, SHAREDCFG_FILENAME, md5);
+
+    w_mutex_lock(&files_mutex);
+
+    if (!guess_agent_group || (!find_group_from_sum(md5, group) && !find_multi_group_from_sum(md5, group))) {
+        // If the group could not be guessed, set to "default"
+        // or if the user requested not to guess the group, through the internal
+        // option 'guess_agent_group', set to "default"
+        strncpy(group, "default", OS_SIZE_65536);
+    }
+
+    w_mutex_unlock(&files_mutex);
+
+    wdb_set_agent_groups_csv(atoi(agent_id),
+                            group,
+                            WDB_GROUP_MODE_EMPTY_ONLY,
+                            w_is_single_node(NULL) ? "synced" : "syncreq",
+                            NULL);
+
+    mdebug2("Group assigned: '%s'", group);
+
+    result = cJSON_CreateObject();
+    cJSON_AddStringToObject(result, "group", group);
+
+    os_free(group);
+    return result;
+}
+
+STATIC cJSON *assign_group_to_agent_worker(const char *agent_id, const char *md5) {
+    char response[OS_MAXSTR] = "";
+    char *request = NULL;
+    cJSON *payload_json = NULL;
+    cJSON *response_json = NULL;
+    cJSON *data_json = NULL;
+
+    cJSON *message_json = cJSON_CreateObject();
+    cJSON *parameters_json = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(parameters_json, "agent", agent_id);
+    cJSON_AddStringToObject(parameters_json, "md5", md5);
+
+    cJSON_AddStringToObject(message_json, "command", "assigngroup");
+    cJSON_AddItemToObject(message_json, "parameters", parameters_json);
+
+    payload_json = w_create_sendsync_payload("remoted", message_json);
+
+    request = cJSON_PrintUnformatted(payload_json);
+
+    mdebug2("Sending message to master node: '%s'", request);
+
+    if (w_send_clustered_message("sendsync", request, response) == 0) {
+        response_json = cJSON_Parse(response);
+        data_json = cJSON_Duplicate(cJSON_GetObjectItem(response_json, "data"), 1);
+    }
+
+    mdebug2("Message received from master node: '%s'", response);
+
+    os_free(request);
+    cJSON_Delete(payload_json);
+    cJSON_Delete(response_json);
+
+    return data_json;
+}
+
 /* Generate merged file for groups */
 STATIC void c_group(const char *group, OSHash **_f_time, os_md5 *_merged_sum, char *sharedcfg_dir, bool create_merged, bool is_multigroup) {
     os_md5 md5sum;
@@ -570,7 +691,7 @@ STATIC void c_group(const char *group, OSHash **_f_time, os_md5 *_merged_sum, ch
     if ((!r_group || !r_group->merged_is_downloaded) && (!is_multigroup || create_merged)) {
         if (create_merged) {
             if (disk_storage) {
-                if (finalfp = fopen(merged_tmp, "w"), finalfp == NULL) {
+                if (finalfp = wfopen(merged_tmp, "w"), finalfp == NULL) {
                     merror("Unable to create merged file: '%s' due to [(%d)-(%s)].", merged_tmp, errno, strerror(errno));
                     return;
                 }
@@ -628,7 +749,7 @@ STATIC void c_group(const char *group, OSHash **_f_time, os_md5 *_merged_sum, ch
                 if (disk_storage) {
                     OS_MoveFile(merged_tmp, merged);
                 } else {
-                    if (finalfp = fopen(merged, "w"), finalfp == NULL) {
+                    if (finalfp = wfopen(merged, "w"), finalfp == NULL) {
                         merror("Unable to open file: '%s' due to [(%d)-(%s)].", merged, errno, strerror(errno));
                         os_free(finalbuf);
                         return;
@@ -694,7 +815,7 @@ STATIC void c_multi_group(char *multi_group, OSHash **_f_time, os_md5 *_merged_s
                 return;
             }
 
-            copy_directory(dir, multi_path, group, true);
+            copy_directory(dir, multi_path, group);
 
             group = strtok_r(NULL, delim, &save_ptr);
             closedir(dp);
@@ -1134,7 +1255,7 @@ STATIC int validate_shared_files(const char *src_path, FILE *finalfp, OSHash **_
     return 1;
 }
 
-STATIC void copy_directory(const char *src_path, const char *dst_path, char *group, bool initial_iteration) {
+STATIC void copy_directory(const char *src_path, const char *dst_path, char *group) {
     unsigned int i;
     time_t *modify_time = NULL;
     int ignored;
@@ -1143,12 +1264,7 @@ STATIC void copy_directory(const char *src_path, const char *dst_path, char *gro
 
     if (files = wreaddir(src_path), !files) {
         if (errno != ENOTDIR) {
-            if (initial_iteration) {
-                mwarn("Could not open directory '%s'. Group folder was deleted.", src_path);
-                wdb_remove_group_db(group, NULL);
-            } else {
-                mdebug2("Could not open directory '%s': %s (%d)", src_path, strerror(errno), errno);
-            }
+            mwarn("Could not open directory '%s'. Group folder was deleted.", src_path);
         }
         return;
     }
@@ -1216,7 +1332,7 @@ STATIC void copy_directory(const char *src_path, const char *dst_path, char *gro
                 }
             }
 
-            copy_directory(source_path, destination_path, group, false);
+            copy_directory(source_path, destination_path, group);
             closedir(dir);
         }
     }
@@ -1340,6 +1456,34 @@ STATIC bool group_changed(const char *multi_group) {
     return false;
 }
 
+STATIC void send_wrong_version_response(const char *agent_id, char *msg, agent_status_code_t status_code, char *version, int *wdb_sock) {
+    int result = 0;
+    char *error_msg_string = NULL;
+    char msg_err[OS_FLSIZE + 1] = "";
+
+    cJSON *error_msg = cJSON_CreateObject();
+    cJSON_AddStringToObject(error_msg, "message", strncmp(msg, HC_INVALID_VERSION, strlen(HC_INVALID_VERSION)) == 0 ? HC_INVALID_VERSION_RESPONSE : msg);
+
+    error_msg_string = cJSON_PrintUnformatted(error_msg);
+
+    snprintf(msg_err, OS_FLSIZE, "%s%s%s", CONTROL_HEADER, HC_ERROR, error_msg_string);
+    if (send_msg(agent_id, msg_err, -1) >= 0) {
+        rem_inc_send_ack(agent_id);
+    }
+
+    mdebug2("Unable to connect agent: '%s': '%s'", agent_id, msg);
+
+    result = wdb_update_agent_status_code(atoi(agent_id), status_code, version, logr.worker_node ? "syncreq" : "synced", wdb_sock);
+
+    if (OS_SUCCESS != result) {
+        mwarn("Unable to set status code for agent: '%s'", agent_id);
+    }
+
+    cJSON_Delete(error_msg);
+    os_free(error_msg_string);
+    return;
+}
+
 /* look for agent group */
 STATIC int lookfor_agent_group(const char *agent_id, char *msg, char **r_group, int *wdb_sock)
 {
@@ -1400,31 +1544,25 @@ STATIC int lookfor_agent_group(const char *agent_id, char *msg, char **r_group, 
 
         /* New agents only have merged.mg */
         if (strcmp(file, SHAREDCFG_FILENAME) == 0) {
+            cJSON *group_json = NULL;
+            cJSON *value = NULL;
 
-            // If group was not got, guess it by matching sum
-            os_calloc(OS_SIZE_65536 + 1, sizeof(char), group);
-            mdebug2("Agent '%s' with file '%s' MD5 '%s'", agent_id, SHAREDCFG_FILENAME, md5);
-
-            w_mutex_lock(&files_mutex);
-
-            if (!guess_agent_group || (!find_group_from_sum(md5, group) && !find_multi_group_from_sum(md5, group))) {
-                // If the group could not be guessed, set to "default"
-                // or if the user requested not to guess the group, through the internal
-                // option 'guess_agent_group', set to "default"
-                strncpy(group, "default", OS_SIZE_65536);
+            if (!logr.worker_node) {
+                group_json = assign_group_to_agent(agent_id, md5);
+            } else {
+                group_json = assign_group_to_agent_worker(agent_id, md5);
             }
 
-            w_mutex_unlock(&files_mutex);
+            value = cJSON_GetObjectItem(group_json, "group");
+            if (cJSON_IsString(value) && value->valuestring != NULL) {
+                os_strdup(value->valuestring, *r_group);
+            } else {
+                merror("Agent '%s' invalid or empty group assigned.", agent_id);
+                cJSON_Delete(group_json);
+                break;
+            }
 
-            wdb_set_agent_groups_csv(atoi(agent_id),
-                                 group,
-                                 WDB_GROUP_MODE_EMPTY_ONLY,
-                                 w_is_single_node(NULL) ? "synced" : "syncreq",
-                                 NULL);
-            *r_group = group;
-
-            mdebug2("Group assigned: '%s'", group);
-
+            cJSON_Delete(group_json);
             os_free(fmsg);
             return OS_SUCCESS;
         }
@@ -1455,7 +1593,7 @@ static int send_file_toagent(const char *agent_id, const char *group, const char
         snprintf(file, OS_SIZE_1024, "%s/%s/%s", sharedcfg_dir, group, name);
     }
 
-    fp = fopen(file, "r");
+    fp = wfopen(file, "r");
     if (!fp) {
         mdebug1(FOPEN_ERROR, file, errno, strerror(errno));
         return OS_INVALID;
@@ -1478,6 +1616,7 @@ static int send_file_toagent(const char *agent_id, const char *group, const char
     key_unlock();
     if (protocol < 0) {
         merror(AR_NOAGENT_ERROR, agent_id);
+        fclose(fp);
         return OS_INVALID;
     }
 
@@ -1630,6 +1769,8 @@ void manager_init()
     groups = OSHash_Create();
     multi_groups = OSHash_Create();
 
+    agent_data_hash = OSHash_Create();
+
     disk_storage = getDefine_Int("remoted", "disk_storage", 0, 1);
 
     /* Run initial groups and multigroups scan */
@@ -1647,6 +1788,16 @@ void manager_init()
     OSHash_SetFreeDataPointer(pending_data, (void (*)(void *))free_pending_data);
 }
 
+/**
+ * @brief Custom deleter to clean the entries of the hash table without compilation warnings.
+ *
+ * @param data The cJSON pointer to remove.
+ */
+void agent_data_hash_cleaner(void *data) {
+    cJSON_Delete((cJSON*)data);
+}
+
 void manager_free() {
     linked_queue_free(pending_queue);
+    OSHash_Clean(agent_data_hash, agent_data_hash_cleaner);
 }
